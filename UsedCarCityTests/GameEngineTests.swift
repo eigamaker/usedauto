@@ -135,4 +135,35 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(game.auctionConsignments.isEmpty)
         XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("出品車") && $0.contains("成約") }) == true)
     }
+
+    func testDelegatedManagerAdjustsStoreOperations() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        var store = game.stores[0]
+        store.delegateStaff = true
+        store.delegatePricing = true
+        store.delegateMarketing = true
+        store.delegateService = true
+        let advertising = store.advertising
+        let service = store.serviceAllocation
+        game.updateStore(store)
+
+        game.advanceMonth()
+
+        XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("店長") }) == true)
+        XCTAssertTrue(game.stores[0].advertising != advertising || game.stores[0].serviceAllocation != service)
+    }
+
+    func testStoreCanBeRenovated() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        let store = game.stores[0]
+        let cash = game.cash
+
+        XCTAssertTrue(game.renovateStore(store.id, to: .roadside))
+        XCTAssertEqual(game.stores[0].type, .roadside)
+        XCTAssertLessThan(game.cash, cash)
+    }
 }

@@ -5,7 +5,11 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if CommandLine.arguments.contains("-demo-store"), let store = game.stores.first {
+            if CommandLine.arguments.contains("-demo-auction") {
+                FacilityHubSheet(facility: .auction) { _ in }
+            } else if CommandLine.arguments.contains("-demo-hq") {
+                FacilityHubSheet(facility: .headquarters) { _ in }
+            } else if CommandLine.arguments.contains("-demo-store"), let store = game.stores.first {
                 NavigationStack {
                     ScrollView {
                         StoreCommandCenterView(storeID: store.id)

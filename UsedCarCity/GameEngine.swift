@@ -85,7 +85,7 @@ final class GameEngine: ObservableObject {
             placeCompetitors()
         }
 #if DEBUG
-        if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-store")) && !hasStarted {
+        if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-hq")) && !hasStarted {
             start(plan: .family)
             tutorialMessage = nil
         }
@@ -295,6 +295,22 @@ final class GameEngine: ObservableObject {
         save()
     }
 
+    @discardableResult
+    func renovateStore(_ storeID: UUID, to newType: StoreType) -> Bool {
+        guard let index = stores.firstIndex(where: { $0.id == storeID }),
+              stores[index].type != newType,
+              newType.capacity >= stores[index].inventoryCount else { return false }
+        let cost = max(600, max(0, newType.buildCost - stores[index].type.buildCost) * 65 / 100)
+        guard cash >= cost else { return false }
+        cash -= cost
+        finance.investingCF -= cost
+        stores[index].type = newType
+        recordCityEvent(CityEvent(turn: turn, kind: .storeGrowth, title: "\(stores[index].name)を改装", detail: "\(newType.name)へ改装し、展示上限が\(newType.capacity)台になりました", plotID: stores[index].plotID))
+        recalculateAssets()
+        save()
+        return true
+    }
+
     func transferInventory(category: VehicleCategory, from sourceID: UUID, to destinationID: UUID) -> Bool {
         guard sourceID != destinationID,
               let source = stores.firstIndex(where: { $0.id == sourceID }),
@@ -368,6 +384,7 @@ final class GameEngine: ObservableObject {
         guard !gameOver else { return }
         var totalSales = 0, revenue = 0, costOfSales = 0, personnel = 0, rent = 0, ads = 0, depreciation = 0
         var notes: [String] = []
+        applyDelegatedOperations(notes: &notes)
         processInboundShipments(notes: &notes)
         settleAuctionConsignments(notes: &notes)
         resolveAuctionBids(notes: &notes)
@@ -730,6 +747,57 @@ final class GameEngine: ObservableObject {
             let text = "\(shipment.source.name)の\(shipment.category.name)\(shipment.count)台が\(stores[storeIndex].name)へ到着"
             notes.append(text)
             recordCityEvent(CityEvent(turn: turn + 1, kind: .auction, title: "車両が入庫", detail: text, plotID: stores[storeIndex].plotID))
+        }
+    }
+
+    private func applyDelegatedOperations(notes: inout [String]) {
+        for index in stores.indices {
+            guard let plot = plot(id: stores[index].plotID) else { continue }
+            var actions: [String] = []
+
+            if stores[index].delegateStaff {
+                let target = min(12, max(3, 2 + stores[index].inventoryCount / 7 + stores[index].lastSales / 6))
+                if stores[index].staff < target { stores[index].staff += 1; actions.append("1名採用") }
+                else if stores[index].staff > target + 2 { stores[index].staff -= 1; actions.append("人員を適正化") }
+            }
+
+            if stores[index].delegatePricing {
+                let stockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
+                let targetPrice = stockRate > 0.72 ? 0.96 : stockRate < 0.30 ? 1.05 : 1.0
+                if abs(stores[index].priceIndex - targetPrice) >= 0.02 {
+                    stores[index].priceIndex += targetPrice > stores[index].priceIndex ? 0.02 : -0.02
+                    actions.append("価格を調整")
+                }
+                let freeCapacity = stores[index].type.capacity - stores[index].inventoryCount - incomingCount(for: stores[index].id)
+                if stockRate < 0.28, freeCapacity >= 3 {
+                    let category = recommendedCategories(for: plot.district).first ?? .compact
+                    let unitCost = Int(Double(category.purchaseCost) * 1.08)
+                    let total = unitCost * 3 + 8
+                    if cash >= total {
+                        cash -= total
+                        inboundShipments.append(InboundShipment(id: UUID(), storeID: stores[index].id, source: .dealerTrade, category: category, count: 3, unitCost: unitCost, quality: 0.80, monthsRemaining: 1))
+                        actions.append("\(category.name)3台を自動発注")
+                    }
+                }
+            }
+
+            if stores[index].delegateMarketing {
+                let target = min(360, 70 + competitorCount(in: plot.district) * 45 + max(0, stores[index].lastProfit) / 12)
+                if abs(stores[index].advertising - target) >= 20 {
+                    stores[index].advertising += target > stores[index].advertising ? 20 : -20
+                    actions.append("広告予算を調整")
+                }
+            }
+
+            if stores[index].delegateService {
+                let target = stores[index].satisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
+                if abs(stores[index].serviceAllocation - target) >= 0.04 {
+                    stores[index].serviceAllocation += target > stores[index].serviceAllocation ? 0.05 : -0.05
+                    actions.append("整備配分を調整")
+                }
+            }
+
+            if !actions.isEmpty { notes.append("\(stores[index].name)店長：\(actions.joined(separator: "、"))") }
         }
     }
 

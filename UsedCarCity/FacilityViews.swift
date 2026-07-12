@@ -145,7 +145,50 @@ private struct HeadquartersContent: View {
                 SectionTitle(title: "店舗比較")
                 ForEach(game.stores) { store in FacilityRow(store.name, "\(store.lastSales)台・利益 \(store.lastProfit.currency)", tint: store.lastProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
             }.gameCard()
+            StoreNetworkContent()
         }
+    }
+}
+
+private struct StoreNetworkContent: View {
+    @EnvironmentObject private var game: GameEngine
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫を融通し、店長への委任状況を管理")
+            ForEach(game.stores) { store in
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(store.name).font(.subheadline.bold())
+                            Text("在庫\(store.inventoryCount)/\(store.type.capacity)台・入庫予定\(game.incomingCount(for: store.id))台").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateMarketing, store.delegateService].filter { $0 }.count
+                        CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/4委任", color: delegated == 4 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
+                    }
+                    if game.stores.count > 1 {
+                        ForEach(store.inventory.filter { $0.count > 0 }) { batch in
+                            HStack {
+                                Label("\(batch.category.name) \(batch.count)台", systemImage: batch.category.icon).font(.caption)
+                                Spacer()
+                                Menu("1台移動") {
+                                    ForEach(game.stores.filter { $0.id != store.id }) { destination in
+                                        Button(destination.name) {
+                                            message = game.transferInventory(category: batch.category, from: store.id, to: destination.id) ? "\(destination.name)へ1台移動しました" : "移動先の展示枠が不足しています"
+                                        }
+                                    }
+                                }.font(.caption.bold())
+                            }
+                        }
+                    }
+                }
+                .padding(10).background(GameTheme.navy.opacity(0.045)).clipShape(RoundedRectangle(cornerRadius: 11))
+            }
+        }
+        .gameCard()
+        .alert("店舗間物流", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK") { message = nil } } message: { Text(message ?? "") }
     }
 }
 
@@ -260,7 +303,7 @@ private struct AuctionBidRow: View {
             HStack(spacing: 9) {
                 Image(systemName: listing.category.icon).foregroundStyle(listing.venue.tint).frame(width: 30, height: 30).background(listing.venue.tint.opacity(0.1)).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(listing.category.name)・\(listing.modelYear)年").font(.subheadline.bold())
+                    Text("\(listing.category.name)・\(String(listing.modelYear))年").font(.subheadline.bold())
                     Text("\(listing.mileage.formatted())km・評価\(Int(listing.quality * 100))・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()

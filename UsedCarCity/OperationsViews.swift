@@ -198,6 +198,7 @@ struct StoreSettingsView: View {
     let storeID: UUID
     @State private var draft: Store?
     @State private var confirmClose = false
+    @State private var renovationMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -236,6 +237,30 @@ struct StoreSettingsView: View {
                             Text("営業と整備の処理能力を高めます。過剰配置は固定費を増やします。").font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()
+                        let upgrades = StoreType.allCases.filter { $0 != store.wrappedValue.type && $0.buildCost > store.wrappedValue.type.buildCost && $0.capacity >= store.wrappedValue.inventoryCount }
+                        if !upgrades.isEmpty {
+                            VStack(alignment: .leading, spacing: 11) {
+                                SectionTitle(title: "店舗改装", subtitle: "営業を続けながら設備と展示能力を拡張")
+                                ForEach(upgrades) { type in
+                                    let cost = max(600, (type.buildCost - store.wrappedValue.type.buildCost) * 65 / 100)
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(type.name).font(.subheadline.bold())
+                                            Text("展示\(type.capacity)台・改装費\(cost.currency)").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Button("改装") {
+                                            if game.renovateStore(storeID, to: type) {
+                                                store.wrappedValue.type = type
+                                                renovationMessage = "\(type.name)への改装を完了しました"
+                                            } else {
+                                                renovationMessage = "資金または展示枠の条件を満たしていません"
+                                            }
+                                        }.buttonStyle(.bordered).tint(GameTheme.teal)
+                                    }
+                                }
+                            }.gameCard()
+                        }
                     }
                     .padding(15)
                 }
@@ -257,6 +282,9 @@ struct StoreSettingsView: View {
             } message: {
                 Text("所有地は時価、設備は簿価の30%、在庫は原価の80%で売却します。この操作は取り消せません。")
             }
+            .alert("店舗改装", isPresented: Binding(get: { renovationMessage != nil }, set: { if !$0 { renovationMessage = nil } })) {
+                Button("OK") { renovationMessage = nil }
+            } message: { Text(renovationMessage ?? "") }
         }
     }
 }
