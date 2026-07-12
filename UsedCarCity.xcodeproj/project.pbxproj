@@ -1,0 +1,474 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0C54D7A9E882D0BA6C28241F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7E05CB3F0B106E864CD5E80A /* Assets.xcassets */; };
+		182561B56C4534E151B12769 /* IsometricMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */; };
+		1E54382B49F8B1DFC56E3C01 /* ManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B96C4CD1B6B808F7892797 /* ManagementViews.swift */; };
+		29DFFEE10959B681CCD3EEB6 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B963E2680F1614B9C82085 /* OnboardingView.swift */; };
+		379C75F3E29895381B88D9E5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9818ABA4195147A46D2CA15C /* RootView.swift */; };
+		3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */; };
+		8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */; };
+		8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */; };
+		9040838EF619B02856AC5667 /* CityMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E28EC484C7566BDF62A0D40 /* CityMapView.swift */; };
+		AA385308489176468FE026E8 /* PlotDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */; };
+		C12475F7972B43622615DBCE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1FAE8B5F6C57CDB708261A /* Theme.swift */; };
+		D6A336DCFEE02987CA024ACC /* GameEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC247994254299B87FD5B /* GameEngineTests.swift */; };
+		DA3E3D58E395CEF2EEE95E21 /* OperationsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412AFB3815F6E33D7B734156 /* OperationsViews.swift */; };
+		DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE73B5C41E1720C59FD0FACB /* Models.swift */; };
+		DEBF92653182B2B29EB44F42 /* FinanceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */; };
+		DF9BE19281A9C7D295B9B99F /* UsedCarCityApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */; };
+		F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7096782B05120F5807D91227 /* StoreCommandCenterView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4C4FC255A9558033CA9C7309 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FBF4AF3CEBB94EA50AA82C5F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E7B0C0E82CE54E4CEB103AEA;
+			remoteInfo = UsedCarCity;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		04B96C4CD1B6B808F7892797 /* ManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagementViews.swift; sourceTree = "<group>"; };
+		0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlotDetailView.swift; sourceTree = "<group>"; };
+		1CBDC247994254299B87FD5B /* GameEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngineTests.swift; sourceTree = "<group>"; };
+		1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildStoreView.swift; sourceTree = "<group>"; };
+		29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsedCarCityApp.swift; sourceTree = "<group>"; };
+		2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngine.swift; sourceTree = "<group>"; };
+		412AFB3815F6E33D7B734156 /* OperationsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsViews.swift; sourceTree = "<group>"; };
+		467AB062A23FFB7FE409BCBA /* UsedCarCityTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = UsedCarCityTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4E28EC484C7566BDF62A0D40 /* CityMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMapView.swift; sourceTree = "<group>"; };
+		5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceViews.swift; sourceTree = "<group>"; };
+		6F61274CC4DE98047FE3A25E /* UsedCarCity.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = UsedCarCity.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7096782B05120F5807D91227 /* StoreCommandCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreCommandCenterView.swift; sourceTree = "<group>"; };
+		7E05CB3F0B106E864CD5E80A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		7E1FAE8B5F6C57CDB708261A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		9818ABA4195147A46D2CA15C /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsometricMapView.swift; sourceTree = "<group>"; };
+		D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityViews.swift; sourceTree = "<group>"; };
+		F8B963E2680F1614B9C82085 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		FE73B5C41E1720C59FD0FACB /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		46ECE98A765843CC81943EB8 /* UsedCarCityTests */ = {
+			isa = PBXGroup;
+			children = (
+				1CBDC247994254299B87FD5B /* GameEngineTests.swift */,
+			);
+			path = UsedCarCityTests;
+			sourceTree = "<group>";
+		};
+		A788BC4D5557873A946F479A = {
+			isa = PBXGroup;
+			children = (
+				BD616753CC92466ABB713E48 /* UsedCarCity */,
+				46ECE98A765843CC81943EB8 /* UsedCarCityTests */,
+				ABB5DC8C2CFB3EE7829D1473 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		ABB5DC8C2CFB3EE7829D1473 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6F61274CC4DE98047FE3A25E /* UsedCarCity.app */,
+				467AB062A23FFB7FE409BCBA /* UsedCarCityTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BD616753CC92466ABB713E48 /* UsedCarCity */ = {
+			isa = PBXGroup;
+			children = (
+				7E05CB3F0B106E864CD5E80A /* Assets.xcassets */,
+				1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */,
+				4E28EC484C7566BDF62A0D40 /* CityMapView.swift */,
+				D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */,
+				5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */,
+				2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */,
+				9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */,
+				04B96C4CD1B6B808F7892797 /* ManagementViews.swift */,
+				FE73B5C41E1720C59FD0FACB /* Models.swift */,
+				F8B963E2680F1614B9C82085 /* OnboardingView.swift */,
+				412AFB3815F6E33D7B734156 /* OperationsViews.swift */,
+				0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */,
+				9818ABA4195147A46D2CA15C /* RootView.swift */,
+				7096782B05120F5807D91227 /* StoreCommandCenterView.swift */,
+				7E1FAE8B5F6C57CDB708261A /* Theme.swift */,
+				29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */,
+			);
+			path = UsedCarCity;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		31F1FD43A0B109B787A5AB5D /* UsedCarCityTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 54D84CA3CAFFCFC33F37F1F5 /* Build configuration list for PBXNativeTarget "UsedCarCityTests" */;
+			buildPhases = (
+				7AA381FC00C4AA148891E481 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9D6911F4514DD132DC06C50B /* PBXTargetDependency */,
+			);
+			name = UsedCarCityTests;
+			packageProductDependencies = (
+			);
+			productName = UsedCarCityTests;
+			productReference = 467AB062A23FFB7FE409BCBA /* UsedCarCityTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E7B0C0E82CE54E4CEB103AEA /* UsedCarCity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 67EDF19B340EB07FF9AD2A19 /* Build configuration list for PBXNativeTarget "UsedCarCity" */;
+			buildPhases = (
+				F2A94671DDF1BD780EDD08D2 /* Sources */,
+				93C1984C5E3AED3933ECE167 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = UsedCarCity;
+			packageProductDependencies = (
+			);
+			productName = UsedCarCity;
+			productReference = 6F61274CC4DE98047FE3A25E /* UsedCarCity.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FBF4AF3CEBB94EA50AA82C5F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					E7B0C0E82CE54E4CEB103AEA = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 493522B273C4CF02E7A27D9D /* Build configuration list for PBXProject "UsedCarCity" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = A788BC4D5557873A946F479A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = ABB5DC8C2CFB3EE7829D1473 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E7B0C0E82CE54E4CEB103AEA /* UsedCarCity */,
+				31F1FD43A0B109B787A5AB5D /* UsedCarCityTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		93C1984C5E3AED3933ECE167 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0C54D7A9E882D0BA6C28241F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7AA381FC00C4AA148891E481 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D6A336DCFEE02987CA024ACC /* GameEngineTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F2A94671DDF1BD780EDD08D2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */,
+				9040838EF619B02856AC5667 /* CityMapView.swift in Sources */,
+				8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */,
+				DEBF92653182B2B29EB44F42 /* FinanceViews.swift in Sources */,
+				8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */,
+				182561B56C4534E151B12769 /* IsometricMapView.swift in Sources */,
+				1E54382B49F8B1DFC56E3C01 /* ManagementViews.swift in Sources */,
+				DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */,
+				29DFFEE10959B681CCD3EEB6 /* OnboardingView.swift in Sources */,
+				DA3E3D58E395CEF2EEE95E21 /* OperationsViews.swift in Sources */,
+				AA385308489176468FE026E8 /* PlotDetailView.swift in Sources */,
+				379C75F3E29895381B88D9E5 /* RootView.swift in Sources */,
+				F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */,
+				C12475F7972B43622615DBCE /* Theme.swift in Sources */,
+				DF9BE19281A9C7D295B9B99F /* UsedCarCityApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9D6911F4514DD132DC06C50B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E7B0C0E82CE54E4CEB103AEA /* UsedCarCity */;
+			targetProxy = 4C4FC255A9558033CA9C7309 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		11CAA19A2255F5D2DC835134 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "カーシティ経営";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		29424C94BDD02080462A7968 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = jp.co.usedcarcity.game.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/UsedCarCity.app/UsedCarCity";
+			};
+			name = Debug;
+		};
+		B5E1D0F4FD41B71132E3A91B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = jp.co.usedcarcity.game;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E3AEED051A27BE352AAFF525 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = jp.co.usedcarcity.game;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E8A5E03038BA825ED43425E0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "カーシティ経営";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		F8E2CA06336574B235729FAE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = jp.co.usedcarcity.game.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/UsedCarCity.app/UsedCarCity";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		493522B273C4CF02E7A27D9D /* Build configuration list for PBXProject "UsedCarCity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11CAA19A2255F5D2DC835134 /* Debug */,
+				E8A5E03038BA825ED43425E0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		54D84CA3CAFFCFC33F37F1F5 /* Build configuration list for PBXNativeTarget "UsedCarCityTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				29424C94BDD02080462A7968 /* Debug */,
+				F8E2CA06336574B235729FAE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		67EDF19B340EB07FF9AD2A19 /* Build configuration list for PBXNativeTarget "UsedCarCity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E3AEED051A27BE352AAFF525 /* Debug */,
+				B5E1D0F4FD41B71132E3A91B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = FBF4AF3CEBB94EA50AA82C5F /* Project object */;
+}
