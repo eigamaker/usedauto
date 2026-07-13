@@ -11,6 +11,9 @@ struct PlotDetailView: View {
             ScrollView {
                 if let plot = game.plot(id: plotID) {
                     VStack(spacing: 16) {
+                        if let step = game.tutorialStep, game.isTutorialActive, step == .buildStore {
+                            TutorialCoachCard(step: step)
+                        }
                         switch plot.occupant {
                         case .player:
                             if let store = game.store(at: plot.id) {
@@ -24,14 +27,14 @@ struct PlotDetailView: View {
                             LandOpportunityCard(plot: plot)
                             if let development = plot.development {
                                 DevelopmentDetailCard(project: development, plot: plot)
-                            } else if game.unlockedFeatures.contains("出店") {
+                            } else if game.canPlanStore(on: plot) {
                                 Button { showBuild = true } label: {
-                                    Label("この土地で出店計画を作る", systemImage: "hammer.fill")
+                                    Label(game.stores.isEmpty ? "この土地を創業地に決める" : "この土地で出店計画を作る", systemImage: "hammer.fill")
                                         .font(.headline).frame(maxWidth: .infinity).padding(16)
                                         .foregroundStyle(.white).background(GameTheme.teal).clipShape(RoundedRectangle(cornerRadius: 15))
                                 }
                             } else {
-                                Label("5か月目の終了後に出店が解放されます", systemImage: "lock.fill")
+                                Label(game.stores.isEmpty ? "マップ上の出店候補地を選択してください" : "5か月目の終了後に出店が解放されます", systemImage: "lock.fill")
                                     .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(15).background(.gray.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14))
                             }
                         case .unavailable:

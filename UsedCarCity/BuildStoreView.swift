@@ -11,6 +11,8 @@ struct BuildStoreView: View {
     @State private var concept: StoreConcept = .general
     @State private var loan = 0
     @State private var completed = false
+    @State private var foundingBuildCompleted = false
+    @State private var appliedStartupDefaults = false
 
     init(plot: LandPlot) {
         self.plot = plot
@@ -35,6 +37,9 @@ struct BuildStoreView: View {
                 ProgressView(value: Double(step + 1), total: 4).tint(GameTheme.teal).padding()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
+                        if game.tutorialStep == .buildStore {
+                            TutorialCoachCard(step: .buildStore)
+                        }
                         Text(stepTitle).font(.title2.bold()).foregroundStyle(GameTheme.ink)
                         if step == 0 { acquisitionStep }
                         if step == 1 { storeTypeStep }
@@ -61,11 +66,16 @@ struct BuildStoreView: View {
             .navigationTitle("出店計画 \(step + 1)/4")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
-            .alert("新店舗の建設を開始しました", isPresented: $completed) {
+            .alert(foundingBuildCompleted ? "創業店がオープンしました" : "新店舗の建設を開始しました", isPresented: $completed) {
                 Button("マップへ戻る") { dismiss() }
             } message: {
-                Text("\(plot.district.shortName)地区で\(type.name)を着工しました。完成まで\(type.constructionMonths)か月です。マップ上で工事の進行を確認できます。")
+                if foundingBuildCompleted {
+                    Text("\(plot.district.shortName)地区の居抜き物件に\(type.name)を開業しました。在庫はまだ0台です。次は店舗画面から販売車を仕入れましょう。")
+                } else {
+                    Text("\(plot.district.shortName)地区で\(type.name)を着工しました。完成まで\(type.constructionMonths)か月です。マップ上で工事の進行を確認できます。")
+                }
             }
+            .onAppear { applyStartupDefaultsIfNeeded() }
         }
     }
 
@@ -134,7 +144,19 @@ struct BuildStoreView: View {
     }
 
     private func completeBuild() {
-        if game.buildStore(on: plot, type: type, mode: mode, focus: focus, concept: concept, loanAmount: loan) { completed = true }
+        let isFounding = game.stores.isEmpty && game.tutorialStep == .buildStore
+        if game.buildStore(on: plot, type: type, mode: mode, focus: focus, concept: concept, loanAmount: loan) {
+            foundingBuildCompleted = isFounding
+            completed = true
+        }
+    }
+
+    private func applyStartupDefaultsIfNeeded() {
+        guard !appliedStartupDefaults, game.stores.isEmpty, let plan = game.startupPlan else { return }
+        appliedStartupDefaults = true
+        type = plan.recommendedStoreType
+        focus = plan.recommendedFocus
+        concept = plan.recommendedConcept
     }
 }
 

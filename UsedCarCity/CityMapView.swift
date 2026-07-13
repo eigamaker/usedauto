@@ -35,6 +35,18 @@ struct CityMapView: View {
                         )
                         .padding(.horizontal, 14).padding(.bottom, 82)
                     }
+                    if let step = game.tutorialStep, game.isTutorialActive, step != .reviewFirstResult {
+                        VStack {
+                            TutorialCoachCard(
+                                step: step,
+                                actionTitle: tutorialActionTitle(for: step),
+                                action: tutorialAction(for: step)
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.top, 42)
+                            Spacer()
+                        }
+                    }
                 }
             }
             .background(Color(red: 0.71, green: 0.83, blue: 0.91))
@@ -46,6 +58,7 @@ struct CityMapView: View {
                         Label("全国", systemImage: "globe.asia.australia.fill")
                             .font(.caption.bold())
                     }
+                    .disabled(game.isTutorialActive)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -110,6 +123,39 @@ struct CityMapView: View {
             .fullScreenCover(isPresented: $showNationalMap) {
                 NationalExpansionView()
             }
+        }
+    }
+
+    private func tutorialActionTitle(for step: TutorialStep) -> String? {
+        switch step {
+        case .chooseLocation: "おすすめ候補を拡大"
+        case .buildStore: "選んだ土地を開く"
+        case .purchaseInventory, .setPrice: "創業店を開く"
+        default: nil
+        }
+    }
+
+    private func tutorialAction(for step: TutorialStep) -> (() -> Void)? {
+        switch step {
+        case .chooseLocation:
+            return {
+                guard let plot = game.recommendedFoundingPlot else { return }
+                focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id))
+            }
+        case .buildStore:
+            return {
+                guard let id = game.tutorialPlotID, let plot = game.plot(id: id) else { return }
+                focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: id))
+                selectedPlot = plot
+            }
+        case .purchaseInventory, .setPrice:
+            return {
+                guard let store = game.stores.first, let plot = game.plot(id: store.plotID) else { return }
+                focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id))
+                selectedPlot = plot
+            }
+        default:
+            return nil
         }
     }
 }

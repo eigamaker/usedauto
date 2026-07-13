@@ -37,7 +37,7 @@ struct IsometricCitySurface: View {
                                 phase: .operating,
                                 interfaceScale: interfaceScale,
                                 accessibilityName: "競合店舗 \(name)"
-                            ) { selectedPlot = plot }
+                            ) { select(plot) }
                             .position(x: point.x, y: point.y - 18)
                         }
                     }
@@ -52,7 +52,7 @@ struct IsometricCitySurface: View {
                                 phase: buildingPhase(for: store),
                                 interfaceScale: interfaceScale,
                                 accessibilityName: "\(store.name)、\(store.type.name)"
-                            ) { selectedPlot = plot }
+                            ) { select(plot) }
                             .position(x: point.x, y: point.y - 22)
                         }
                     }
@@ -67,12 +67,12 @@ struct IsometricCitySurface: View {
                         let world = CityMapLayout.position(for: plot.id)
                         let point = IsoProjection.project(world, in: size)
                         if let project = plot.development {
-                            DevelopmentMapMarker(project: project) { selectedPlot = plot }
+                            DevelopmentMapMarker(project: project) { select(plot) }
                                 .scaleEffect(interfaceScale)
                                 .position(x: point.x, y: point.y - 18)
                         } else if shouldShowPlot(plot) {
                             IsometricPlotHitTarget(plot: plot, layer: layer) {
-                                selectedPlot = plot
+                                select(plot)
                             }
                             .scaleEffect(interfaceScale)
                             .position(x: point.x, y: point.y - markerLift(for: plot))
@@ -194,10 +194,22 @@ struct IsometricCitySurface: View {
 
     private func shouldShowPlot(_ plot: LandPlot) -> Bool {
         switch plot.occupant {
-        case .player, .competitor: true
-        case .available: cameraScale >= 1.42
-        case .unavailable: cameraScale >= 1.65
+        case .player, .competitor: return true
+        case .available:
+            if game.tutorialStep == .chooseLocation || game.tutorialStep == .buildStore {
+                return game.isFoundingCandidate(plot) || cameraScale >= 1.42
+            }
+            return cameraScale >= 1.42
+        case .unavailable: return cameraScale >= 1.65
         }
+    }
+
+    private func select(_ plot: LandPlot) {
+        if case .available = plot.occupant,
+           game.tutorialStep == .chooseLocation || game.tutorialStep == .buildStore {
+            game.selectFoundingPlot(plot.id)
+        }
+        selectedPlot = plot
     }
 
     private func markerLift(for plot: LandPlot) -> CGFloat {
@@ -777,6 +789,13 @@ private struct IsometricPlotHitTarget: View {
                         .font(.system(size: 7, weight: .black)).foregroundStyle(.white)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(GameTheme.teal).clipShape(Capsule())
+                } else if case .available = plot.occupant,
+                          game.isTutorialActive, game.isFoundingCandidate(plot) {
+                    Text(game.recommendedFoundingPlot?.id == plot.id ? "おすすめ" : "候補")
+                        .font(.system(size: 7, weight: .black)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(game.recommendedFoundingPlot?.id == plot.id ? GameTheme.orange : GameTheme.teal)
+                        .clipShape(Capsule())
                 }
             }
             .frame(minWidth: 34, minHeight: 34)
@@ -788,7 +807,12 @@ private struct IsometricPlotHitTarget: View {
     }
 
     private var markerSize: CGFloat {
-        switch plot.occupant { case .player: 27; case .competitor: 23; default: 14 }
+        switch plot.occupant {
+        case .player: 27
+        case .competitor: 23
+        case .available where game.isTutorialActive && game.isFoundingCandidate(plot): 25
+        default: 14
+        }
     }
     private var markerIcon: String {
         switch plot.occupant {
@@ -798,7 +822,9 @@ private struct IsometricPlotHitTarget: View {
             return "storefront.fill"
         case .competitor: return "flag.fill"
         case .unavailable: return "xmark"
-        case .available: return plot.isForLease ? "key.fill" : "yensign"
+        case .available:
+            if game.isTutorialActive && game.isFoundingCandidate(plot) { return "mappin.and.ellipse" }
+            return plot.isForLease ? "key.fill" : "yensign"
         }
     }
     private var markerColor: Color {
@@ -808,7 +834,11 @@ private struct IsometricPlotHitTarget: View {
             return GameTheme.teal
         case .competitor: return GameTheme.orange
         case .unavailable: return .gray
-        case .available: return layer == .profit && game.profitabilityScore(for: plot) > 1.2 ? GameTheme.teal : GameTheme.navy.opacity(0.82)
+        case .available:
+            if game.isTutorialActive && game.isFoundingCandidate(plot) {
+                return game.recommendedFoundingPlot?.id == plot.id ? GameTheme.orange : GameTheme.teal
+            }
+            return layer == .profit && game.profitabilityScore(for: plot) > 1.2 ? GameTheme.teal : GameTheme.navy.opacity(0.82)
         }
     }
     private var accessibilityText: String {

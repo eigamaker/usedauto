@@ -50,6 +50,67 @@ enum DistrictKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum TutorialStep: String, Codable, CaseIterable, Identifiable {
+    case chooseLocation
+    case buildStore
+    case purchaseInventory
+    case setPrice
+    case runFirstMonth
+    case reviewFirstResult
+    case completed
+
+    var id: String { rawValue }
+
+    var number: Int {
+        switch self {
+        case .chooseLocation: 1
+        case .buildStore: 2
+        case .purchaseInventory: 3
+        case .setPrice: 4
+        case .runFirstMonth, .reviewFirstResult: 5
+        case .completed: 5
+        }
+    }
+
+    var progress: Double { Double(number) / 5.0 }
+
+    var title: String {
+        switch self {
+        case .chooseLocation: "創業地を選ぶ"
+        case .buildStore: "店舗を計画する"
+        case .purchaseInventory: "販売車を仕入れる"
+        case .setPrice: "販売価格を決める"
+        case .runFirstMonth: "最初の1か月を営業する"
+        case .reviewFirstResult: "経営結果を確認する"
+        case .completed: "チュートリアル完了"
+        }
+    }
+
+    var instruction: String {
+        switch self {
+        case .chooseLocation: "光っている候補地をタップ。客層、交通量、賃料を比べて最初の店を置く場所を選びましょう。"
+        case .buildStore: "選んだ土地の詳細から出店計画へ進み、取得方法・店舗タイプ・狙う客層を決めて契約します。"
+        case .purchaseInventory: "店舗画面で地域需要を確認し、売りたい車種を3台仕入れましょう。支払った金額と在庫が本番データに反映されます。"
+        case .setPrice: "仕入れた車の販売方針を選びます。安くすれば売れやすく、高くすれば1台あたりの利益が増えます。"
+        case .runFirstMonth: "右上の「月を進める」を押すと、設定した在庫と価格で来客・販売・利益が計算されます。"
+        case .reviewFirstResult: "販売台数、売上、営業利益と、その数字になった理由を確認しましょう。"
+        case .completed: "ここからは自由経営です。街の変化を見ながら会社を育ててください。"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .chooseLocation: "mappin.and.ellipse"
+        case .buildStore: "hammer.fill"
+        case .purchaseInventory: "car.2.fill"
+        case .setPrice: "tag.fill"
+        case .runFirstMonth: "play.fill"
+        case .reviewFirstResult: "chart.bar.fill"
+        case .completed: "checkmark.seal.fill"
+        }
+    }
+}
+
 enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
     case kei, compact, minivan, suv, premium, commercial, budget
     var id: String { rawValue }
@@ -584,11 +645,11 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     var conditionScore: Int { (exterior + interior + mechanical) / 3 }
 }
 
-enum StartupPlan: String, CaseIterable, Identifiable {
+enum StartupPlan: String, Codable, CaseIterable, Identifiable {
     case family, discount, quality
     var id: String { rawValue }
     var name: String {
-        switch self { case .family: "郊外ファミリー店"; case .discount: "工業地区の格安店"; case .quality: "小型高品質店" }
+        switch self { case .family: "ファミリー重視"; case .discount: "低価格・回転重視"; case .quality: "品質・ブランド重視" }
     }
     var tagline: String {
         switch self {
@@ -598,6 +659,11 @@ enum StartupPlan: String, CaseIterable, Identifiable {
         }
     }
     var icon: String { switch self { case .family: "figure.2.and.child.holdinghands"; case .discount: "tag.fill"; case .quality: "sparkles" } }
+    var startingCash: Int { switch self { case .family: 28_000; case .discount: 33_000; case .quality: 25_000 } }
+    var recommendedDistrict: DistrictKind { switch self { case .family: .suburb; case .discount: .industrial; case .quality: .downtown } }
+    var recommendedStoreType: StoreType { switch self { case .family: .standard; case .discount: .small; case .quality: .premium } }
+    var recommendedFocus: CustomerFocus { switch self { case .family: .family; case .discount: .value; case .quality: .affluent } }
+    var recommendedConcept: StoreConcept { switch self { case .family: .family; case .discount: .custom; case .quality: .premium } }
 }
 
 struct FinanceSnapshot: Codable, Hashable {

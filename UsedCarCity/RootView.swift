@@ -11,7 +11,7 @@ struct RootView: View {
                 FacilityHubSheet(facility: .auction) { _ in }
             } else if CommandLine.arguments.contains("-demo-hq") {
                 FacilityHubSheet(facility: .headquarters) { _ in }
-            } else if CommandLine.arguments.contains("-demo-store"), let store = game.stores.first {
+            } else if (CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-tutorial-purchase")), let store = game.stores.first {
                 NavigationStack {
                     ScrollView {
                         StoreCommandCenterView(storeID: store.id)
@@ -85,7 +85,15 @@ private struct GameHeader: View {
                 .padding(.vertical, 10)
                 .background(GameTheme.mint)
                 .clipShape(Capsule())
+                .overlay {
+                    if game.tutorialStep == .runFirstMonth {
+                        Capsule().stroke(.white, lineWidth: 3)
+                    }
+                }
+                .shadow(color: game.tutorialStep == .runFirstMonth ? GameTheme.mint.opacity(0.7) : .clear, radius: 9)
             }
+            .disabled(game.isTutorialActive && game.tutorialStep != .runFirstMonth)
+            .opacity(game.isTutorialActive && game.tutorialStep != .runFirstMonth ? 0.48 : 1)
         }
         .padding(.horizontal, 15)
         .padding(.vertical, 10)
@@ -96,6 +104,56 @@ private struct GameHeader: View {
         } message: {
             Text("仕入・価格・広告など、現在の設定を使って販売結果を計算します。")
         }
+    }
+}
+
+struct TutorialCoachCard: View {
+    let step: TutorialStep
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 10) {
+                Image(systemName: step.icon)
+                    .font(.headline.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(GameTheme.orange)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(step == .reviewFirstResult ? "FINAL STEP" : "STEP \(step.number) / 5")
+                        .font(.caption2.weight(.black))
+                        .tracking(1)
+                        .foregroundStyle(GameTheme.orange)
+                    Text(step.title).font(.subheadline.bold()).foregroundStyle(GameTheme.ink)
+                }
+                Spacer()
+                Text("\(Int(step.progress * 100))%")
+                    .font(.caption.bold().monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(value: step.progress).tint(GameTheme.orange)
+            Text(step.instruction)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Label(actionTitle, systemImage: "scope")
+                        .font(.caption.bold())
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(GameTheme.teal)
+            }
+        }
+        .gameCard(padding: 13)
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(GameTheme.orange.opacity(0.55), lineWidth: 1.5)
+        }
+        .shadow(color: GameTheme.ink.opacity(0.13), radius: 9, y: 4)
     }
 }
 

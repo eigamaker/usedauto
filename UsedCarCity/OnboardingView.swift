@@ -30,11 +30,30 @@ struct OnboardingView: View {
                             PlanCard(plan: plan, selected: selected == plan) { selected = plan }
                         }
                     }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("最初の経営体験").font(.headline).foregroundStyle(.white)
+                        HStack(alignment: .top, spacing: 8) {
+                            TutorialFlowItem(number: 1, icon: "mappin.and.ellipse", title: "立地")
+                            TutorialFlowArrow()
+                            TutorialFlowItem(number: 2, icon: "hammer.fill", title: "出店")
+                            TutorialFlowArrow()
+                            TutorialFlowItem(number: 3, icon: "car.2.fill", title: "仕入")
+                            TutorialFlowArrow()
+                            TutorialFlowItem(number: 4, icon: "chart.bar.fill", title: "販売")
+                        }
+                        Text("次の画面では完成済みの店は用意されていません。街を見て、最初の店舗を置く土地から自分で選びます。")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.68))
+                            .lineSpacing(3)
+                    }
+                    .padding(15)
+                    .background(.white.opacity(0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 17))
                     Button { game.start(plan: selected) } label: {
                         HStack {
-                            Text("\(selected.name)で創業")
+                            Text("マップで創業地を選ぶ")
                             Spacer()
-                            Image(systemName: "arrow.right")
+                            Image(systemName: "map.fill")
                         }
                         .font(.headline)
                         .foregroundStyle(GameTheme.ink)
@@ -49,6 +68,42 @@ struct OnboardingView: View {
                 .padding(.top, 24)
             }
         }
+    }
+}
+
+private struct TutorialFlowItem: View {
+    let number: Int
+    let icon: String
+    let title: String
+
+    var body: some View {
+        VStack(spacing: 5) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: icon)
+                    .font(.subheadline.bold())
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(GameTheme.mint)
+                    .background(.white.opacity(0.1))
+                    .clipShape(Circle())
+                Text("\(number)")
+                    .font(.system(size: 8, weight: .black))
+                    .foregroundStyle(GameTheme.ink)
+                    .frame(width: 15, height: 15)
+                    .background(GameTheme.mint)
+                    .clipShape(Circle())
+            }
+            Text(title).font(.caption2.bold()).foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct TutorialFlowArrow: View {
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.caption2.bold())
+            .foregroundStyle(.white.opacity(0.35))
+            .padding(.top, 13)
     }
 }
 
@@ -82,4 +137,3 @@ private struct PlanCard: View {
         .buttonStyle(.plain)
     }
 }
-

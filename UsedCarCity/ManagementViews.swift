@@ -114,6 +114,9 @@ struct MonthlyReportView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    if game.tutorialStep == .reviewFirstResult {
+                        TutorialCoachCard(step: .reviewFirstResult)
+                    }
                     VStack(spacing: 7) {
                         Image(systemName: report.operatingProfit >= 0 ? "chart.line.uptrend.xyaxis.circle.fill" : "exclamationmark.circle.fill")
                             .font(.system(size: 48)).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.orange)
@@ -147,14 +150,38 @@ struct MonthlyReportView: View {
                         }
                         .gameCard()
                     }
+                    if game.tutorialStep == .reviewFirstResult {
+                        Button(action: finishTutorial) {
+                            Label("結果を確認して自由経営へ", systemImage: "checkmark.seal.fill")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(GameTheme.teal)
+                    }
                 }
                 .padding(15)
             }
             .background(GameTheme.cream)
             .navigationTitle("月次レポート")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() }.bold() } }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(game.tutorialStep == .reviewFirstResult ? "完了" : "閉じる") {
+                        if game.tutorialStep == .reviewFirstResult { game.completeTutorial() }
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
         }
+        .interactiveDismissDisabled(game.tutorialStep == .reviewFirstResult)
+    }
+
+    private func finishTutorial() {
+        game.completeTutorial()
+        dismiss()
     }
 }
 

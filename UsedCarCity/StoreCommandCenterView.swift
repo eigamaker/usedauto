@@ -14,8 +14,18 @@ struct StoreCommandCenterView: View {
     var body: some View {
         if let store, let plot {
             VStack(spacing: 14) {
+                if let step = game.tutorialStep,
+                   step == .purchaseInventory || step == .setPrice || step == .runFirstMonth {
+                    TutorialCoachCard(step: step)
+                }
                 StoreSceneHeader(store: store, plot: plot, managerName: managerName)
                 if store.isOperational {
+                    if game.tutorialStep == .purchaseInventory {
+                        FoundingInventoryTutorialPanel(store: store, plot: plot)
+                    }
+                    if game.tutorialStep == .setPrice {
+                        FoundingPriceTutorialPanel(store: store)
+                    }
                     StorePanelPicker(selection: $panel)
                     Group {
                         switch panel {
@@ -32,7 +42,8 @@ struct StoreCommandCenterView: View {
                     StoreActionDock(
                         settings: { showSettings = true },
                         advertise: { runCampaign(amount: 40, message: "地域広告を強化しました") },
-                        purchase: purchaseRecommended
+                        purchase: purchaseRecommended,
+                        highlightPurchase: game.tutorialStep == .purchaseInventory
                     )
                 } else {
                     StoreConstructionPanel(store: store, plot: plot) { showSettings = true }
@@ -66,6 +77,97 @@ struct StoreCommandCenterView: View {
         } else {
             actionMessage = "現金または展示スペースが不足しています。"
         }
+    }
+}
+
+private struct FoundingInventoryTutorialPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    let plot: LandPlot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            SectionTitle(title: "最初の3台を選ぶ", subtitle: "\(plot.district.name)で需要の高い順")
+            ForEach(Array(game.recommendedCategories(for: plot.district).prefix(3).enumerated()), id: \.element) { rank, category in
+                HStack(spacing: 10) {
+                    Text("\(rank + 1)")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white)
+                        .frame(width: 25, height: 25)
+                        .background(rank == 0 ? GameTheme.orange : GameTheme.navy.opacity(0.72))
+                        .clipShape(Circle())
+                    Image(systemName: category.icon).foregroundStyle(GameTheme.teal).frame(width: 25)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(category.name).font(.subheadline.bold())
+                        Text("地域需要 \(Int(game.vehicleDemand(category, in: plot.district) * 100)) / 仕入原価 \(category.purchaseCost.currency)/台")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("3台仕入") {
+                        _ = game.buyInventory(category: category, count: 3, storeID: store.id)
+                    }
+                    .font(.caption.bold())
+                    .buttonStyle(.borderedProminent)
+                    .tint(GameTheme.teal)
+                    .disabled(game.cash < category.purchaseCost * 3)
+                }
+            }
+            Label("仕入れると現金が減り、店舗在庫が3台増えます。", systemImage: "info.circle.fill")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .gameCard()
+        .overlay {
+            RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
+        }
+    }
+}
+
+private struct FoundingPriceTutorialPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            SectionTitle(title: "販売方針を設定", subtitle: "選択した価格は最初の月の販売計算に使われます")
+            HStack(spacing: 8) {
+                PriceStrategyButton(title: "回転重視", detail: "92%", icon: "hare.fill", color: .blue) {
+                    game.setTutorialPrice(storeID: store.id, priceIndex: 0.92)
+                }
+                PriceStrategyButton(title: "標準", detail: "100%", icon: "equal.circle.fill", color: GameTheme.teal) {
+                    game.setTutorialPrice(storeID: store.id, priceIndex: 1.0)
+                }
+                PriceStrategyButton(title: "粗利重視", detail: "108%", icon: "banknote.fill", color: GameTheme.orange) {
+                    game.setTutorialPrice(storeID: store.id, priceIndex: 1.08)
+                }
+            }
+        }
+        .gameCard()
+        .overlay {
+            RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
+        }
+    }
+}
+
+private struct PriceStrategyButton: View {
+    let title: String
+    let detail: String
+    let icon: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.headline).foregroundStyle(color)
+                Text(title).font(.caption.bold()).foregroundStyle(GameTheme.ink)
+                Text(detail).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(color.opacity(0.09))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -499,11 +601,12 @@ private struct StoreActionDock: View {
     let settings: () -> Void
     let advertise: () -> Void
     let purchase: () -> Void
+    var highlightPurchase = false
     var body: some View {
         HStack(spacing: 8) {
             DockButton(title: "詳細設定", icon: "slider.horizontal.3", color: GameTheme.navy, action: settings)
             DockButton(title: "宣伝", icon: "megaphone.fill", color: GameTheme.orange, action: advertise)
-            DockButton(title: "仕入", icon: "car.2.fill", color: GameTheme.teal, action: purchase)
+            DockButton(title: "仕入", icon: "car.2.fill", color: GameTheme.teal, highlighted: highlightPurchase, action: purchase)
         }
         .padding(8).background(GameTheme.ink).clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -513,10 +616,16 @@ private struct DockButton: View {
     let title: String
     let icon: String
     let color: Color
+    var highlighted = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon).font(.caption.bold()).foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 11).background(color.opacity(0.82)).clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay {
+                    if highlighted {
+                        RoundedRectangle(cornerRadius: 10).stroke(.white, lineWidth: 2.5)
+                    }
+                }
         }.buttonStyle(.plain)
     }
 }

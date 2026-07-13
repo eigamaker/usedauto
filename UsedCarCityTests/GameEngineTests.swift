@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class GameEngineTests: XCTestCase {
+    private func startPlayableGame(_ game: GameEngine, plan: StartupPlan = .family) {
+        game.start(plan: plan)
+        let plot = game.recommendedFoundingPlot!
+        game.selectFoundingPlot(plot.id)
+        XCTAssertTrue(game.buildStore(
+            on: plot,
+            type: plan.recommendedStoreType,
+            mode: .lease,
+            focus: plan.recommendedFocus,
+            concept: plan.recommendedConcept,
+            loanAmount: 0
+        ))
+        let store = game.stores[0]
+        for category in game.recommendedCategories(for: plot.district).prefix(2) {
+            XCTAssertTrue(game.buyInventory(category: category, count: 5, storeID: store.id))
+        }
+        game.completeTutorial()
+        game.tutorialMessage = nil
+    }
+
     func testNewGameCreatesSixDistrictsAndThirtySixPlots() {
         let game = GameEngine()
         game.resetGame()
@@ -10,19 +30,51 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.plots.count, 36)
     }
 
-    func testStartupCreatesPlayableStore() {
+    func testStartupBeginsWithLocationSelectionOnMap() {
         let game = GameEngine()
         game.resetGame()
         game.start(plan: .family)
         XCTAssertTrue(game.hasStarted)
-        XCTAssertEqual(game.stores.count, 1)
-        XCTAssertGreaterThan(game.totalInventory, 0)
+        XCTAssertEqual(game.stores.count, 0)
+        XCTAssertEqual(game.totalInventory, 0)
+        XCTAssertEqual(game.tutorialStep, .chooseLocation)
+        XCTAssertEqual(game.foundingCandidatePlots.count, DistrictKind.allCases.count)
+        XCTAssertEqual(game.recommendedFoundingPlot?.district, .suburb)
+    }
+
+    func testTutorialPerformsBuildPurchasePriceAndFirstSale() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .discount)
+        let plot = game.recommendedFoundingPlot!
+
+        game.selectFoundingPlot(plot.id)
+        XCTAssertEqual(game.tutorialStep, .buildStore)
+        XCTAssertTrue(game.buildStore(on: plot, type: .small, mode: .lease, focus: .value, concept: .custom, loanAmount: 0))
+        XCTAssertEqual(game.tutorialStep, .purchaseInventory)
+        XCTAssertTrue(game.stores[0].isOperational)
+        XCTAssertEqual(game.totalInventory, 0)
+
+        let store = game.stores[0]
+        let category = game.recommendedCategories(for: plot.district)[0]
+        XCTAssertTrue(game.buyInventory(category: category, count: 3, storeID: store.id))
+        XCTAssertEqual(game.tutorialStep, .setPrice)
+        game.setTutorialPrice(storeID: store.id, priceIndex: 0.92)
+        XCTAssertEqual(game.tutorialStep, .runFirstMonth)
+
+        game.advanceMonth()
+
+        XCTAssertEqual(game.tutorialStep, .reviewFirstResult)
+        XCTAssertEqual(game.reports.count, 1)
+        XCTAssertGreaterThanOrEqual(game.lastReport?.sales ?? 0, 1)
+        game.completeTutorial()
+        XCTAssertEqual(game.tutorialStep, .completed)
     }
 
     func testAdvancingMonthCreatesReport() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .discount)
+        startPlayableGame(game, plan: .discount)
         game.advanceMonth()
         XCTAssertEqual(game.turn, 1)
         XCTAssertEqual(game.reports.count, 1)
@@ -47,7 +99,7 @@ final class GameEngineTests: XCTestCase {
     func testCustomerPurchaseCaseCanBecomeInventory() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let store = game.stores[0]
         let beforeInventory = store.inventoryCount
         let beforeCash = game.cash
@@ -64,7 +116,7 @@ final class GameEngineTests: XCTestCase {
     func testCityEconomyChangesWhenMonthAdvances() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let population = game.districts.first(where: { $0.kind == .emerging })!.population
         let landPrice = game.plots[14].price
 
@@ -79,7 +131,7 @@ final class GameEngineTests: XCTestCase {
     func testDevelopmentCompletesAndBoostsDistrict() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let population = game.districts.first(where: { $0.kind == .emerging })!.population
         XCTAssertNotNil(game.plots[14].development)
 
@@ -93,7 +145,7 @@ final class GameEngineTests: XCTestCase {
     func testAuctionBidCreatesInboundShipmentAtMonthEnd() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let listing = game.auctionListings.first!
         let store = game.stores[0]
         let cash = game.cash
@@ -109,7 +161,7 @@ final class GameEngineTests: XCTestCase {
     func testDealerTradeArrivesAfterOneMonth() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let store = game.stores[0]
 
         XCTAssertTrue(game.orderDealerTrade(category: .compact, count: 3, storeID: store.id))
@@ -123,7 +175,7 @@ final class GameEngineTests: XCTestCase {
     func testInventoryCanBeConsignedToAuction() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let store = game.stores[0]
         let category = store.inventory[0].category
         let inventory = store.inventoryCount
@@ -139,7 +191,7 @@ final class GameEngineTests: XCTestCase {
     func testDelegatedManagerAdjustsStoreOperations() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         var store = game.stores[0]
         store.delegateStaff = true
         store.delegatePricing = true
@@ -158,7 +210,7 @@ final class GameEngineTests: XCTestCase {
     func testStoreCanBeRenovated() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let store = game.stores[0]
         let cash = game.cash
 
@@ -179,7 +231,7 @@ final class GameEngineTests: XCTestCase {
     func testMapBuildingStateFollowsBuildRenovationAndClosure() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         let plot = game.plots.first(where: {
             if case .available = $0.occupant { return $0.development == nil }
             return false
@@ -240,7 +292,7 @@ final class GameEngineTests: XCTestCase {
     func testNationalExpansionCreatesRegionalNetwork() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         game.companyValue = 100_000
         game.cash = 100_000
 
@@ -258,7 +310,7 @@ final class GameEngineTests: XCTestCase {
     func testIntercityShipmentArrivesAtRegionalOffice() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        startPlayableGame(game)
         game.companyValue = 100_000
         game.cash = 100_000
         XCTAssertTrue(game.establishRegionalOffice(in: "shinonome"))
