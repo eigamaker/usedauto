@@ -15,24 +15,28 @@ struct StoreCommandCenterView: View {
         if let store, let plot {
             VStack(spacing: 14) {
                 StoreSceneHeader(store: store, plot: plot, managerName: managerName)
-                StorePanelPicker(selection: $panel)
-                Group {
-                    switch panel {
-                    case .store:
-                        VStack(spacing: 14) {
-                            PurchaseCasesPanel(storeID: store.id)
-                            StoreOverviewPanel(store: store, plot: plot)
+                if store.isOperational {
+                    StorePanelPicker(selection: $panel)
+                    Group {
+                        switch panel {
+                        case .store:
+                            VStack(spacing: 14) {
+                                PurchaseCasesPanel(storeID: store.id)
+                                StoreOverviewPanel(store: store, plot: plot)
+                            }
+                        case .team: ManagerPanel(store: store, managerName: managerName, update: update)
+                        case .market: MarketPanel(store: store, plot: plot, campaign: runCampaign)
+                        case .finance: StoreFinancePanel(store: store, update: update)
                         }
-                    case .team: ManagerPanel(store: store, managerName: managerName, update: update)
-                    case .market: MarketPanel(store: store, plot: plot, campaign: runCampaign)
-                    case .finance: StoreFinancePanel(store: store, update: update)
                     }
+                    StoreActionDock(
+                        settings: { showSettings = true },
+                        advertise: { runCampaign(amount: 40, message: "地域広告を強化しました") },
+                        purchase: purchaseRecommended
+                    )
+                } else {
+                    StoreConstructionPanel(store: store, plot: plot) { showSettings = true }
                 }
-                StoreActionDock(
-                    settings: { showSettings = true },
-                    advertise: { runCampaign(amount: 40, message: "地域広告を強化しました") },
-                    purchase: purchaseRecommended
-                )
             }
             .sheet(isPresented: $showSettings) { StoreSettingsView(storeID: storeID) }
             .alert("アクション結果", isPresented: Binding(get: { actionMessage != nil }, set: { if !$0 { actionMessage = nil } })) {
@@ -62,6 +66,40 @@ struct StoreCommandCenterView: View {
         } else {
             actionMessage = "現金または展示スペースが不足しています。"
         }
+    }
+}
+
+private struct StoreConstructionPanel: View {
+    let store: Store
+    let plot: LandPlot
+    let openSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionTitle(title: "開店準備中", subtitle: "建設が完了すると販売と買取を開始します")
+            ProgressView(value: progress)
+                .tint(GameTheme.orange)
+            HStack {
+                MetricView(title: "完成まで", value: "\(remaining)か月", tint: GameTheme.orange)
+                MetricView(title: "店舗タイプ", value: store.type.name, tint: GameTheme.teal)
+            }
+            Label("\(plot.district.name)の需要に合わせ、価格・広告・整備方針は開店前から設定できます。", systemImage: "info.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button(action: openSettings) {
+                Label("開店前の経営方針を設定", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(GameTheme.teal)
+        }
+        .gameCard()
+    }
+
+    private var remaining: Int { store.openingMonthsRemaining ?? 0 }
+    private var progress: Double {
+        let total = max(1, store.type.constructionMonths)
+        return min(1, max(0, Double(total - remaining) / Double(total)))
     }
 }
 
@@ -191,6 +229,8 @@ private struct StoreSceneHeader: View {
     }
 
     private var greeting: String {
+        if let remaining = store.openingMonthsRemaining { return "建設中です。あと\(remaining)か月で開店予定です" }
+        if let remaining = store.renovationMonthsRemaining { return "営業を続けながら改装中。あと\(remaining)か月です" }
         if store.inventoryCount < 5 { return "在庫が少なく、販売機会を逃しています" }
         if store.lastProfit < 0 { return "今月は赤字です。価格と広告を見直しましょう" }
         if store.satisfaction >= 80 { return "口コミが好調です。この流れを維持しましょう" }

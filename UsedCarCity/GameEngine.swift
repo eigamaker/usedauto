@@ -27,6 +27,9 @@ final class GameEngine: ObservableObject {
     @Published var gameOver = false
     @Published var tutorialMessage: String?
     @Published var unlockedFeatures: Set<String> = ["仕入", "価格設定"]
+    @Published var regionalOperations: [RegionalOperation] = []
+    @Published var intercityShipments: [IntercityShipment] = []
+    @Published var nationalBrandStrength: Double = 0.48
 
     let maxTurns = 120
 
@@ -51,6 +54,17 @@ final class GameEngine: ObservableObject {
         let auctionConsignments: [AuctionConsignment]
         let finance: FinanceSnapshot
         let unlockedFeatures: Set<String>
+        let regionalOperations: [RegionalOperation]?
+        let intercityShipments: [IntercityShipment]?
+        let nationalBrandStrength: Double?
+    }
+
+    private struct RegionalMonthResult {
+        var sales = 0
+        var revenue = 0
+        var costOfSales = 0
+        var fixedCosts = 0
+        var advertising = 0
     }
 
     private static let saveKey = "UsedCarCity.save.v6"
@@ -78,6 +92,9 @@ final class GameEngine: ObservableObject {
             auctionConsignments = saved.auctionConsignments
             finance = saved.finance
             unlockedFeatures = saved.unlockedFeatures
+            regionalOperations = saved.regionalOperations ?? []
+            intercityShipments = saved.intercityShipments ?? []
+            nationalBrandStrength = saved.nationalBrandStrength ?? 0.48
         } else {
             districts = Self.makeDistricts()
             plots = Self.makePlots()
@@ -85,8 +102,23 @@ final class GameEngine: ObservableObject {
             placeCompetitors()
         }
 #if DEBUG
-        if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-hq")) && !hasStarted {
+        if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-hq") || CommandLine.arguments.contains("-demo-construction") || CommandLine.arguments.contains("-demo-national")) && !hasStarted {
             start(plan: .family)
+            tutorialMessage = nil
+        }
+        if CommandLine.arguments.contains("-demo-construction"), stores.count == 1,
+           let plot = plots.first(where: { $0.district == .highway && isAvailable($0.occupant) && $0.development == nil }) {
+            _ = buildStore(on: plot, type: .roadside, mode: .lease, focus: .business, concept: .business, loanAmount: 100_000)
+            tutorialMessage = nil
+        }
+        if CommandLine.arguments.contains("-demo-national"), regionalOperations.isEmpty {
+            companyValue = 120_000
+            cash = 180_000
+            _ = establishRegionalOffice(in: "shinonome")
+            _ = openFranchise(in: "shinonome")
+            _ = acquireLocalDealer(in: "shinonome")
+            _ = establishRegionalOffice(in: "naniwa")
+            _ = openFranchise(in: "naniwa")
             tutorialMessage = nil
         }
 #endif
@@ -95,6 +127,7 @@ final class GameEngine: ObservableObject {
     var progress: Double { Double(turn) / Double(maxTurns) }
     var totalInventory: Int { stores.reduce(0) { $0 + $1.inventoryCount } }
     var currentDistrictsByKind: [DistrictKind: District] { Dictionary(uniqueKeysWithValues: districts.map { ($0.kind, $0) }) }
+    var nationalCities: [NationalCity] { Self.makeNationalCities() }
 
     func start(plan: StartupPlan) {
         hasStarted = true
@@ -131,7 +164,7 @@ final class GameEngine: ObservableObject {
         hasStarted = false
         year = 2030; month = 4; turn = 0; cash = 28_000; debt = 8_000; companyValue = 25_000
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
-        stores = []; reports = []; purchaseCases = []; cityEvents = []; auctionListings = []; bidReservations = []; inboundShipments = []; auctionConsignments = []; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false
+        stores = []; reports = []; purchaseCases = []; cityEvents = []; auctionListings = []; bidReservations = []; inboundShipments = []; auctionConsignments = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false
         unlockedFeatures = ["仕入", "価格設定"]
         placeCompetitors()
         UserDefaults.standard.removeObject(forKey: Self.saveKey)
@@ -179,7 +212,16 @@ final class GameEngine: ObservableObject {
         finance.financingCF += loanAmount
         let categories = recommendedCategories(for: plot.district)
         let starterStock = categories.prefix(2).map { InventoryBatch(category: $0, count: 3) }
-        let store = Store(name: "\(plot.district.shortName)\(plot.localNumber)号店", plotID: plot.id, type: type, acquisition: mode, focus: focus, concept: concept, inventory: starterStock)
+        let store = Store(
+            name: "\(plot.district.shortName)\(plot.localNumber)号店",
+            plotID: plot.id,
+            type: type,
+            acquisition: mode,
+            focus: focus,
+            concept: concept,
+            inventory: starterStock,
+            openingMonthsRemaining: type.constructionMonths
+        )
         stores.append(store)
         plots[index].occupant = .player(storeID: store.id)
         recalculateAssets()
@@ -298,14 +340,17 @@ final class GameEngine: ObservableObject {
     @discardableResult
     func renovateStore(_ storeID: UUID, to newType: StoreType) -> Bool {
         guard let index = stores.firstIndex(where: { $0.id == storeID }),
+              stores[index].isOperational,
+              !stores[index].isRenovating,
               stores[index].type != newType,
               newType.capacity >= stores[index].inventoryCount else { return false }
         let cost = max(600, max(0, newType.buildCost - stores[index].type.buildCost) * 65 / 100)
         guard cash >= cost else { return false }
         cash -= cost
         finance.investingCF -= cost
-        stores[index].type = newType
-        recordCityEvent(CityEvent(turn: turn, kind: .storeGrowth, title: "\(stores[index].name)を改装", detail: "\(newType.name)へ改装し、展示上限が\(newType.capacity)台になりました", plotID: stores[index].plotID))
+        stores[index].pendingType = newType
+        stores[index].renovationMonthsRemaining = newType.renovationMonths(from: stores[index].type)
+        recordCityEvent(CityEvent(turn: turn, kind: .storeGrowth, title: "\(stores[index].name)が改装着工", detail: "\(newType.name)へ改装中。完成まで\(stores[index].renovationMonthsRemaining ?? 1)か月です", plotID: stores[index].plotID))
         recalculateAssets()
         save()
         return true
@@ -326,6 +371,123 @@ final class GameEngine: ObservableObject {
         } else {
             stores[destination].inventory.append(InventoryBatch(category: category, count: 1, averageCost: cost, quality: quality))
         }
+        save()
+        return true
+    }
+
+    func regionalOperation(for cityID: String) -> RegionalOperation? {
+        regionalOperations.first(where: { $0.cityID == cityID })
+    }
+
+    var canExpandNationally: Bool {
+        stores.count >= 2 || companyValue >= 45_000
+    }
+
+    func franchiseCost(in cityID: String) -> Int {
+        guard let city = nationalCities.first(where: { $0.id == cityID }) else { return 0 }
+        return Int(2_200.0 * city.landPriceIndex) + 900
+    }
+
+    func acquisitionCost(in cityID: String) -> Int {
+        guard let city = nationalCities.first(where: { $0.id == cityID }) else { return 0 }
+        return Int(5_200.0 * city.landPriceIndex) + 1_400
+    }
+
+    @discardableResult
+    func establishRegionalOffice(in cityID: String) -> Bool {
+        guard cityID != "suihama",
+              canExpandNationally,
+              regionalOperation(for: cityID) == nil,
+              let city = nationalCities.first(where: { $0.id == cityID }),
+              cash >= city.expansionCost else { return false }
+        cash -= city.expansionCost
+        finance.investingCF -= city.expansionCost
+        regionalOperations.append(RegionalOperation(cityID: cityID))
+        nationalBrandStrength = min(1.35, nationalBrandStrength + 0.04)
+        recordCityEvent(CityEvent(turn: turn, kind: .expansion, title: "\(city.name)へ進出", detail: "\(city.region)の地域本社を開設しました"))
+        recalculateAssets()
+        save()
+        return true
+    }
+
+    @discardableResult
+    func openFranchise(in cityID: String) -> Bool {
+        guard let city = nationalCities.first(where: { $0.id == cityID }),
+              let index = regionalOperations.firstIndex(where: { $0.cityID == cityID }),
+              regionalOperations[index].franchiseStores < 5 else { return false }
+        let cost = franchiseCost(in: cityID)
+        guard cash >= cost else { return false }
+        cash -= cost
+        finance.investingCF -= cost
+        regionalOperations[index].franchiseStores += 1
+        regionalOperations[index].brandStrength = min(1.35, regionalOperations[index].brandStrength + 0.07)
+        recordCityEvent(CityEvent(turn: turn, kind: .expansion, title: "\(city.name)にFC出店", detail: "地域ネットワークが\(regionalOperations[index].networkStores)店舗になりました"))
+        save()
+        return true
+    }
+
+    @discardableResult
+    func acquireLocalDealer(in cityID: String) -> Bool {
+        guard let city = nationalCities.first(where: { $0.id == cityID }),
+              let index = regionalOperations.firstIndex(where: { $0.cityID == cityID }),
+              regionalOperations[index].acquiredStores < 3 else { return false }
+        let cost = acquisitionCost(in: cityID)
+        guard cash >= cost else { return false }
+        cash -= cost
+        finance.investingCF -= cost
+        regionalOperations[index].acquiredStores += 1
+        regionalOperations[index].brandStrength = min(1.35, regionalOperations[index].brandStrength + 0.12)
+        recordCityEvent(CityEvent(turn: turn, kind: .expansion, title: "\(city.name)で地場店を買収", detail: "既存顧客と販売網を引き継ぎました"))
+        save()
+        return true
+    }
+
+    @discardableResult
+    func runNationalCampaign(amount: Int = 1_200) -> Bool {
+        guard !regionalOperations.isEmpty, amount > 0, cash >= amount else { return false }
+        cash -= amount
+        finance.operatingCF -= amount
+        nationalBrandStrength = min(1.45, nationalBrandStrength + Double(amount) / 18_000.0)
+        for index in regionalOperations.indices {
+            regionalOperations[index].brandStrength = min(1.40, regionalOperations[index].brandStrength + Double(amount) / 30_000.0)
+        }
+        recordCityEvent(CityEvent(turn: turn, kind: .expansion, title: "全国ブランド広告を実施", detail: "全国認知度が\(Int(nationalBrandStrength * 100))になりました"))
+        save()
+        return true
+    }
+
+    func updateRegionalAdvertising(cityID: String, budget: Int) {
+        guard let index = regionalOperations.firstIndex(where: { $0.cityID == cityID }) else { return }
+        regionalOperations[index].advertisingBudget = min(600, max(0, budget))
+        save()
+    }
+
+    @discardableResult
+    func shipInventoryToRegion(cityID: String, from storeID: UUID, category: VehicleCategory, count: Int) -> Bool {
+        guard count > 0,
+              let city = nationalCities.first(where: { $0.id == cityID }),
+              regionalOperation(for: cityID) != nil,
+              let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
+              let batchIndex = stores[storeIndex].inventory.firstIndex(where: { $0.category == category && $0.count >= count }) else { return false }
+        let shippingCost = city.shippingCostPerVehicle * count
+        guard cash >= shippingCost else { return false }
+        let unitCost = stores[storeIndex].inventory[batchIndex].averageCost
+        cash -= shippingCost
+        finance.operatingCF -= shippingCost
+        stores[storeIndex].inventory[batchIndex].count -= count
+        if stores[storeIndex].inventory[batchIndex].count == 0 {
+            stores[storeIndex].inventory.remove(at: batchIndex)
+        }
+        intercityShipments.append(IntercityShipment(
+            id: UUID(),
+            sourceStoreID: storeID,
+            destinationCityID: cityID,
+            category: category,
+            count: count,
+            unitCost: unitCost,
+            monthsRemaining: city.shippingMonths
+        ))
+        recalculateAssets()
         save()
         return true
     }
@@ -384,13 +546,22 @@ final class GameEngine: ObservableObject {
         guard !gameOver else { return }
         var totalSales = 0, revenue = 0, costOfSales = 0, personnel = 0, rent = 0, ads = 0, depreciation = 0
         var notes: [String] = []
+        progressStoreProjects(notes: &notes)
         applyDelegatedOperations(notes: &notes)
         processInboundShipments(notes: &notes)
+        processIntercityShipments(notes: &notes)
         settleAuctionConsignments(notes: &notes)
         resolveAuctionBids(notes: &notes)
 
         for index in stores.indices {
             guard let plot = plot(id: stores[index].plotID) else { continue }
+            guard stores[index].isOperational else {
+                stores[index].lastSales = 0
+                stores[index].lastRevenue = 0
+                stores[index].lastProfit = 0
+                stores[index].causes = [ResultCause("開店準備中", -1)]
+                continue
+            }
             let previousVisualTier = stores[index].visualTier
             let district = district(for: plot)
             let demand = demandFit(store: stores[index], district: district)
@@ -436,7 +607,14 @@ final class GameEngine: ObservableObject {
             totalSales += sales; revenue += storeRevenue; costOfSales += storeCOGS; personnel += staffCost; rent += storeRent; ads += stores[index].advertising; depreciation += storeDepreciation
         }
 
-        let fixed = stores.reduce(0) { $0 + $1.type.monthlyFixedCost }
+        let regional = simulateRegionalOperations(notes: &notes)
+        totalSales += regional.sales
+        revenue += regional.revenue
+        costOfSales += regional.costOfSales
+        personnel += regional.fixedCosts
+        ads += regional.advertising
+
+        let fixed = stores.filter(\.isOperational).reduce(0) { $0 + $1.type.monthlyFixedCost }
         let interest = debt / 2_400
         let operatingProfit = revenue - costOfSales - personnel - rent - ads - depreciation - fixed - interest
         cash += operatingProfit + depreciation
@@ -723,12 +901,62 @@ final class GameEngine: ObservableObject {
             return p.price
         }.reduce(0, +)
         finance.buildingAssets = stores.reduce(0) { $0 + $1.type.buildCost }
+            + regionalOperations.reduce(0) { $0 + $1.officeLevel * 2_400 + $1.franchiseStores * 1_100 + $1.acquiredStores * 4_200 }
         finance.inventoryAssets = inventoryAssetValue()
         finance.debt = debt
     }
 
+    private func progressStoreProjects(notes: inout [String]) {
+        for index in stores.indices {
+            if let remaining = stores[index].openingMonthsRemaining {
+                let next = remaining - 1
+                if next <= 0 {
+                    stores[index].openingMonthsRemaining = nil
+                    let text = "\(stores[index].name)が完成し、営業を開始しました"
+                    notes.append(text)
+                    recordCityEvent(CityEvent(
+                        turn: turn + 1,
+                        kind: .storeGrowth,
+                        title: "新店舗がオープン",
+                        detail: text,
+                        district: plot(id: stores[index].plotID)?.district,
+                        plotID: stores[index].plotID
+                    ))
+                } else {
+                    stores[index].openingMonthsRemaining = next
+                    notes.append("\(stores[index].name)は建設中（完成まで\(next)か月）")
+                }
+            }
+
+            if let remaining = stores[index].renovationMonthsRemaining,
+               let target = stores[index].pendingType {
+                let next = remaining - 1
+                if next <= 0 {
+                    stores[index].type = target
+                    stores[index].pendingType = nil
+                    stores[index].renovationMonthsRemaining = nil
+                    let text = "\(stores[index].name)の改装が完了し、\(target.name)になりました"
+                    notes.append(text)
+                    recordCityEvent(CityEvent(
+                        turn: turn + 1,
+                        kind: .storeGrowth,
+                        title: "店舗改装が完了",
+                        detail: text,
+                        district: plot(id: stores[index].plotID)?.district,
+                        plotID: stores[index].plotID
+                    ))
+                } else {
+                    stores[index].renovationMonthsRemaining = next
+                    notes.append("\(stores[index].name)は改装中（完成まで\(next)か月）")
+                }
+            }
+        }
+    }
+
     private func inventoryAssetValue() -> Int {
         stores.flatMap(\.inventory).reduce(0) { $0 + $1.averageCost * $1.count }
+            + regionalOperations.flatMap(\.inventory).reduce(0) { $0 + $1.averageCost * $1.count }
+            + intercityShipments.reduce(0) { $0 + $1.unitCost * $1.count }
     }
 
     private func processInboundShipments(notes: inout [String]) {
@@ -750,9 +978,80 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    private func processIntercityShipments(notes: inout [String]) {
+        for index in intercityShipments.indices {
+            intercityShipments[index].monthsRemaining -= 1
+        }
+        let arriving = intercityShipments.filter { $0.monthsRemaining <= 0 }
+        for shipment in arriving {
+            guard let operationIndex = regionalOperations.firstIndex(where: { $0.cityID == shipment.destinationCityID }),
+                  let city = nationalCities.first(where: { $0.id == shipment.destinationCityID }) else { continue }
+            if let batchIndex = regionalOperations[operationIndex].inventory.firstIndex(where: { $0.category == shipment.category && $0.averageCost == shipment.unitCost }) {
+                regionalOperations[operationIndex].inventory[batchIndex].count += shipment.count
+            } else {
+                regionalOperations[operationIndex].inventory.append(InventoryBatch(category: shipment.category, count: shipment.count, averageCost: shipment.unitCost, quality: 0.78))
+            }
+            intercityShipments.removeAll { $0.id == shipment.id }
+            notes.append("\(city.name)へ\(shipment.category.name)\(shipment.count)台が到着しました")
+        }
+    }
+
+    private func simulateRegionalOperations(notes: inout [String]) -> RegionalMonthResult {
+        var result = RegionalMonthResult()
+        for index in regionalOperations.indices {
+            guard let city = nationalCities.first(where: { $0.id == regionalOperations[index].cityID }) else { continue }
+            let operation = regionalOperations[index]
+            let fixedCosts = operation.officeLevel * 120 + operation.franchiseStores * 72 + operation.acquiredStores * 185
+            let advertising = operation.advertisingBudget
+            let network = operation.networkStores
+            let inventoryCount = operation.inventoryCount
+            let baseDemand = Double(network * 3) + Double(city.population) / 180_000.0
+            let appeal = city.incomeIndex * (0.72 + operation.brandStrength * 0.32) * (0.76 + nationalBrandStrength * 0.24)
+            let competition = max(0.58, 1.14 - city.competitionIndex * 0.20)
+            let growth = 0.94 + city.growthRate * 0.06
+            let variation = deterministicVariation(seed: turn * 31 + index * 7 + city.population / 10_000)
+            let targetSales = network == 0 ? 0 : max(0, Int(baseDemand * appeal * competition * growth * variation))
+            var remaining = min(inventoryCount, targetSales)
+            var cityRevenue = 0
+            var cityCOGS = 0
+
+            let categoryOrder = city.primaryDemand + VehicleCategory.allCases.filter { !city.primaryDemand.contains($0) }
+            for category in categoryOrder where remaining > 0 {
+                for batchIndex in regionalOperations[index].inventory.indices where remaining > 0 && regionalOperations[index].inventory[batchIndex].category == category {
+                    let sold = min(remaining, regionalOperations[index].inventory[batchIndex].count)
+                    let batch = regionalOperations[index].inventory[batchIndex]
+                    let demandBonus = city.primaryDemand.contains(category) ? 1.08 : 0.96
+                    let margin = 1.16 + city.incomeIndex * 0.06 + operation.brandStrength * 0.05
+                    cityRevenue += Int(Double(batch.averageCost * sold) * margin * demandBonus)
+                    cityCOGS += batch.averageCost * sold
+                    regionalOperations[index].inventory[batchIndex].count -= sold
+                    remaining -= sold
+                }
+            }
+            regionalOperations[index].inventory.removeAll { $0.count == 0 }
+            let sales = min(inventoryCount, targetSales) - remaining
+            let profit = cityRevenue - cityCOGS - fixedCosts - advertising
+            regionalOperations[index].lastSales = sales
+            regionalOperations[index].lastRevenue = cityRevenue
+            regionalOperations[index].lastProfit = profit
+            regionalOperations[index].brandStrength = min(1.40, max(0.42, operation.brandStrength + Double(advertising) / 40_000.0 - 0.003))
+
+            result.sales += sales
+            result.revenue += cityRevenue
+            result.costOfSales += cityCOGS
+            result.fixedCosts += fixedCosts
+            result.advertising += advertising
+            if network > 0 {
+                notes.append("\(city.name)：\(sales)台販売・営業利益\(profit.currency)")
+            }
+        }
+        return result
+    }
+
     private func applyDelegatedOperations(notes: inout [String]) {
         for index in stores.indices {
-            guard let plot = plot(id: stores[index].plotID) else { continue }
+            guard stores[index].isOperational,
+                  let plot = plot(id: stores[index].plotID) else { continue }
             var actions: [String] = []
 
             if stores[index].delegateStaff {
@@ -870,7 +1169,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
-        let snapshot = SaveData(hasStarted: hasStarted, year: year, month: month, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, finance: finance, unlockedFeatures: unlockedFeatures)
+        let snapshot = SaveData(hasStarted: hasStarted, year: year, month: month, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength)
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
         }
@@ -886,7 +1185,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func generatePurchaseCases() {
-        for store in stores {
+        for store in stores where store.isOperational {
             let existing = purchaseCases.filter { $0.storeID == store.id }.count
             guard existing < 3, let plot = plot(id: store.plotID) else { continue }
             let recommended = recommendedCategories(for: plot.district)
@@ -949,6 +1248,17 @@ final class GameEngine: ObservableObject {
             Competitor(id: UUID(), name: "バリューオート", strategy: "低価格・高回転", colorHex: "E46B35", cash: 42_000, plotIDs: [], strength: 1.02, category: .budget),
             Competitor(id: UUID(), name: "プレミアモータース", strategy: "品質と保証", colorHex: "7356A8", cash: 58_000, plotIDs: [], strength: 1.15, category: .premium),
             Competitor(id: UUID(), name: "ドライブMAX", strategy: "多店舗・大量展示", colorHex: "287DB2", cash: 64_000, plotIDs: [], strength: 1.08, category: .suv)
+        ]
+    }
+
+    static func makeNationalCities() -> [NationalCity] {
+        [
+            NationalCity(id: "suihama", name: "翠浜市", region: "首都圏", population: 423_000, incomeIndex: 1.08, landPriceIndex: 1.00, competitionIndex: 1.02, growthRate: 1.018, primaryDemand: [.minivan, .kei, .suv], expansionCost: 0, shippingMonths: 0, shippingCostPerVehicle: 0, mapX: 0.72, mapY: 0.42),
+            NationalCity(id: "hokusei", name: "北星市", region: "北日本", population: 318_000, incomeIndex: 0.91, landPriceIndex: 0.66, competitionIndex: 0.72, growthRate: 1.004, primaryDemand: [.suv, .kei, .commercial], expansionCost: 6_800, shippingMonths: 2, shippingCostPerVehicle: 18, mapX: 0.72, mapY: 0.12),
+            NationalCity(id: "shinonome", name: "東雲市", region: "中部", population: 512_000, incomeIndex: 1.04, landPriceIndex: 0.88, competitionIndex: 0.94, growthRate: 1.023, primaryDemand: [.commercial, .compact, .suv], expansionCost: 7_600, shippingMonths: 1, shippingCostPerVehicle: 11, mapX: 0.58, mapY: 0.48),
+            NationalCity(id: "naniwa", name: "浪華市", region: "関西", population: 884_000, incomeIndex: 1.16, landPriceIndex: 1.24, competitionIndex: 1.31, growthRate: 1.011, primaryDemand: [.premium, .minivan, .compact], expansionCost: 11_500, shippingMonths: 2, shippingCostPerVehicle: 15, mapX: 0.43, mapY: 0.55),
+            NationalCity(id: "setouchi", name: "瀬戸内市", region: "中国・四国", population: 276_000, incomeIndex: 0.89, landPriceIndex: 0.58, competitionIndex: 0.63, growthRate: 1.015, primaryDemand: [.kei, .commercial, .budget], expansionCost: 5_900, shippingMonths: 2, shippingCostPerVehicle: 17, mapX: 0.28, mapY: 0.61),
+            NationalCity(id: "hinata", name: "日向市", region: "九州", population: 391_000, incomeIndex: 0.94, landPriceIndex: 0.72, competitionIndex: 0.81, growthRate: 1.029, primaryDemand: [.kei, .suv, .minivan], expansionCost: 6_500, shippingMonths: 3, shippingCostPerVehicle: 22, mapX: 0.16, mapY: 0.76)
         ]
     }
 }

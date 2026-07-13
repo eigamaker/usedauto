@@ -25,9 +25,41 @@ struct IsometricCitySurface: View {
                     IsometricCityCanvas(layer: layer, demandCategory: demandCategory)
                     if layer == .demand { IsometricCustomerFlow(emphasized: true) }
                     if layer == .competition { IsometricCatchmentOverlay() }
+                    ForEach(game.plots) { plot in
+                        if case .competitor(let name) = plot.occupant {
+                            let type = competitorStoreType(for: plot.id)
+                            let point = IsoProjection.project(CityMapLayout.position(for: plot.id), in: size)
+                            DynamicStoreBuilding(
+                                assetName: type.mapAssetName,
+                                width: type.mapAssetWidth * 0.72,
+                                tier: 1,
+                                owner: .competitor,
+                                phase: .operating,
+                                interfaceScale: interfaceScale,
+                                accessibilityName: "競合店舗 \(name)"
+                            ) { selectedPlot = plot }
+                            .position(x: point.x, y: point.y - 18)
+                        }
+                    }
+                    ForEach(game.stores) { store in
+                        if let plot = game.plot(id: store.plotID) {
+                            let point = IsoProjection.project(CityMapLayout.position(for: plot.id), in: size)
+                            DynamicStoreBuilding(
+                                assetName: store.type.mapAssetName,
+                                width: store.type.mapAssetWidth,
+                                tier: store.visualTier,
+                                owner: .player,
+                                phase: buildingPhase(for: store),
+                                interfaceScale: interfaceScale,
+                                accessibilityName: "\(store.name)、\(store.type.name)"
+                            ) { selectedPlot = plot }
+                            .position(x: point.x, y: point.y - 22)
+                        }
+                    }
                     ForEach(CityMapLayout.landmarks) { landmark in
                         let point = IsoProjection.project(.init(x: landmark.x, y: landmark.y), in: size)
                         IsoLandmarkLabel(landmark: landmark, compact: cameraScale < 1.32)
+                            .scaleEffect(interfaceScale)
                             .position(point)
                             .offset(x: landmarkOffset(landmark.id).x, y: landmarkOffset(landmark.id).y)
                     }
@@ -36,11 +68,13 @@ struct IsometricCitySurface: View {
                         let point = IsoProjection.project(world, in: size)
                         if let project = plot.development {
                             DevelopmentMapMarker(project: project) { selectedPlot = plot }
+                                .scaleEffect(interfaceScale)
                                 .position(x: point.x, y: point.y - 18)
                         } else if shouldShowPlot(plot) {
                             IsometricPlotHitTarget(plot: plot, layer: layer) {
                                 selectedPlot = plot
                             }
+                            .scaleEffect(interfaceScale)
                             .position(x: point.x, y: point.y - markerLift(for: plot))
                         }
                     }
@@ -48,6 +82,7 @@ struct IsometricCitySurface: View {
                         if facility.isPrimary || cameraScale >= 1.38 {
                             let point = IsoProjection.project(facility.worldPoint, in: size)
                             FacilityMapMarker(facility: facility, compact: !facility.isPrimary) { selectedFacility = facility }
+                                .scaleEffect(interfaceScale)
                                 .position(x: point.x, y: point.y - 30)
                         }
                     }
@@ -56,6 +91,7 @@ struct IsometricCitySurface: View {
                             let world = CityMapLayout.trafficBadgePosition(for: kind)
                             let point = IsoProjection.project(world, in: size)
                             IsoTrafficBadge(kind: kind)
+                                .scaleEffect(interfaceScale)
                                 .position(x: point.x, y: point.y - 28)
                         }
                     }
@@ -76,7 +112,7 @@ struct IsometricCitySurface: View {
                 .simultaneousGesture(
                     MagnificationGesture()
                         .onChanged { value in
-                            cameraScale = min(2.35, max(1.0, lastScale * value))
+                            cameraScale = min(3.8, max(1.0, lastScale * value))
                             cameraOffset = constrained(cameraOffset, size: size)
                         }
                         .onEnded { _ in
@@ -89,8 +125,8 @@ struct IsometricCitySurface: View {
                     HStack {
                         Spacer()
                         VStack(spacing: 7) {
-                            CameraButton(icon: "plus.magnifyingglass") { zoom(by: 0.18, size: size) }
-                            CameraButton(icon: "minus.magnifyingglass") { zoom(by: -0.18, size: size) }
+                            CameraButton(icon: "plus.magnifyingglass") { zoom(by: 0.28, size: size) }
+                            CameraButton(icon: "minus.magnifyingglass") { zoom(by: -0.28, size: size) }
                             CameraButton(icon: "scope") { resetCamera() }
                         }
                     }
@@ -124,7 +160,7 @@ struct IsometricCitySurface: View {
 
     private func focus(on worldPoint: CGPoint, size: CGSize) {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-            cameraScale = max(cameraScale, 1.55)
+            cameraScale = max(cameraScale, 1.8)
             lastScale = cameraScale
             let point = IsoProjection.project(worldPoint, in: size)
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -135,13 +171,13 @@ struct IsometricCitySurface: View {
     }
 
     private func constrained(_ offset: CGSize, size: CGSize) -> CGSize {
-        let maxX = max(0, size.width * (cameraScale - 1) * 0.48 + 45)
-        let maxY = max(0, size.height * (cameraScale - 1) * 0.46 + 55)
+        let maxX = max(0, size.width * (cameraScale - 1) * 0.52 + 45)
+        let maxY = max(0, size.height * (cameraScale - 1) * 0.50 + 55)
         return CGSize(width: min(maxX, max(-maxX, offset.width)), height: min(maxY, max(-maxY, offset.height)))
     }
 
     private func zoom(by delta: CGFloat, size: CGSize) {
-        cameraScale = min(2.35, max(1.0, cameraScale + delta))
+        cameraScale = min(3.8, max(1.0, cameraScale + delta))
         lastScale = cameraScale
         cameraOffset = constrained(cameraOffset, size: size)
         lastOffset = cameraOffset
@@ -166,10 +202,34 @@ struct IsometricCitySurface: View {
 
     private func markerLift(for plot: LandPlot) -> CGFloat {
         switch plot.occupant {
-        case .player: 30
-        case .competitor: 25
-        default: 7
+        case .player:
+            if let store = game.store(at: plot.id), !store.isOperational || store.isRenovating { return 54 }
+            return 30
+        case .competitor: return 25
+        default: return 7
         }
+    }
+
+    private var interfaceScale: CGFloat {
+        max(0.30, 1 / cameraScale)
+    }
+
+    private func competitorStoreType(for plotID: Int) -> StoreType {
+        switch plotID % 3 {
+        case 0: .small
+        case 1: .standard
+        default: .roadside
+        }
+    }
+
+    private func buildingPhase(for store: Store) -> DynamicBuildingPhase {
+        if let remaining = store.openingMonthsRemaining {
+            return .constructing(monthsRemaining: remaining)
+        }
+        if let remaining = store.renovationMonthsRemaining {
+            return .renovating(monthsRemaining: remaining)
+        }
+        return .operating
     }
 
     private func landmarkOffset(_ id: String) -> CGPoint {
@@ -181,6 +241,113 @@ struct IsometricCitySurface: View {
         case "factory": .init(x: -25, y: -18)
         case "roadside": .init(x: 42, y: 14)
         default: .zero
+        }
+    }
+}
+
+private enum DynamicBuildingOwner {
+    case player
+    case competitor
+}
+
+private enum DynamicBuildingPhase: Equatable {
+    case operating
+    case constructing(monthsRemaining: Int)
+    case renovating(monthsRemaining: Int)
+}
+
+private struct DynamicStoreBuilding: View {
+    let assetName: String
+    let width: CGFloat
+    let tier: Int
+    let owner: DynamicBuildingOwner
+    let phase: DynamicBuildingPhase
+    let interfaceScale: CGFloat
+    let accessibilityName: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottom) {
+                Ellipse()
+                    .fill(owner == .player ? GameTheme.teal.opacity(0.30) : GameTheme.orange.opacity(0.36))
+                    .frame(width: width * 0.76, height: width * 0.24)
+                    .overlay {
+                        Ellipse()
+                            .stroke(owner == .player ? Color.white.opacity(0.9) : GameTheme.orange,
+                                    lineWidth: owner == .player ? 1.5 : 2)
+                    }
+                    .offset(y: 2)
+                Image(assetName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: width * tierScale)
+                    .saturation(owner == .player ? 1 : 0.58)
+                    .contrast(owner == .player ? 1 : 0.92)
+                    .opacity(phase == .operating ? 1 : 0.58)
+                    .id(assetName)
+                    .transition(.scale(scale: 0.75).combined(with: .opacity))
+                if phase != .operating {
+                    ConstructionScaffold(width: width, phase: phase)
+                }
+                if tier > 1, owner == .player {
+                    Text("Lv.\(tier)")
+                        .font(.system(size: 7, weight: .black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(GameTheme.teal)
+                        .clipShape(Capsule())
+                        .scaleEffect(interfaceScale)
+                        .offset(x: width * 0.31, y: -width * 0.43)
+                }
+            }
+            .frame(width: width * 1.18, height: width * 0.82, alignment: .bottom)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .shadow(color: .black.opacity(0.24), radius: 4, y: 3)
+        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: assetName)
+        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: tier)
+        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: phase)
+        .accessibilityLabel(accessibilityName)
+        .accessibilityHint("タップして店舗または土地の情報を表示")
+    }
+
+    private var tierScale: CGFloat {
+        1 + CGFloat(max(0, tier - 1)) * 0.045
+    }
+}
+
+private struct ConstructionScaffold: View {
+    let width: CGFloat
+    let phase: DynamicBuildingPhase
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.gray.opacity(0.24))
+                .frame(width: width * 0.72, height: width * 0.40)
+            HStack(spacing: width * 0.12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    Rectangle().fill(Color.white.opacity(0.82)).frame(width: 1.5, height: width * 0.42)
+                }
+            }
+            VStack(spacing: width * 0.11) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Rectangle().fill(scaffoldColor.opacity(0.92)).frame(width: width * 0.76, height: 2)
+                }
+            }
+        }
+        .offset(y: -width * 0.05)
+        .allowsHitTesting(false)
+    }
+
+    private var scaffoldColor: Color {
+        switch phase {
+        case .constructing: GameTheme.orange
+        case .renovating: Color.yellow
+        case .operating: GameTheme.teal
         }
     }
 }
@@ -421,43 +588,6 @@ private struct IsometricCityCanvas: View {
         context.draw(Text("翠浜高速 E8").font(.caption2.bold()).foregroundStyle(.white), at: CGPoint(x: iso(.init(x: 0.54, y: 0.74), size).x, y: iso(.init(x: 0.54, y: 0.74), size).y - 7))
     }
 
-    private func drawStoreBuildings(context: inout GraphicsContext, size: CGSize) {
-        let occupied = game.plots.compactMap { plot -> (LandPlot, Color, CGFloat, Int)? in
-            switch plot.occupant {
-            case .player:
-                let store = game.store(at: plot.id)
-                let tier = store?.visualTier ?? 1
-                let height = CGFloat(18 + tier * 6 + (store?.type == .roadside ? 5 : 0))
-                return (plot, GameTheme.teal, height, tier)
-            case .competitor:
-                return (plot, GameTheme.orange, 22, 1)
-            default:
-                return nil
-            }
-        }.sorted { lhs, rhs in
-            let a = CityMapLayout.position(for: lhs.0.id), b = CityMapLayout.position(for: rhs.0.id)
-            return a.x + a.y < b.x + b.y
-        }
-        for (plot, color, height, tier) in occupied {
-            let point = CityMapLayout.position(for: plot.id)
-            let footprint = 0.064 + Double(tier - 1) * 0.006
-            let building = IsoBuilding(rect: CGRect(x: point.x - footprint / 2, y: point.y - 0.028, width: footprint, height: 0.056), height: height, color: color, roof: .flat, detail: .roadside)
-            drawPrism(building, context: &context, size: size)
-            let signPoint = iso(.init(x: point.x, y: point.y), size)
-            var pole = Path(); pole.move(to: CGPoint(x: signPoint.x + 16, y: signPoint.y - height)); pole.addLine(to: CGPoint(x: signPoint.x + 16, y: signPoint.y - height - 16))
-            context.stroke(pole, with: .color(GameTheme.ink.opacity(0.8)), lineWidth: 2)
-            let sign = CGRect(x: signPoint.x + 9, y: signPoint.y - height - 22, width: 15, height: 9)
-            context.fill(Path(roundedRect: sign, cornerRadius: 2), with: .color(color))
-            if case .player = plot.occupant {
-                for carIndex in 0..<min(4, max(1, tier + 1)) {
-                    let carPoint = iso(.init(x: point.x - 0.034 + Double(carIndex) * 0.017, y: point.y + 0.041), size)
-                    let car = CGRect(x: carPoint.x - 3, y: carPoint.y - 2, width: 7, height: 4)
-                    context.fill(Path(roundedRect: car, cornerRadius: 1), with: .color(carIndex.isMultiple(of: 2) ? Color.white : Color.cyan))
-                }
-            }
-        }
-    }
-
     private func drawPrism(_ building: IsoBuilding, context: inout GraphicsContext, size: CGSize) {
         let visualHeight = building.height * 0.82
         let r = building.rect
@@ -643,7 +773,7 @@ private struct IsometricPlotHitTarget: View {
                     Image(systemName: markerIcon).font(.system(size: markerSize * 0.40, weight: .black)).foregroundStyle(.white)
                 }
                 if case .player = plot.occupant {
-                    Text(layer == .demand ? "客足 \(game.estimatedVisitors(for: plot))人" : (game.store(at: plot.id)?.concept.name ?? "自店舗"))
+                    Text(playerLabel)
                         .font(.system(size: 7, weight: .black)).foregroundStyle(.white)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(GameTheme.teal).clipShape(Capsule())
@@ -661,14 +791,24 @@ private struct IsometricPlotHitTarget: View {
         switch plot.occupant { case .player: 27; case .competitor: 23; default: 14 }
     }
     private var markerIcon: String {
-        switch plot.occupant { case .player: "storefront.fill"; case .competitor: "flag.fill"; case .unavailable: "xmark"; case .available: plot.isForLease ? "key.fill" : "yensign" }
+        switch plot.occupant {
+        case .player:
+            if game.store(at: plot.id)?.openingMonthsRemaining != nil { return "hammer.fill" }
+            if game.store(at: plot.id)?.renovationMonthsRemaining != nil { return "wrench.and.screwdriver.fill" }
+            return "storefront.fill"
+        case .competitor: return "flag.fill"
+        case .unavailable: return "xmark"
+        case .available: return plot.isForLease ? "key.fill" : "yensign"
+        }
     }
     private var markerColor: Color {
         switch plot.occupant {
-        case .player: GameTheme.teal
-        case .competitor: GameTheme.orange
-        case .unavailable: .gray
-        case .available: layer == .profit && game.profitabilityScore(for: plot) > 1.2 ? GameTheme.teal : GameTheme.navy.opacity(0.82)
+        case .player:
+            if let store = game.store(at: plot.id), !store.isOperational || store.isRenovating { return GameTheme.orange }
+            return GameTheme.teal
+        case .competitor: return GameTheme.orange
+        case .unavailable: return .gray
+        case .available: return layer == .profit && game.profitabilityScore(for: plot) > 1.2 ? GameTheme.teal : GameTheme.navy.opacity(0.82)
         }
     }
     private var accessibilityText: String {
@@ -678,6 +818,13 @@ private struct IsometricPlotHitTarget: View {
         case .available: "\(plot.district.name)の出店候補地"
         case .unavailable: "利用できない土地"
         }
+    }
+
+    private var playerLabel: String {
+        guard let store = game.store(at: plot.id) else { return "自店舗" }
+        if let remaining = store.openingMonthsRemaining { return "建設中 あと\(remaining)か月" }
+        if let remaining = store.renovationMonthsRemaining { return "改装中 あと\(remaining)か月" }
+        return layer == .demand ? "客足 \(game.estimatedVisitors(for: plot))人" : store.concept.name
     }
 }
 

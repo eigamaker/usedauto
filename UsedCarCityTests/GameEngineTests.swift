@@ -163,7 +163,116 @@ final class GameEngineTests: XCTestCase {
         let cash = game.cash
 
         XCTAssertTrue(game.renovateStore(store.id, to: .roadside))
-        XCTAssertEqual(game.stores[0].type, .roadside)
+        XCTAssertEqual(game.stores[0].type, .standard)
+        XCTAssertEqual(game.stores[0].pendingType, .roadside)
+        XCTAssertEqual(game.stores[0].renovationMonthsRemaining, 2)
         XCTAssertLessThan(game.cash, cash)
+
+        game.advanceMonth()
+        XCTAssertEqual(game.stores[0].type, .standard)
+        XCTAssertEqual(game.stores[0].renovationMonthsRemaining, 1)
+        game.advanceMonth()
+        XCTAssertEqual(game.stores[0].type, .roadside)
+        XCTAssertNil(game.stores[0].pendingType)
+    }
+
+    func testMapBuildingStateFollowsBuildRenovationAndClosure() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        let plot = game.plots.first(where: {
+            if case .available = $0.occupant { return $0.development == nil }
+            return false
+        })!
+
+        XCTAssertTrue(game.buildStore(
+            on: plot,
+            type: .small,
+            mode: .lease,
+            focus: .value,
+            concept: .keiLocal,
+            loanAmount: 100_000
+        ))
+        let newStore = game.store(at: plot.id)!
+        XCTAssertEqual(newStore.type.mapAssetName, "StoreSmall")
+        XCTAssertEqual(newStore.openingMonthsRemaining, 1)
+
+        game.advanceMonth()
+        XCTAssertNil(game.store(at: plot.id)?.openingMonthsRemaining)
+
+        XCTAssertTrue(game.renovateStore(newStore.id, to: .roadside))
+        XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreSmall")
+        XCTAssertEqual(game.store(at: plot.id)?.pendingType?.mapAssetName, "StoreRoadside")
+        game.advanceMonth()
+        game.advanceMonth()
+        XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreRoadside")
+
+        game.closeStore(newStore.id)
+        XCTAssertNil(game.store(at: plot.id))
+        if case .available = game.plot(id: plot.id)?.occupant {
+            // The dynamic map layer now has no building to draw on this lot.
+        } else {
+            XCTFail("Closed store plot should become available")
+        }
+    }
+
+    func testOlderStoreSaveDecodesWithoutConstructionFields() throws {
+        let store = Store(
+            name: "互換性テスト店",
+            plotID: 1,
+            type: .standard,
+            acquisition: .lease,
+            focus: .family,
+            inventory: []
+        )
+        let encoded = try JSONEncoder().encode(store)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "openingMonthsRemaining")
+        object.removeValue(forKey: "pendingType")
+        object.removeValue(forKey: "renovationMonthsRemaining")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(Store.self, from: legacyData)
+        XCTAssertTrue(decoded.isOperational)
+        XCTAssertFalse(decoded.isRenovating)
+    }
+
+    func testNationalExpansionCreatesRegionalNetwork() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        game.companyValue = 100_000
+        game.cash = 100_000
+
+        XCTAssertEqual(game.nationalCities.count, 6)
+        XCTAssertTrue(game.establishRegionalOffice(in: "shinonome"))
+        XCTAssertTrue(game.openFranchise(in: "shinonome"))
+        XCTAssertTrue(game.acquireLocalDealer(in: "shinonome"))
+        XCTAssertTrue(game.runNationalCampaign())
+
+        let operation = game.regionalOperation(for: "shinonome")
+        XCTAssertEqual(operation?.networkStores, 2)
+        XCTAssertGreaterThan(game.nationalBrandStrength, 0.48)
+    }
+
+    func testIntercityShipmentArrivesAtRegionalOffice() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        game.companyValue = 100_000
+        game.cash = 100_000
+        XCTAssertTrue(game.establishRegionalOffice(in: "shinonome"))
+        let store = game.stores[0]
+        let category = store.inventory[0].category
+        let before = store.inventoryCount
+
+        XCTAssertTrue(game.shipInventoryToRegion(cityID: "shinonome", from: store.id, category: category, count: 1))
+        XCTAssertEqual(game.stores[0].inventoryCount, before - 1)
+        XCTAssertEqual(game.intercityShipments.count, 1)
+
+        game.advanceMonth()
+
+        XCTAssertTrue(game.intercityShipments.isEmpty)
+        XCTAssertEqual(game.regionalOperation(for: "shinonome")?.inventoryCount, 1)
     }
 }

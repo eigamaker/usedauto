@@ -87,6 +87,67 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct NationalCity: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let region: String
+    let population: Int
+    let incomeIndex: Double
+    let landPriceIndex: Double
+    let competitionIndex: Double
+    let growthRate: Double
+    let primaryDemand: [VehicleCategory]
+    let expansionCost: Int
+    let shippingMonths: Int
+    let shippingCostPerVehicle: Int
+    let mapX: Double
+    let mapY: Double
+
+    var marketLabel: String {
+        primaryDemand.prefix(2).map(\.name).joined(separator: "・")
+    }
+}
+
+struct RegionalOperation: Identifiable, Codable, Hashable {
+    var cityID: String
+    var officeLevel: Int
+    var franchiseStores: Int
+    var acquiredStores: Int
+    var brandStrength: Double
+    var advertisingBudget: Int
+    var inventory: [InventoryBatch]
+    var lastSales: Int
+    var lastRevenue: Int
+    var lastProfit: Int
+
+    var id: String { cityID }
+    var networkStores: Int { franchiseStores + acquiredStores }
+    var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
+
+    init(cityID: String, officeLevel: Int = 1) {
+        self.cityID = cityID
+        self.officeLevel = officeLevel
+        franchiseStores = 0
+        acquiredStores = 0
+        brandStrength = 0.55
+        advertisingBudget = 80
+        inventory = []
+        lastSales = 0
+        lastRevenue = 0
+        lastProfit = 0
+    }
+}
+
+struct IntercityShipment: Identifiable, Codable, Hashable {
+    let id: UUID
+    let sourceStoreID: UUID
+    let destinationCityID: String
+    let category: VehicleCategory
+    let count: Int
+    let unitCost: Int
+    var monthsRemaining: Int
+}
+
 enum CustomerFocus: String, Codable, CaseIterable, Identifiable {
     case family, value, young, affluent, business
     var id: String { rawValue }
@@ -169,8 +230,36 @@ enum StoreType: String, Codable, CaseIterable, Identifiable {
     var monthlyFixedCost: Int {
         switch self { case .small: 105; case .standard: 220; case .roadside: 410; case .premium: 330; case .service: 340 }
     }
+    var constructionMonths: Int {
+        switch self {
+        case .small: 1
+        case .standard, .premium: 2
+        case .roadside, .service: 3
+        }
+    }
+    func renovationMonths(from current: StoreType) -> Int {
+        max(1, min(2, constructionMonths - (current.constructionMonths > 1 ? 1 : 0)))
+    }
     var serviceQuality: Double {
         switch self { case .small: 0.85; case .standard: 1.0; case .roadside: 1.05; case .premium: 1.18; case .service: 1.30 }
+    }
+    var mapAssetName: String {
+        switch self {
+        case .small: "StoreSmall"
+        case .standard: "StoreStandard"
+        case .roadside: "StoreRoadside"
+        case .premium: "StorePremium"
+        case .service: "StoreService"
+        }
+    }
+    var mapAssetWidth: CGFloat {
+        switch self {
+        case .small: 76
+        case .standard: 92
+        case .roadside: 112
+        case .premium: 96
+        case .service: 102
+        }
     }
 }
 
@@ -217,7 +306,7 @@ struct DevelopmentProject: Codable, Hashable {
 }
 
 enum CityEventKind: String, Codable, Hashable {
-    case development, competitorEntry, competitorExit, landPrice, demand, storeGrowth, auction
+    case development, competitorEntry, competitorExit, landPrice, demand, storeGrowth, auction, expansion
 
     var icon: String {
         switch self {
@@ -228,6 +317,7 @@ enum CityEventKind: String, Codable, Hashable {
         case .demand: "person.3.fill"
         case .storeGrowth: "storefront.fill"
         case .auction: "gavel.fill"
+        case .expansion: "globe.asia.australia.fill"
         }
     }
 }
@@ -400,8 +490,11 @@ struct Store: Identifiable, Codable, Hashable {
     var lastProfit: Int
     var satisfaction: Int
     var causes: [ResultCause]
+    var openingMonthsRemaining: Int?
+    var pendingType: StoreType?
+    var renovationMonthsRemaining: Int?
 
-    init(name: String, plotID: Int, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 4) {
+    init(name: String, plotID: Int, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 4, openingMonthsRemaining: Int? = nil) {
         id = UUID()
         self.name = name
         self.plotID = plotID
@@ -424,9 +517,14 @@ struct Store: Identifiable, Codable, Hashable {
         lastProfit = 0
         satisfaction = 70
         causes = []
+        self.openingMonthsRemaining = openingMonthsRemaining
+        pendingType = nil
+        renovationMonthsRemaining = nil
     }
 
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
+    var isOperational: Bool { openingMonthsRemaining == nil }
+    var isRenovating: Bool { pendingType != nil && renovationMonthsRemaining != nil }
     var visualTier: Int {
         let profitTier = lastProfit >= 500 ? 2 : lastProfit >= 120 ? 1 : 0
         let reputationTier = reputation >= 0.95 ? 1 : 0

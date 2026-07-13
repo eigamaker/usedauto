@@ -205,6 +205,24 @@ struct StoreSettingsView: View {
             ScrollView {
                 if let store = Binding($draft) {
                     VStack(spacing: 16) {
+                        if let remaining = store.wrappedValue.openingMonthsRemaining {
+                            Label("新店舗を建設中・完成まで\(remaining)か月", systemImage: "hammer.fill")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(GameTheme.navy)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(13)
+                                .background(Color.yellow.opacity(0.34))
+                                .clipShape(RoundedRectangle(cornerRadius: 13))
+                        } else if let remaining = store.wrappedValue.renovationMonthsRemaining,
+                                  let target = store.wrappedValue.pendingType {
+                            Label("\(target.name)へ改装中・完成まで\(remaining)か月", systemImage: "wrench.and.screwdriver.fill")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(GameTheme.navy)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(13)
+                                .background(GameTheme.orange.opacity(0.16))
+                                .clipShape(RoundedRectangle(cornerRadius: 13))
+                        }
                         VStack(alignment: .leading, spacing: 13) {
                             SectionTitle(title: "販売方針", subtitle: "設定は次の月次処理から反映")
                             Text("価格水準  \(Int(store.wrappedValue.priceIndex * 100))").font(.subheadline.bold())
@@ -237,7 +255,9 @@ struct StoreSettingsView: View {
                             Text("営業と整備の処理能力を高めます。過剰配置は固定費を増やします。").font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()
-                        let upgrades = StoreType.allCases.filter { $0 != store.wrappedValue.type && $0.buildCost > store.wrappedValue.type.buildCost && $0.capacity >= store.wrappedValue.inventoryCount }
+                        let upgrades = store.wrappedValue.isOperational && !store.wrappedValue.isRenovating
+                            ? StoreType.allCases.filter { $0 != store.wrappedValue.type && $0.buildCost > store.wrappedValue.type.buildCost && $0.capacity >= store.wrappedValue.inventoryCount }
+                            : []
                         if !upgrades.isEmpty {
                             VStack(alignment: .leading, spacing: 11) {
                                 SectionTitle(title: "店舗改装", subtitle: "営業を続けながら設備と展示能力を拡張")
@@ -246,13 +266,13 @@ struct StoreSettingsView: View {
                                     HStack {
                                         VStack(alignment: .leading) {
                                             Text(type.name).font(.subheadline.bold())
-                                            Text("展示\(type.capacity)台・改装費\(cost.currency)").font(.caption).foregroundStyle(.secondary)
+                                            Text("展示\(type.capacity)台・工期\(type.renovationMonths(from: store.wrappedValue.type))か月・改装費\(cost.currency)").font(.caption).foregroundStyle(.secondary)
                                         }
                                         Spacer()
                                         Button("改装") {
                                             if game.renovateStore(storeID, to: type) {
-                                                store.wrappedValue.type = type
-                                                renovationMessage = "\(type.name)への改装を完了しました"
+                                                draft = game.stores.first(where: { $0.id == storeID })
+                                                renovationMessage = "\(type.name)への改装を開始しました。マップ上で工事の進行を確認できます"
                                             } else {
                                                 renovationMessage = "資金または展示枠の条件を満たしていません"
                                             }

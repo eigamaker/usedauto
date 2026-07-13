@@ -61,10 +61,10 @@ struct BuildStoreView: View {
             .navigationTitle("出店計画 \(step + 1)/4")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
-            .alert("出店契約が完了しました", isPresented: $completed) {
+            .alert("新店舗の建設を開始しました", isPresented: $completed) {
                 Button("マップへ戻る") { dismiss() }
             } message: {
-                Text("\(plot.district.shortName)地区に\(type.name)を開店しました。最初の在庫を仕入れて販売方針を整えましょう。")
+                Text("\(plot.district.shortName)地区で\(type.name)を着工しました。完成まで\(type.constructionMonths)か月です。マップ上で工事の進行を確認できます。")
             }
         }
     }
@@ -83,7 +83,7 @@ struct BuildStoreView: View {
     private var storeTypeStep: some View {
         VStack(spacing: 10) {
             ForEach(StoreType.allCases) { item in
-                ChoiceCard(title: item.name, subtitle: "展示\(item.capacity)台・建設 \(item.buildCost.currency)・固定費 \(item.monthlyFixedCost.currency)/月", icon: item.icon, selected: type == item) { type = item }
+                ChoiceCard(title: item.name, subtitle: "展示\(item.capacity)台・工期\(item.constructionMonths)か月・建設 \(item.buildCost.currency)・固定費 \(item.monthlyFixedCost.currency)/月", icon: item.icon, selected: type == item) { type = item }
             }
         }
     }
@@ -111,7 +111,7 @@ struct BuildStoreView: View {
             VStack(alignment: .leading, spacing: 14) {
                 SectionTitle(title: "標準シナリオ", subtitle: "予測値は競合や景気で変動します")
                 HStack { MetricView(title: "初期投資", value: total.currency); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
-                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: type == .small ? "1か月" : "2か月") }
+                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)か月") }
                 Divider()
                 ScenarioRow(name: "最悪", sales: max(1, sales.lowerBound - 3), profit: (sales.lowerBound - 3) * 32 - type.monthlyFixedCost - (mode == .lease ? plot.monthlyRent : 0), color: GameTheme.danger)
                 ScenarioRow(name: "標準", sales: (sales.lowerBound + sales.upperBound) / 2, profit: ((sales.lowerBound + sales.upperBound) / 2) * 32 - type.monthlyFixedCost - (mode == .lease ? plot.monthlyRent : 0), color: GameTheme.teal)

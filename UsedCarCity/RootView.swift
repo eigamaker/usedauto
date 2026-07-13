@@ -5,7 +5,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if CommandLine.arguments.contains("-demo-auction") {
+            if CommandLine.arguments.contains("-demo-national") {
+                NationalExpansionView()
+            } else if CommandLine.arguments.contains("-demo-auction") {
                 FacilityHubSheet(facility: .auction) { _ in }
             } else if CommandLine.arguments.contains("-demo-hq") {
                 FacilityHubSheet(facility: .headquarters) { _ in }
