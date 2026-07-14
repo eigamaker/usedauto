@@ -68,8 +68,8 @@ private struct InventoryRow: View {
         HStack(spacing: 11) {
             Image(systemName: batch.category.icon).foregroundStyle(GameTheme.teal).frame(width: 36, height: 36).background(GameTheme.teal.opacity(0.1)).clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(batch.category.name) #\(batch.id.uuidString.prefix(4).uppercased())").font(.subheadline.bold())
-                Text("仕入原価 \(batch.averageCost.currency) / 車両品質 \(Int(batch.quality * 100))").font(.caption).foregroundStyle(.secondary)
+                Text(batch.vehicleName).font(.subheadline.bold())
+                Text("\(batch.category.name)・品質 \(Int(batch.quality * 100))/100・仕入れ値 \(batch.averageCost.currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Text("1台").font(.headline.monospacedDigit())
@@ -264,7 +264,7 @@ struct StoreSettingsView: View {
                         VStack(alignment: .leading, spacing: 13) {
                             SectionTitle(title: "人員配置", subtitle: "1名あたり人件費34万円/月")
                             Stepper("稼働人数  \(store.wrappedValue.staff)名", value: store.staff, in: 1...15)
-                            Text("1人につき販売・買取を合計5回/週まで対応できます。過剰配置は人件費を増やします。").font(.caption).foregroundStyle(.secondary)
+                            Text("1人につき販売・店頭買取を合計7回/週まで対応できます。AA・業者仕入れは営業枠を使いません。過剰配置は人件費を増やします。").font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()
                         let upgrades = store.wrappedValue.isOperational && !store.wrappedValue.isRenovating

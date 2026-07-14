@@ -93,7 +93,7 @@ private struct RecentReportsCard: View {
             } else {
                 ForEach(game.reports.prefix(6)) { report in
                     HStack {
-                        Text("\(report.month)月\(report.week ?? 1)週").font(.caption.bold().monospacedDigit()).frame(width: 64, alignment: .leading)
+                        Text("\(report.month)月\(report.week)週").font(.caption.bold().monospacedDigit()).frame(width: 64, alignment: .leading)
                         Text("\(report.sales)台").font(.subheadline.monospacedDigit())
                         Spacer()
                         Text(report.operatingProfit.currency).font(.subheadline.bold().monospacedDigit()).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.danger)
@@ -121,7 +121,7 @@ struct MonthlyReportView: View {
                         Image(systemName: report.operatingProfit >= 0 ? "chart.line.uptrend.xyaxis.circle.fill" : "exclamationmark.circle.fill")
                             .font(.system(size: 48)).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.orange)
                         Text(report.headline).font(.title3.bold()).multilineTextAlignment(.center)
-                        Text("\(report.year)年\(report.month)月 第\(report.week ?? 1)週 週間レポート").font(.caption).foregroundStyle(.secondary)
+                        Text("\(report.year)年\(report.month)月 第\(report.week)週 週間レポート").font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity).gameCard()
                     HStack {

@@ -13,7 +13,7 @@ struct RootView: View {
                 FacilityHubSheet(facility: .auction) { _ in }
             } else if CommandLine.arguments.contains("-demo-hq") {
                 FacilityHubSheet(facility: .headquarters) { _ in }
-            } else if (CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-tutorial-purchase")), let store = game.stores.first {
+            } else if (CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-tutorial-purchase")), let store = game.stores.first {
                 NavigationStack {
                     ScrollView {
                         StoreCommandCenterView(storeID: store.id)

@@ -254,8 +254,8 @@ private struct AuctionContent: View {
                     ForEach(store.inventory.filter { $0.count > 0 }) { batch in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text("\(batch.category.name) #\(batch.id.uuidString.prefix(4).uppercased())").font(.subheadline.bold())
-                                Text("個別在庫・簿価\(batch.averageCost.currency)・品質\(Int(batch.quality * 100))").font(.caption).foregroundStyle(.secondary)
+                                Text(batch.vehicleName).font(.subheadline.bold())
+                                Text("\(batch.category.name)・簿価\(batch.averageCost.currency)・品質\(Int(batch.quality * 100))・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("1台出品") {

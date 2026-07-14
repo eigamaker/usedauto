@@ -4,7 +4,7 @@ import Charts
 struct StoreCommandCenterView: View {
     @EnvironmentObject private var game: GameEngine
     let storeID: UUID
-    @State private var panel: StorePanel = .store
+    @State private var panel: StorePanel = CommandLine.arguments.contains("-demo-catalog") ? .market : .store
     @State private var showSettings = false
     @State private var actionMessage: String?
 
@@ -31,6 +31,7 @@ struct StoreCommandCenterView: View {
                                 WeeklyOpportunityPanel(store: store)
                                 PurchaseCasesPanel(storeID: store.id)
                                 ManualSalesPanel(store: store)
+                                StoreInventoryPanel(store: store)
                                 StoreOverviewPanel(store: store, plot: plot)
                             }
                         case .team: ManagerPanel(store: store, managerName: managerName, update: update)
@@ -212,7 +213,7 @@ private struct PurchaseCasesPanel: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Image(systemName: item.category.icon).font(.title3).foregroundStyle(GameTheme.teal).frame(width: 40, height: 40).background(GameTheme.teal.opacity(0.1)).clipShape(Circle())
-                            VStack(alignment: .leading, spacing: 2) { Text("\(item.modelYear)年式 \(item.category.name)").font(.subheadline.bold()); Text("走行 \(item.mileage.formatted())km・状態 \(item.conditionScore)").font(.caption).foregroundStyle(.secondary) }
+                            VStack(alignment: .leading, spacing: 2) { Text(item.vehicleName).font(.subheadline.bold()); Text("\(item.category.name)・\(item.modelYear)年式・走行 \(item.mileage.formatted())km・状態 \(item.conditionScore)").font(.caption).foregroundStyle(.secondary) }
                             Spacer(); VStack(alignment: .trailing) { Text("希望 \(item.askingPrice.currency)").font(.caption.bold()); Text("粗利予測 \(item.expectedGrossProfit.currency)").font(.caption2).foregroundStyle(item.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
                         }
                         HStack { PurchaseMetric(title: "整備", value: item.repairCost.currency); PurchaseMetric(title: "販売予測", value: item.expectedSalePrice.currency); PurchaseMetric(title: "期間", value: "\(item.expectedDays)日"); PurchaseMetric(title: "査定精度", value: "\(item.appraisalAccuracy)%") }
@@ -284,6 +285,7 @@ private struct ManualSalesPanel: View {
     @EnvironmentObject private var game: GameEngine
     let store: Store
     @State private var message: String?
+    @State private var selectedLead: BuyerLead?
 
     private var isDelegated: Bool { store.hasManager && store.delegatePricing }
     private var leads: [BuyerLead] { game.buyerLeads(for: store.id) }
@@ -329,18 +331,8 @@ private struct ManualSalesPanel: View {
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 4)
-                            Menu {
-                                ForEach(inventoryOptions(for: lead)) { batch in
-                                    Menu("\(batch.category.name) #\(batch.id.uuidString.prefix(4).uppercased())") {
-                                        ForEach(SaleNegotiationStrategy.allCases) { strategy in
-                                            if let preview = game.saleNegotiationPreview(storeID: store.id, buyerLeadID: lead.id, inventoryID: batch.id, strategy: strategy) {
-                                                Button("\(strategy.name)・\(preview.price.currency)（成約見込\(Int(preview.closeChance * 100))%）") {
-                                                    negotiate(leadID: lead.id, inventoryID: batch.id, category: batch.category, strategy: strategy)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                            Button {
+                                selectedLead = lead
                             } label: {
                                 Label("車を提案", systemImage: "bubble.left.and.bubble.right.fill")
                                     .font(.caption.bold())
@@ -369,6 +361,18 @@ private struct ManualSalesPanel: View {
                 RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
             }
         }
+        .sheet(item: $selectedLead) { lead in
+            VehicleProposalSheet(storeID: store.id, lead: lead) { inventoryID, strategy in
+                negotiate(leadID: lead.id, inventoryID: inventoryID, strategy: strategy)
+            }
+        }
+        .onAppear {
+#if DEBUG
+            if CommandLine.arguments.contains("-demo-proposal"), selectedLead == nil {
+                selectedLead = leads.first
+            }
+#endif
+        }
         .alert("販売結果", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK") { message = nil }
         } message: {
@@ -376,25 +380,197 @@ private struct ManualSalesPanel: View {
         }
     }
 
-    private func inventoryOptions(for lead: BuyerLead) -> [InventoryBatch] {
-        store.inventory.filter { $0.count > 0 }.sorted {
-            let leftMatches = $0.category == lead.desiredCategory
-            let rightMatches = $1.category == lead.desiredCategory
-            if leftMatches != rightMatches { return leftMatches }
-            return $0.quality > $1.quality
-        }
-    }
-
-    private func negotiate(leadID: UUID, inventoryID: UUID, category: VehicleCategory, strategy: SaleNegotiationStrategy) {
+    private func negotiate(leadID: UUID, inventoryID: UUID, strategy: SaleNegotiationStrategy) {
+        let vehicleName = store.inventory.first(where: { $0.id == inventoryID })?.vehicleName ?? "車両"
         guard let result = game.negotiateManualSale(storeID: store.id, buyerLeadID: leadID, inventoryID: inventoryID, strategy: strategy) else {
             message = "今週の営業枠に達したか、お客様または在庫がありません。"
             return
         }
         if result.succeeded {
-            message = "交渉成立。\(category.name)を\(result.salePrice.currency)で販売し、粗利は\(result.grossProfit.currency)でした。"
+            message = "交渉成立。\(vehicleName)を\(result.salePrice.currency)で販売し、粗利は\(result.grossProfit.currency)でした。"
         } else {
             message = "価格条件が合わず、お客様は購入を見送りました。在庫は残っています。"
         }
+    }
+}
+
+private struct VehicleProposalSheet: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+    let storeID: UUID
+    let lead: BuyerLead
+    let negotiate: (UUID, SaleNegotiationStrategy) -> Void
+    @State private var selectedInventoryID: UUID?
+
+    private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
+    private var inventory: [InventoryBatch] {
+        guard let store else { return [] }
+        return store.inventory.filter { $0.count > 0 }.sorted {
+            let leftMatches = $0.category == lead.desiredCategory
+            let rightMatches = $1.category == lead.desiredCategory
+            if leftMatches != rightMatches { return leftMatches }
+            if $0.quality != $1.quality { return $0.quality > $1.quality }
+            return $0.averageCost < $1.averageCost
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 13) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionTitle(title: "提案する在庫車を選ぶ", subtitle: "車を選んだ後に値引き条件と提示価格が表示されます")
+                        HStack {
+                            MetricView(title: "希望タイプ", value: lead.desiredCategory.name, tint: GameTheme.teal)
+                            MetricView(title: "予算", value: lead.budget.currency)
+                            MetricView(title: "希望品質", value: "\(Int(lead.minimumQuality * 100))以上")
+                        }
+                    }
+                    .gameCard()
+
+                    ForEach(inventory) { batch in
+                        VStack(alignment: .leading, spacing: 11) {
+                            HStack(spacing: 11) {
+                                Image(systemName: batch.category.icon)
+                                    .font(.title3)
+                                    .foregroundStyle(batch.category == lead.desiredCategory ? GameTheme.teal : GameTheme.orange)
+                                    .frame(width: 42, height: 42)
+                                    .background((batch.category == lead.desiredCategory ? GameTheme.teal : GameTheme.orange).opacity(0.11))
+                                    .clipShape(Circle())
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(batch.vehicleName).font(.headline)
+                                    Text("\(batch.category.name)・在庫番号 #\(batch.id.uuidString.prefix(4).uppercased())")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if batch.category == lead.desiredCategory {
+                                    Text("希望一致").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(GameTheme.teal).clipShape(Capsule())
+                                }
+                            }
+
+                            HStack {
+                                ProposalMetric(title: "車両品質", value: "\(Int(batch.quality * 100))/100")
+                                ProposalMetric(title: "仕入れ値", value: batch.averageCost.currency)
+                                ProposalMetric(title: "粗利余地", value: qualityLabel(batch.quality))
+                            }
+
+                            if selectedInventoryID == batch.id {
+                                Divider()
+                                Text("値引き条件を選ぶ").font(.caption.bold()).foregroundStyle(.secondary)
+                                ForEach(SaleNegotiationStrategy.allCases) { strategy in
+                                    if let preview = game.saleNegotiationPreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: batch.id, strategy: strategy) {
+                                        Button {
+                                            negotiate(batch.id, strategy)
+                                            dismiss()
+                                        } label: {
+                                            HStack {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(strategy.name).font(.subheadline.bold())
+                                                    Text(strategy.detail).font(.caption2).foregroundStyle(.secondary)
+                                                }
+                                                Spacer()
+                                                VStack(alignment: .trailing, spacing: 2) {
+                                                    Text(preview.price.currency).font(.subheadline.bold().monospacedDigit())
+                                                    Text("成約見込 \(Int(preview.closeChance * 100))%")
+                                                        .font(.caption2.bold()).foregroundStyle(GameTheme.teal)
+                                                }
+                                            }
+                                            .padding(10)
+                                            .background(GameTheme.cream)
+                                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            } else {
+                                Button("この車を提案候補にする") {
+                                    withAnimation(.easeInOut(duration: 0.2)) { selectedInventoryID = batch.id }
+                                }
+                                .font(.caption.bold())
+                                .buttonStyle(.borderedProminent)
+                                .tint(batch.category == lead.desiredCategory ? GameTheme.teal : GameTheme.orange)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                        }
+                        .gameCard()
+                    }
+                }
+                .padding(14)
+            }
+            .background(GameTheme.cream)
+            .navigationTitle("車両提案")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
+        }
+    }
+
+    private func qualityLabel(_ quality: Double) -> String {
+        quality >= 0.85 ? "高品質" : quality >= 0.72 ? "標準" : "要注意"
+    }
+}
+
+private struct ProposalMetric: View {
+    let title: String
+    let value: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.caption.bold().monospacedDigit())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct StoreInventoryPanel: View {
+    let store: Store
+    @State private var showAll = false
+
+    private var sortedInventory: [InventoryBatch] {
+        store.inventory.filter { $0.count > 0 }.sorted {
+            if $0.category != $1.category { return $0.category.name < $1.category.name }
+            return $0.vehicleName < $1.vehicleName
+        }
+    }
+
+    private var visibleInventory: [InventoryBatch] {
+        showAll ? sortedInventory : Array(sortedInventory.prefix(5))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            SectionTitle(title: "店舗在庫一覧", subtitle: "顧客へ提案できる個別車両・\(store.inventoryCount)台")
+            if sortedInventory.isEmpty {
+                Label("販売できる在庫がありません", systemImage: "car.circle")
+                    .font(.subheadline).foregroundStyle(.secondary).padding(.vertical, 8)
+            } else {
+                ForEach(visibleInventory) { batch in
+                    HStack(spacing: 10) {
+                        Image(systemName: batch.category.icon)
+                            .foregroundStyle(GameTheme.teal)
+                            .frame(width: 34, height: 34)
+                            .background(GameTheme.teal.opacity(0.10))
+                            .clipShape(Circle())
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(batch.vehicleName).font(.subheadline.bold())
+                            Text("\(batch.category.name)・品質 \(Int(batch.quality * 100))/100・仕入れ値 \(batch.averageCost.currency)")
+                                .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("#\(batch.id.uuidString.prefix(4).uppercased())")
+                            .font(.caption2.bold().monospaced()).foregroundStyle(.secondary)
+                    }
+                    if batch.id != visibleInventory.last?.id { Divider() }
+                }
+                if sortedInventory.count > 5 {
+                    Button(showAll ? "5台だけ表示" : "全\(sortedInventory.count)台を表示") {
+                        withAnimation(.easeInOut(duration: 0.2)) { showAll.toggle() }
+                    }
+                    .font(.caption.bold())
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .gameCard()
     }
 }
 
@@ -1052,6 +1228,7 @@ private struct MarketPanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }.gameCard()
+            VehicleCatalogPanel(store: store, district: plot.district)
             if store.hasManager {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionTitle(title: "マーケティング施策", subtitle: "店長が継続運用する集客方針")
@@ -1062,6 +1239,113 @@ private struct MarketPanel: View {
                 }.gameCard()
             }
         }
+    }
+}
+
+private struct VehicleCatalogPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    let district: DistrictKind
+    @State private var selectedCategory: VehicleCategory?
+
+    private var models: [VehicleCatalogEntry] {
+        game.availableVehicleCatalog.filter { selectedCategory == nil || $0.category == selectedCategory }
+    }
+
+    private var nextRelease: VehicleCatalogEntry? {
+        VehicleCatalog.all.filter { $0.launchTurn > game.turn }.min { $0.launchTurn < $1.launchTurn }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "車両市場カタログ", subtitle: "需要・相場・自店在庫を比較して仕入れと提示価格を判断")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    CatalogFilterChip(title: "すべて", selected: selectedCategory == nil) { selectedCategory = nil }
+                    ForEach(VehicleCategory.allCases) { category in
+                        CatalogFilterChip(title: category.name, selected: selectedCategory == category) { selectedCategory = category }
+                    }
+                }
+            }
+
+            if let nextRelease {
+                Label("次の新型車はあと\(nextRelease.launchTurn - game.turn)週間でカタログ追加予定", systemImage: "sparkles")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
+            ForEach(models) { model in
+                CatalogVehicleRow(model: model, store: store, district: district)
+                if model.id != models.last?.id { Divider() }
+            }
+        }
+        .gameCard()
+    }
+}
+
+private struct CatalogFilterChip: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .font(.caption.bold())
+            .foregroundStyle(selected ? .white : GameTheme.navy)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(selected ? GameTheme.navy : GameTheme.navy.opacity(0.08))
+            .clipShape(Capsule())
+            .buttonStyle(.plain)
+    }
+}
+
+private struct CatalogVehicleRow: View {
+    @EnvironmentObject private var game: GameEngine
+    let model: VehicleCatalogEntry
+    let store: Store
+    let district: DistrictKind
+
+    private var marketIndex: Double { game.catalogMarketIndex(for: model, in: district) }
+    private var trend: Int { game.catalogPriceTrendPercent(for: model, in: district) }
+    private var color: Color { marketIndex >= 1.12 ? GameTheme.teal : marketIndex >= 0.82 ? .blue : GameTheme.orange }
+    private var status: String {
+        marketIndex >= 1.28 ? "需要が非常に強い" : marketIndex >= 1.12 ? "需要が強い" : marketIndex >= 0.82 ? "安定" : "弱含み"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 10) {
+                Image(systemName: model.category.icon)
+                    .foregroundStyle(color)
+                    .frame(width: 36, height: 36)
+                    .background(color.opacity(0.11))
+                    .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(model.fullName).font(.subheadline.bold())
+                        if game.turn - model.launchTurn <= 3 {
+                            Text("NEW").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())
+                        }
+                    }
+                    Text("\(model.category.name)・基準品質 \(Int(model.qualityBaseline * 100))/100")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Label(status, systemImage: trend >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.caption2.bold()).foregroundStyle(color)
+                    Text("価格 \(trend >= 0 ? "+" : "")\(trend)%")
+                        .font(.caption2.bold().monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                ProposalMetric(title: "需要指数", value: "\(Int(marketIndex * 100))")
+                ProposalMetric(title: "仕入相場", value: game.catalogWholesalePrice(for: model, in: district).currency)
+                ProposalMetric(title: "販売参考", value: game.catalogRetailPrice(for: model, in: district).currency)
+                ProposalMetric(title: "自店在庫", value: "\(game.inventoryCount(modelID: model.id, storeID: store.id))台")
+            }
+        }
+        .padding(.vertical, 3)
     }
 }
 

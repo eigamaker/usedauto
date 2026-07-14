@@ -116,7 +116,7 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .kei: "軽"
+        case .kei: "軽自動車"
         case .compact: "コンパクト"
         case .minivan: "ミニバン"
         case .suv: "SUV"
@@ -144,6 +144,60 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .commercial: 145
         case .budget: 52
         }
+    }
+}
+
+struct VehicleCatalogEntry: Identifiable, Codable, Hashable {
+    let id: String
+    let maker: String
+    let modelName: String
+    let category: VehicleCategory
+    let baseWholesalePrice: Int
+    let referenceRetailPrice: Int
+    let qualityBaseline: Double
+    let popularity: Double
+    let launchTurn: Int
+
+    var fullName: String { "\(maker) \(modelName)" }
+}
+
+enum VehicleCatalog {
+    static let all: [VehicleCatalogEntry] = [
+        VehicleCatalogEntry(id: "aoba-pico", maker: "アオバ", modelName: "PICO", category: .kei, baseWholesalePrice: 70, referenceRetailPrice: 98, qualityBaseline: 0.73, popularity: 1.05, launchTurn: 0),
+        VehicleCatalogEntry(id: "hoshi-minto", maker: "ホシノ", modelName: "MINTO", category: .kei, baseWholesalePrice: 79, referenceRetailPrice: 112, qualityBaseline: 0.78, popularity: 0.96, launchTurn: 0),
+        VehicleCatalogEntry(id: "aoba-pico2", maker: "アオバ", modelName: "PICO II", category: .kei, baseWholesalePrice: 86, referenceRetailPrice: 124, qualityBaseline: 0.84, popularity: 1.14, launchTurn: 12),
+
+        VehicleCatalogEntry(id: "koyo-lino", maker: "コーヨー", modelName: "LINO", category: .compact, baseWholesalePrice: 98, referenceRetailPrice: 138, qualityBaseline: 0.75, popularity: 1.04, launchTurn: 0),
+        VehicleCatalogEntry(id: "seika-comet", maker: "セイカ", modelName: "COMET", category: .compact, baseWholesalePrice: 112, referenceRetailPrice: 156, qualityBaseline: 0.81, popularity: 0.98, launchTurn: 0),
+        VehicleCatalogEntry(id: "koyo-linox", maker: "コーヨー", modelName: "LINO X", category: .compact, baseWholesalePrice: 121, referenceRetailPrice: 172, qualityBaseline: 0.86, popularity: 1.13, launchTurn: 16),
+
+        VehicleCatalogEntry(id: "hinode-familia", maker: "ヒノデ", modelName: "FAMILIA", category: .minivan, baseWholesalePrice: 170, referenceRetailPrice: 238, qualityBaseline: 0.77, popularity: 1.08, launchTurn: 0),
+        VehicleCatalogEntry(id: "yamato-grandia", maker: "ヤマト", modelName: "GRANDIA", category: .minivan, baseWholesalePrice: 193, referenceRetailPrice: 274, qualityBaseline: 0.83, popularity: 0.96, launchTurn: 0),
+        VehicleCatalogEntry(id: "hinode-familia2", maker: "ヒノデ", modelName: "FAMILIA II", category: .minivan, baseWholesalePrice: 206, referenceRetailPrice: 298, qualityBaseline: 0.88, popularity: 1.16, launchTurn: 20),
+
+        VehicleCatalogEntry(id: "hokuto-ridge", maker: "ホクト", modelName: "RIDGE", category: .suv, baseWholesalePrice: 192, referenceRetailPrice: 276, qualityBaseline: 0.79, popularity: 1.10, launchTurn: 0),
+        VehicleCatalogEntry(id: "seika-terra", maker: "セイカ", modelName: "TERRA", category: .suv, baseWholesalePrice: 218, referenceRetailPrice: 315, qualityBaseline: 0.84, popularity: 1.02, launchTurn: 0),
+        VehicleCatalogEntry(id: "hokuto-ridgex", maker: "ホクト", modelName: "RIDGE X", category: .suv, baseWholesalePrice: 236, referenceRetailPrice: 342, qualityBaseline: 0.89, popularity: 1.18, launchTurn: 24),
+
+        VehicleCatalogEntry(id: "mikado-celest", maker: "ミカド", modelName: "CELEST", category: .premium, baseWholesalePrice: 408, referenceRetailPrice: 585, qualityBaseline: 0.86, popularity: 1.05, launchTurn: 0),
+        VehicleCatalogEntry(id: "voltra-aurex", maker: "ヴォルトラ", modelName: "AUREX", category: .premium, baseWholesalePrice: 462, referenceRetailPrice: 680, qualityBaseline: 0.91, popularity: 0.94, launchTurn: 0),
+        VehicleCatalogEntry(id: "mikado-celestgt", maker: "ミカド", modelName: "CELEST GT", category: .premium, baseWholesalePrice: 505, referenceRetailPrice: 748, qualityBaseline: 0.94, popularity: 1.17, launchTurn: 32),
+
+        VehicleCatalogEntry(id: "yamato-porter", maker: "ヤマト", modelName: "PORTER", category: .commercial, baseWholesalePrice: 136, referenceRetailPrice: 188, qualityBaseline: 0.76, popularity: 1.03, launchTurn: 0),
+        VehicleCatalogEntry(id: "koyo-worka", maker: "コーヨー", modelName: "WORKA", category: .commercial, baseWholesalePrice: 154, referenceRetailPrice: 216, qualityBaseline: 0.80, popularity: 0.98, launchTurn: 0),
+        VehicleCatalogEntry(id: "yamato-porter2", maker: "ヤマト", modelName: "PORTER II", category: .commercial, baseWholesalePrice: 168, referenceRetailPrice: 238, qualityBaseline: 0.86, popularity: 1.12, launchTurn: 28),
+
+        VehicleCatalogEntry(id: "aoba-basic", maker: "アオバ", modelName: "BASIC", category: .budget, baseWholesalePrice: 48, referenceRetailPrice: 72, qualityBaseline: 0.64, popularity: 1.07, launchTurn: 0),
+        VehicleCatalogEntry(id: "hinode-value", maker: "ヒノデ", modelName: "VALUE", category: .budget, baseWholesalePrice: 56, referenceRetailPrice: 82, qualityBaseline: 0.69, popularity: 0.96, launchTurn: 0),
+        VehicleCatalogEntry(id: "aoba-basicneo", maker: "アオバ", modelName: "BASIC NEO", category: .budget, baseWholesalePrice: 63, referenceRetailPrice: 94, qualityBaseline: 0.75, popularity: 1.15, launchTurn: 8)
+    ]
+
+    static func entry(id: String) -> VehicleCatalogEntry? {
+        return all.first(where: { $0.id == id })
+    }
+
+    static func available(through turn: Int) -> [VehicleCatalogEntry] {
+        all.filter { $0.launchTurn <= turn }
     }
 }
 
@@ -539,17 +593,23 @@ struct LandPlot: Identifiable, Codable, Hashable {
 
 struct InventoryBatch: Identifiable, Codable, Hashable {
     let id: UUID
+    var modelID: String
     var category: VehicleCategory
     var count: Int
     var averageCost: Int
     var quality: Double
 
-    init(category: VehicleCategory, count: Int, averageCost: Int? = nil, quality: Double = 0.75) {
-        id = UUID()
+    init(id: UUID = UUID(), modelID: String, category: VehicleCategory, count: Int, averageCost: Int? = nil, quality: Double = 0.75) {
+        self.id = id
+        self.modelID = modelID
         self.category = category
         self.count = count
         self.averageCost = averageCost ?? category.purchaseCost
         self.quality = quality
+    }
+
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
     }
 }
 
@@ -650,14 +710,14 @@ struct Store: Identifiable, Codable, Hashable {
     var openingMonthsRemaining: Int?
     var pendingType: StoreType?
     var renovationMonthsRemaining: Int?
-    var managerHired: Bool?
-    var pendingManualSales: Int?
-    var pendingManualRevenue: Int?
-    var pendingManualCOGS: Int?
-    var pendingManualNegotiations: Int?
-    var pendingPurchaseNegotiations: Int?
-    var weeklyBuyerArrivals: Int?
-    var weeklySellerArrivals: Int?
+    var managerHired: Bool
+    var pendingManualSales: Int
+    var pendingManualRevenue: Int
+    var pendingManualCOGS: Int
+    var pendingManualNegotiations: Int
+    var pendingPurchaseNegotiations: Int
+    var weeklyBuyerArrivals: Int
+    var weeklySellerArrivals: Int
 
     init(name: String, plotID: Int, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 1, openingMonthsRemaining: Int? = nil) {
         id = UUID()
@@ -698,14 +758,12 @@ struct Store: Identifiable, Codable, Hashable {
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
     var isOperational: Bool { openingMonthsRemaining == nil }
     var isRenovating: Bool { pendingType != nil && renovationMonthsRemaining != nil }
-    var hasManager: Bool {
-        managerHired ?? (delegateStaff || delegatePricing || delegateMarketing || delegateService)
-    }
-    var manualSalesThisWeek: Int { pendingManualSales ?? 0 }
-    var manualNegotiationsThisWeek: Int { pendingManualNegotiations ?? 0 }
-    var purchaseNegotiationsThisWeek: Int { pendingPurchaseNegotiations ?? 0 }
-    var buyerArrivalsThisWeek: Int { weeklyBuyerArrivals ?? 0 }
-    var sellerArrivalsThisWeek: Int { weeklySellerArrivals ?? 0 }
+    var hasManager: Bool { managerHired }
+    var manualSalesThisWeek: Int { pendingManualSales }
+    var manualNegotiationsThisWeek: Int { pendingManualNegotiations }
+    var purchaseNegotiationsThisWeek: Int { pendingPurchaseNegotiations }
+    var buyerArrivalsThisWeek: Int { weeklyBuyerArrivals }
+    var sellerArrivalsThisWeek: Int { weeklySellerArrivals }
     var weeklyVisitorCount: Int { buyerArrivalsThisWeek + sellerArrivalsThisWeek }
     var trafficLevel: StoreTrafficLevel { .from(visitorCount: weeklyVisitorCount) }
     var usedOpportunitiesThisWeek: Int { manualNegotiationsThisWeek + purchaseNegotiationsThisWeek }
@@ -738,7 +796,7 @@ struct MonthlyReport: Identifiable, Codable, Hashable {
     let id: UUID
     let year: Int
     let month: Int
-    var week: Int?
+    var week: Int
     let sales: Int
     let revenue: Int
     let grossProfit: Int
@@ -751,6 +809,7 @@ struct MonthlyReport: Identifiable, Codable, Hashable {
 struct PurchaseCase: Identifiable, Codable, Hashable {
     let id: UUID
     let storeID: UUID
+    let modelID: String
     let category: VehicleCategory
     let modelYear: Int
     let mileage: Int
@@ -764,11 +823,14 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let expectedDays: Int
     let demand: Double
     var appraisalAccuracy: Int
-    var negotiationAttempts: Int?
+    var negotiationAttempts: Int
 
     var expectedGrossProfit: Int { expectedSalePrice - askingPrice - repairCost }
     var conditionScore: Int { (exterior + interior + mechanical) / 3 }
-    var negotiations: Int { negotiationAttempts ?? 0 }
+    var negotiations: Int { negotiationAttempts }
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 enum StartupPlan: String, Codable, CaseIterable, Identifiable {

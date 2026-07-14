@@ -268,35 +268,6 @@ final class GameEngineTests: XCTestCase {
         }
     }
 
-    func testOlderStoreSaveDecodesWithoutConstructionFields() throws {
-        let store = Store(
-            name: "互換性テスト店",
-            plotID: 1,
-            type: .standard,
-            acquisition: .lease,
-            focus: .family,
-            inventory: []
-        )
-        let encoded = try JSONEncoder().encode(store)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object.removeValue(forKey: "openingMonthsRemaining")
-        object.removeValue(forKey: "pendingType")
-        object.removeValue(forKey: "renovationMonthsRemaining")
-        object.removeValue(forKey: "managerHired")
-        object.removeValue(forKey: "pendingManualSales")
-        object.removeValue(forKey: "pendingManualRevenue")
-        object.removeValue(forKey: "pendingManualCOGS")
-        object.removeValue(forKey: "pendingManualNegotiations")
-        object.removeValue(forKey: "pendingPurchaseNegotiations")
-        object.removeValue(forKey: "weeklyBuyerArrivals")
-        object.removeValue(forKey: "weeklySellerArrivals")
-        let legacyData = try JSONSerialization.data(withJSONObject: object)
-
-        let decoded = try JSONDecoder().decode(Store.self, from: legacyData)
-        XCTAssertTrue(decoded.isOperational)
-        XCTAssertFalse(decoded.isRenovating)
-    }
-
     func testNationalExpansionCreatesRegionalNetwork() {
         let game = GameEngine()
         game.resetGame()
@@ -470,14 +441,14 @@ final class GameEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(districtSales, availableBuyers)
     }
 
-    func testOneWorkerHasFiveSharedBuyAndSellOpportunities() {
+    func testOneWorkerHasSevenSharedBuyAndSellOpportunities() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, plan: .discount)
         game.cash = 100_000
         let storeID = game.stores[0].id
         XCTAssertEqual(game.stores[0].staff, 1)
-        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 5)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 7)
         XCTAssertTrue(game.buyInventory(category: .kei, count: 6, storeID: storeID))
 
         let purchaseCase = game.purchaseCases.first!
@@ -487,14 +458,14 @@ final class GameEngineTests: XCTestCase {
         }
         XCTAssertEqual(game.stores[0].purchaseNegotiationsThisWeek, 1)
 
-        game.buyerLeads = (0..<5).map { offset in
+        game.buyerLeads = (0..<7).map { offset in
             BuyerLead(
                 id: UUID(), storeID: storeID, desiredCategory: .kei,
                 budget: 200 + offset, minimumQuality: 0.5,
                 priceSensitivity: 1, generatedTurn: game.turn
             )
         }
-        for _ in 0..<4 {
+        for _ in 0..<6 {
             let lead = game.buyerLeads.first!
             let inventory = game.stores[0].inventory.first!
             XCTAssertNotNil(game.negotiateManualSale(
@@ -505,7 +476,7 @@ final class GameEngineTests: XCTestCase {
             ))
         }
 
-        XCTAssertEqual(game.stores[0].usedOpportunitiesThisWeek, 5)
+        XCTAssertEqual(game.stores[0].usedOpportunitiesThisWeek, 7)
         XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 0)
         let extraLead = game.buyerLeads.first!
         let extraInventory = game.stores[0].inventory.first!
@@ -540,8 +511,8 @@ final class GameEngineTests: XCTestCase {
             inventoryID: inventory.id,
             strategy: .smallDiscount
         ))
-        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 15)
-        XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 14)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 21)
+        XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 20)
         XCTAssertFalse(game.canSellManually(storeID: storeID))
     }
 
@@ -608,6 +579,49 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 4), .steady)
         XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 8), .busy)
         XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 12), .packed)
+    }
+
+    func testInventoryVehiclesReceiveCatalogNamesAndRetainBusinessDetails() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+
+        for vehicle in game.stores[0].inventory {
+            let model = VehicleCatalog.entry(id: vehicle.modelID)
+            XCTAssertNotNil(model)
+            XCTAssertEqual(model?.category, vehicle.category)
+            XCTAssertFalse(vehicle.vehicleName.contains("スタンダード"))
+            XCTAssertGreaterThan(vehicle.averageCost, 0)
+            XCTAssertGreaterThan(vehicle.quality, 0)
+        }
+    }
+
+    func testVehicleCatalogAddsNewModelsAsWeeksAdvance() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let initialCount = game.availableVehicleCatalog.count
+        XCTAssertFalse(game.availableVehicleCatalog.contains { $0.id == "aoba-basicneo" })
+
+        for _ in 0..<8 { game.advanceWeek() }
+
+        XCTAssertGreaterThan(game.availableVehicleCatalog.count, initialCount)
+        XCTAssertTrue(game.availableVehicleCatalog.contains { $0.id == "aoba-basicneo" })
+        XCTAssertTrue(game.cityEvents.contains { $0.title == "新型車が発売" && $0.detail.contains("BASIC NEO") })
+    }
+
+    func testCatalogMarketInformationChangesReferencePricesByRegion() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let model = VehicleCatalog.all.first(where: { $0.category == .premium })!
+
+        let downtown = game.catalogRetailPrice(for: model, in: .downtown)
+        let industrial = game.catalogRetailPrice(for: model, in: .industrial)
+
+        XCTAssertGreaterThan(downtown, industrial)
+        XCTAssertGreaterThan(game.catalogWholesalePrice(for: model, in: .downtown), 0)
     }
 
     func testVehicleSellerCanRejectDealerLowballOffer() {
