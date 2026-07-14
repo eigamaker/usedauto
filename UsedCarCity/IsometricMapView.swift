@@ -7,6 +7,8 @@ struct IsometricCitySurface: View {
     @Binding var selectedPlot: LandPlot?
     @Binding var selectedFacility: MapFacility?
     let focusRequest: MapFocusRequest?
+    let isExpanded: Bool
+    let toggleExpanded: () -> Void
     @State private var cameraScale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var cameraOffset: CGSize = .zero
@@ -112,7 +114,7 @@ struct IsometricCitySurface: View {
                 .simultaneousGesture(
                     MagnificationGesture()
                         .onChanged { value in
-                            cameraScale = min(3.8, max(1.0, lastScale * value))
+                            cameraScale = min(maxCameraScale, max(minCameraScale, lastScale * value))
                             cameraOffset = constrained(cameraOffset, size: size)
                         }
                         .onEnded { _ in
@@ -125,9 +127,15 @@ struct IsometricCitySurface: View {
                     HStack {
                         Spacer()
                         VStack(spacing: 7) {
-                            CameraButton(icon: "plus.magnifyingglass") { zoom(by: 0.28, size: size) }
-                            CameraButton(icon: "minus.magnifyingglass") { zoom(by: -0.28, size: size) }
-                            CameraButton(icon: "scope") { resetCamera() }
+                            CameraButton(icon: "plus.magnifyingglass", label: "拡大") { zoom(by: 1.45, size: size) }
+                            CameraButton(icon: "minus.magnifyingglass", label: "縮小") { zoom(by: 1 / 1.45, size: size) }
+                            CameraButton(icon: "scope", label: "都市全景に戻す") { resetCamera() }
+                            CameraButton(
+                                icon: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                label: isExpanded ? "通常表示に戻す" : "マップを全面表示"
+                            ) {
+                                withAnimation(.easeInOut(duration: 0.22)) { toggleExpanded() }
+                            }
                         }
                     }
                     Spacer()
@@ -176,11 +184,13 @@ struct IsometricCitySurface: View {
         return CGSize(width: min(maxX, max(-maxX, offset.width)), height: min(maxY, max(-maxY, offset.height)))
     }
 
-    private func zoom(by delta: CGFloat, size: CGSize) {
-        cameraScale = min(3.8, max(1.0, cameraScale + delta))
-        lastScale = cameraScale
-        cameraOffset = constrained(cameraOffset, size: size)
-        lastOffset = cameraOffset
+    private func zoom(by factor: CGFloat, size: CGSize) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            cameraScale = min(maxCameraScale, max(minCameraScale, cameraScale * factor))
+            lastScale = cameraScale
+            cameraOffset = constrained(cameraOffset, size: size)
+            lastOffset = cameraOffset
+        }
     }
 
     private func resetCamera() {
@@ -225,6 +235,9 @@ struct IsometricCitySurface: View {
     private var interfaceScale: CGFloat {
         max(0.30, 1 / cameraScale)
     }
+
+    private var minCameraScale: CGFloat { 0.72 }
+    private var maxCameraScale: CGFloat { 6.0 }
 
     private func competitorStoreType(for plotID: Int) -> StoreType {
         switch plotID % 3 {
@@ -391,6 +404,7 @@ private struct FacilityMapMarker: View {
 
 private struct CameraButton: View {
     let icon: String
+    let label: String
     let action: () -> Void
 
     var body: some View {
@@ -404,14 +418,15 @@ private struct CameraButton: View {
         }
         .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+        .accessibilityLabel(label)
     }
 }
 
 enum IsoProjection {
     static func normalized(_ world: CGPoint) -> CGPoint {
         CGPoint(
-            x: 0.07 + world.x * 0.86,
-            y: 0.13 + world.y * 0.72
+            x: 0.03 + world.x * 0.94,
+            y: 0.08 + world.y * 0.84
         )
     }
 
@@ -439,9 +454,7 @@ private struct IsometricCityCanvas: View {
 
     var body: some View {
         Canvas { context, size in
-            if layer != .normal {
-                drawZones(context: &context, size: size)
-            }
+            drawZones(context: &context, size: size)
         }
     }
 
@@ -489,8 +502,8 @@ private struct IsometricCityCanvas: View {
         for (kind, rect) in zones {
             let district = game.districts.first(where: { $0.kind == kind })
             let path = worldRect(rect, size)
-            context.fill(path, with: .color(zoneColor(kind, district: district).opacity(layer == .normal ? 0.32 : 0.52)))
-            context.stroke(path, with: .color(kind.color.opacity(0.34)), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            context.fill(path, with: .color(zoneColor(kind, district: district).opacity(layer == .normal ? 0.13 : 0.52)))
+            context.stroke(path, with: .color(kind.color.opacity(layer == .normal ? 0.52 : 0.78)), style: StrokeStyle(lineWidth: layer == .normal ? 1.2 : 2, dash: [5, 3]))
         }
     }
 
@@ -759,14 +772,14 @@ private struct DevelopmentMapMarker: View {
                     RoundedRectangle(cornerRadius: 9).stroke(.white, lineWidth: 2).frame(width: 34, height: 34)
                     Image(systemName: "hammer.fill").font(.subheadline.bold()).foregroundStyle(GameTheme.navy)
                 }
-                Text("開発 \(project.monthsRemaining)か月")
+                Text("開発 \(project.monthsRemaining)週間")
                     .font(.system(size: 7, weight: .black)).foregroundStyle(GameTheme.navy)
                     .padding(.horizontal, 5).padding(.vertical, 2).background(Color.yellow).clipShape(Capsule())
             }
         }
         .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.28), radius: 4, y: 3)
-        .accessibilityLabel("\(project.title)、完成まで\(project.monthsRemaining)か月")
+        .accessibilityLabel("\(project.title)、完成まで\(project.monthsRemaining)週間")
     }
 }
 
@@ -852,13 +865,14 @@ private struct IsometricPlotHitTarget: View {
 
     private var playerLabel: String {
         guard let store = game.store(at: plot.id) else { return "自店舗" }
-        if let remaining = store.openingMonthsRemaining { return "建設中 あと\(remaining)か月" }
-        if let remaining = store.renovationMonthsRemaining { return "改装中 あと\(remaining)か月" }
+        if let remaining = store.openingMonthsRemaining { return "建設中 あと\(remaining)週間" }
+        if let remaining = store.renovationMonthsRemaining { return "改装中 あと\(remaining)週間" }
         return layer == .demand ? "客足 \(game.estimatedVisitors(for: plot))人" : store.concept.name
     }
 }
 
 private struct IsoLandmarkLabel: View {
+    @EnvironmentObject private var game: GameEngine
     let landmark: MapLandmark
     let compact: Bool
 
@@ -868,6 +882,9 @@ private struct IsoLandmarkLabel: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(shortTitle).font(.system(size: compact ? 8 : 9, weight: .black))
                 if !compact, let subtitle = landmark.subtitle { Text(subtitle).font(.system(size: 6, weight: .bold)) }
+                Text(marketSummary)
+                    .font(.system(size: compact ? 5.5 : 6, weight: .bold, design: .rounded))
+                    .monospacedDigit()
             }
         }
         .foregroundStyle(landmark.tint)
@@ -889,6 +906,24 @@ private struct IsoLandmarkLabel: View {
         default: landmark.title
         }
     }
+
+    private var districtKind: DistrictKind {
+        switch landmark.id {
+        case "boutique": .downtown
+        case "station": .station
+        case "newtown": .emerging
+        case "residential": .suburb
+        case "factory": .industrial
+        default: .highway
+        }
+    }
+
+    private var marketSummary: String {
+        let rivals = game.competitors.reduce(0) { count, competitor in
+            count + competitor.plotIDs.filter { game.plot(id: $0)?.district == districtKind }.count
+        }
+        return "\(districtKind.shortName) 需要\(game.weeklyBuyerPool(in: districtKind))台/週・競合\(rivals)店"
+    }
 }
 
 private struct IsoTrafficBadge: View {
@@ -896,8 +931,8 @@ private struct IsoTrafficBadge: View {
     let kind: DistrictKind
 
     var body: some View {
-        if let district = game.districts.first(where: { $0.kind == kind }) {
-            Label("\(Int(district.trafficIndex * 70))人", systemImage: "figure.walk.motion")
+        if game.districts.contains(where: { $0.kind == kind }) {
+            Label("購入需要 \(game.weeklyBuyerPool(in: kind))台/週", systemImage: "person.2.fill")
                 .font(.system(size: 7, weight: .black)).foregroundStyle(.blue)
                 .padding(.horizontal, 5).padding(.vertical, 3)
                 .background(.white.opacity(0.92)).clipShape(Capsule())

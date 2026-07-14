@@ -17,7 +17,7 @@ final class GameEngineTests: XCTestCase {
         ))
         let store = game.stores[0]
         for category in game.recommendedCategories(for: plot.district).prefix(2) {
-            XCTAssertTrue(game.buyInventory(category: category, count: 5, storeID: store.id))
+            XCTAssertTrue(game.buyInventory(category: category, count: 2, storeID: store.id))
         }
         game.completeTutorial()
         game.tutorialMessage = nil
@@ -42,7 +42,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.recommendedFoundingPlot?.district, .suburb)
     }
 
-    func testTutorialPerformsBuildPurchasePriceAndFirstSale() {
+    func testTutorialPerformsBuildPurchaseAndFirstNegotiation() {
         let game = GameEngine()
         game.resetGame()
         game.start(plan: .discount)
@@ -58,24 +58,20 @@ final class GameEngineTests: XCTestCase {
         let store = game.stores[0]
         let category = game.recommendedCategories(for: plot.district)[0]
         XCTAssertTrue(game.buyInventory(category: category, count: 3, storeID: store.id))
-        XCTAssertEqual(game.tutorialStep, .setPrice)
-        game.setTutorialPrice(storeID: store.id, priceIndex: 0.92)
         XCTAssertEqual(game.tutorialStep, .runFirstMonth)
 
-        game.advanceMonth()
+        XCTAssertNotNil(game.negotiateManualSale(storeID: store.id, category: category, strategy: .smallDiscount))
+        game.advanceWeek()
 
-        XCTAssertEqual(game.tutorialStep, .reviewFirstResult)
-        XCTAssertEqual(game.reports.count, 1)
-        XCTAssertGreaterThanOrEqual(game.lastReport?.sales ?? 0, 1)
-        game.completeTutorial()
         XCTAssertEqual(game.tutorialStep, .completed)
+        XCTAssertEqual(game.reports.count, 1)
     }
 
-    func testAdvancingMonthCreatesReport() {
+    func testAdvancingWeekCreatesReport() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, plan: .discount)
-        game.advanceMonth()
+        game.advanceWeek()
         XCTAssertEqual(game.turn, 1)
         XCTAssertEqual(game.reports.count, 1)
     }
@@ -104,23 +100,24 @@ final class GameEngineTests: XCTestCase {
         let beforeInventory = store.inventoryCount
         let beforeCash = game.cash
         let item = game.purchaseCases.first!
+        let beforeCases = game.purchaseCases.count
 
         game.inspectPurchaseCase(item.id)
         XCTAssertEqual(game.purchaseCases.first(where: { $0.id == item.id })?.appraisalAccuracy, 96)
         XCTAssertTrue(game.acceptPurchaseCase(item.id))
-        XCTAssertEqual(game.purchaseCases.count, 2)
+        XCTAssertEqual(game.purchaseCases.count, beforeCases - 1)
         XCTAssertEqual(game.stores[0].inventoryCount, beforeInventory + 1)
         XCTAssertLessThan(game.cash, beforeCash)
     }
 
-    func testCityEconomyChangesWhenMonthAdvances() {
+    func testCityEconomyChangesWhenWeekAdvances() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
         let population = game.districts.first(where: { $0.kind == .emerging })!.population
         let landPrice = game.plots[14].price
 
-        game.advanceMonth()
+        game.advanceWeek()
 
         XCTAssertNotEqual(game.districts.first(where: { $0.kind == .emerging })!.population, population)
         XCTAssertNotEqual(game.plots[14].price, landPrice)
@@ -135,14 +132,14 @@ final class GameEngineTests: XCTestCase {
         let population = game.districts.first(where: { $0.kind == .emerging })!.population
         XCTAssertNotNil(game.plots[14].development)
 
-        for _ in 0..<5 { game.advanceMonth() }
+        for _ in 0..<5 { game.advanceWeek() }
 
         XCTAssertNil(game.plots[14].development)
         XCTAssertGreaterThan(game.districts.first(where: { $0.kind == .emerging })!.population, population)
         XCTAssertTrue(game.cityEvents.contains { $0.kind == .development && $0.plotID == 14 && $0.title.contains("完成") })
     }
 
-    func testAuctionBidCreatesInboundShipmentAtMonthEnd() {
+    func testAuctionBidCreatesInboundShipmentAtWeekEnd() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -151,14 +148,14 @@ final class GameEngineTests: XCTestCase {
         let cash = game.cash
 
         XCTAssertTrue(game.reserveBid(listingID: listing.id, storeID: store.id, maxPrice: listing.marketPrice * 2))
-        game.advanceMonth()
+        game.advanceWeek()
 
         XCTAssertFalse(game.bidReservations.contains { $0.listingID == listing.id })
         XCTAssertTrue(game.inboundShipments.contains { $0.source == .auction && $0.category == listing.category })
         XCTAssertLessThan(game.cash, cash)
     }
 
-    func testDealerTradeArrivesAfterOneMonth() {
+    func testDealerTradeArrivesAfterOneWeek() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -166,7 +163,7 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertTrue(game.orderDealerTrade(category: .compact, count: 3, storeID: store.id))
         XCTAssertEqual(game.incomingCount(for: store.id), 3)
-        game.advanceMonth()
+        game.advanceWeek()
 
         XCTAssertEqual(game.incomingCount(for: store.id), 0)
         XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("業者間取引") && $0.contains("到着") }) == true)
@@ -182,7 +179,7 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertTrue(game.consignInventory(storeID: store.id, category: category, count: 1, venue: .east))
         XCTAssertEqual(game.stores[0].inventoryCount, inventory - 1)
-        game.advanceMonth()
+        game.advanceWeek()
 
         XCTAssertTrue(game.auctionConsignments.isEmpty)
         XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("出品車") && $0.contains("成約") }) == true)
@@ -193,6 +190,8 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         startPlayableGame(game)
         var store = game.stores[0]
+        XCTAssertTrue(game.hireManager(for: store.id))
+        store = game.stores[0]
         store.delegateStaff = true
         store.delegatePricing = true
         store.delegateMarketing = true
@@ -201,7 +200,7 @@ final class GameEngineTests: XCTestCase {
         let service = store.serviceAllocation
         game.updateStore(store)
 
-        game.advanceMonth()
+        game.advanceWeek()
 
         XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("店長") }) == true)
         XCTAssertTrue(game.stores[0].advertising != advertising || game.stores[0].serviceAllocation != service)
@@ -212,6 +211,7 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         startPlayableGame(game)
         let store = game.stores[0]
+        game.cash = 10_000
         let cash = game.cash
 
         XCTAssertTrue(game.renovateStore(store.id, to: .roadside))
@@ -220,10 +220,10 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].renovationMonthsRemaining, 2)
         XCTAssertLessThan(game.cash, cash)
 
-        game.advanceMonth()
+        game.advanceWeek()
         XCTAssertEqual(game.stores[0].type, .standard)
         XCTAssertEqual(game.stores[0].renovationMonthsRemaining, 1)
-        game.advanceMonth()
+        game.advanceWeek()
         XCTAssertEqual(game.stores[0].type, .roadside)
         XCTAssertNil(game.stores[0].pendingType)
     }
@@ -249,14 +249,14 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(newStore.type.mapAssetName, "StoreSmall")
         XCTAssertEqual(newStore.openingMonthsRemaining, 1)
 
-        game.advanceMonth()
+        game.advanceWeek()
         XCTAssertNil(game.store(at: plot.id)?.openingMonthsRemaining)
 
         XCTAssertTrue(game.renovateStore(newStore.id, to: .roadside))
         XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreSmall")
         XCTAssertEqual(game.store(at: plot.id)?.pendingType?.mapAssetName, "StoreRoadside")
-        game.advanceMonth()
-        game.advanceMonth()
+        game.advanceWeek()
+        game.advanceWeek()
         XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreRoadside")
 
         game.closeStore(newStore.id)
@@ -282,6 +282,14 @@ final class GameEngineTests: XCTestCase {
         object.removeValue(forKey: "openingMonthsRemaining")
         object.removeValue(forKey: "pendingType")
         object.removeValue(forKey: "renovationMonthsRemaining")
+        object.removeValue(forKey: "managerHired")
+        object.removeValue(forKey: "pendingManualSales")
+        object.removeValue(forKey: "pendingManualRevenue")
+        object.removeValue(forKey: "pendingManualCOGS")
+        object.removeValue(forKey: "pendingManualNegotiations")
+        object.removeValue(forKey: "pendingPurchaseNegotiations")
+        object.removeValue(forKey: "weeklyBuyerArrivals")
+        object.removeValue(forKey: "weeklySellerArrivals")
         let legacyData = try JSONSerialization.data(withJSONObject: object)
 
         let decoded = try JSONDecoder().decode(Store.self, from: legacyData)
@@ -322,9 +330,323 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].inventoryCount, before - 1)
         XCTAssertEqual(game.intercityShipments.count, 1)
 
-        game.advanceMonth()
+        game.advanceWeek()
 
         XCTAssertTrue(game.intercityShipments.isEmpty)
         XCTAssertEqual(game.regionalOperation(for: "shinonome")?.inventoryCount, 1)
+    }
+
+    func testWeekAdvancesCalendarMonthAfterFourTurns() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        XCTAssertEqual(game.month, 4)
+        XCTAssertEqual(game.weekOfMonth, 1)
+
+        for _ in 0..<3 { game.advanceWeek() }
+        XCTAssertEqual(game.month, 4)
+        XCTAssertEqual(game.weekOfMonth, 4)
+
+        game.advanceWeek()
+        XCTAssertEqual(game.month, 5)
+        XCTAssertEqual(game.weekOfMonth, 1)
+    }
+
+    func testOwnerMustSellManuallyUntilManagerIsHired() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        let store = game.stores[0]
+        let category = store.inventory[0].category
+        let inventoryBefore = store.inventoryCount
+        let preview = game.saleNegotiationPreview(storeID: store.id, category: category, strategy: .smallDiscount)
+        XCTAssertNotNil(preview)
+        XCTAssertLessThan(preview?.closeChance ?? 1, 1)
+        let result = game.negotiateManualSale(storeID: store.id, category: category, strategy: .smallDiscount)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(game.stores[0].manualNegotiationsThisWeek, 1)
+        XCTAssertEqual(game.stores[0].inventoryCount, result?.succeeded == true ? inventoryBefore - 1 : inventoryBefore)
+
+        XCTAssertTrue(game.hireManager(for: store.id))
+        var managedStore = game.stores[0]
+        managedStore.delegatePricing = true
+        game.updateStore(managedStore)
+        XCTAssertFalse(game.canSellManually(storeID: store.id))
+    }
+
+    func testDiscountImprovesButNeverGuaranteesCustomerPurchase() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        let store = game.stores[0]
+        let category = store.inventory[0].category
+
+        let hold = game.saleNegotiationPreview(storeID: store.id, category: category, strategy: .holdPrice)
+        let discount = game.saleNegotiationPreview(storeID: store.id, category: category, strategy: .closeDeal)
+        XCTAssertNotNil(hold)
+        XCTAssertNotNil(discount)
+        XCTAssertGreaterThan(discount?.closeChance ?? 0, hold?.closeChance ?? 1)
+        XCTAssertLessThan(discount?.closeChance ?? 1, 1)
+        XCTAssertLessThan(discount?.price ?? 0, hold?.price ?? 0)
+    }
+
+    func testBulkPurchaseCreatesSeparateVehicleRecords() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        let store = game.stores[0]
+        let existingIDs = Set(store.inventory.map(\.id))
+
+        XCTAssertTrue(game.buyInventory(category: .kei, count: 3, storeID: store.id))
+
+        let added = game.stores[0].inventory.filter { !existingIDs.contains($0.id) }
+        XCTAssertEqual(added.count, 3)
+        XCTAssertEqual(Set(added.map(\.id)).count, 3)
+        XCTAssertTrue(added.allSatisfy { $0.count == 1 })
+    }
+
+    func testOneRetailNegotiationCanSellAtMostOneSpecificVehicle() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        let store = game.stores[0]
+        let target = store.inventory[0]
+        let otherIDs = Set(store.inventory.dropFirst().map(\.id))
+        let before = store.inventoryCount
+
+        let result = game.negotiateManualSale(storeID: store.id, inventoryID: target.id, strategy: .closeDeal)
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(game.stores[0].inventoryCount, before - (result?.succeeded == true ? 1 : 0))
+        XCTAssertTrue(otherIDs.isSubset(of: Set(game.stores[0].inventory.map(\.id))))
+        if result?.succeeded == true {
+            XCTAssertFalse(game.stores[0].inventory.contains { $0.id == target.id })
+        }
+    }
+
+    func testEveryDistrictHasCompetitionAndNewStoreDividesFixedDemand() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        for kind in DistrictKind.allCases {
+            XCTAssertTrue(game.competitors.contains { competitor in
+                competitor.plotIDs.contains { game.plot(id: $0)?.district == kind }
+            })
+        }
+
+        game.cash = 100_000
+        let originalStore = game.stores[0]
+        let district = game.plot(id: originalStore.plotID)!.district
+        let originalShare = game.marketShare(for: originalStore)
+        let buyerPool = game.weeklyBuyerPool(in: district)
+        let secondPlot = game.plots.first { plot in
+            guard plot.district == district, plot.development == nil else { return false }
+            if case .available = plot.occupant { return true }
+            return false
+        }!
+        XCTAssertTrue(game.buildStore(on: secondPlot, type: .small, mode: .lease, focus: .value, concept: .custom, loanAmount: 0))
+        XCTAssertEqual(game.store(at: secondPlot.id)?.inventoryCount, 0)
+
+        XCTAssertEqual(game.weeklyBuyerPool(in: district), buyerPool)
+        let playerShare = game.stores
+            .filter { game.plot(id: $0.plotID)?.district == district }
+            .reduce(0.0) { $0 + game.marketShare(for: $1) }
+        let rivalShare = game.competitors.reduce(0.0) { $0 + game.competitorMarketShare($1, in: district) }
+        XCTAssertEqual(playerShare + rivalShare, 1, accuracy: 0.0001)
+
+        game.advanceWeek()
+        XCTAssertLessThan(game.marketShare(for: game.stores[0]), originalShare)
+        for store in game.stores where game.plot(id: store.plotID)?.district == district {
+            XCTAssertTrue(game.hireManager(for: store.id))
+            var delegated = game.stores.first(where: { $0.id == store.id })!
+            delegated.delegatePricing = true
+            game.updateStore(delegated)
+        }
+        let availableBuyers = game.weeklyBuyerPool(in: district)
+        game.advanceWeek()
+        let districtSales = game.stores
+            .filter { game.plot(id: $0.plotID)?.district == district }
+            .reduce(0) { $0 + $1.lastSales }
+        XCTAssertLessThanOrEqual(districtSales, availableBuyers)
+    }
+
+    func testOneWorkerHasFiveSharedBuyAndSellOpportunities() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        XCTAssertEqual(game.stores[0].staff, 1)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 5)
+        XCTAssertTrue(game.buyInventory(category: .kei, count: 6, storeID: storeID))
+
+        let purchaseCase = game.purchaseCases.first!
+        switch game.negotiatePurchaseCase(purchaseCase.id, offerPercent: 100) {
+        case .unavailable: XCTFail("The first purchase negotiation should use one opportunity")
+        case .purchased, .rejected: break
+        }
+        XCTAssertEqual(game.stores[0].purchaseNegotiationsThisWeek, 1)
+
+        game.buyerLeads = (0..<5).map { offset in
+            BuyerLead(
+                id: UUID(), storeID: storeID, desiredCategory: .kei,
+                budget: 200 + offset, minimumQuality: 0.5,
+                priceSensitivity: 1, generatedTurn: game.turn
+            )
+        }
+        for _ in 0..<4 {
+            let lead = game.buyerLeads.first!
+            let inventory = game.stores[0].inventory.first!
+            XCTAssertNotNil(game.negotiateManualSale(
+                storeID: storeID,
+                buyerLeadID: lead.id,
+                inventoryID: inventory.id,
+                strategy: .smallDiscount
+            ))
+        }
+
+        XCTAssertEqual(game.stores[0].usedOpportunitiesThisWeek, 5)
+        XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 0)
+        let extraLead = game.buyerLeads.first!
+        let extraInventory = game.stores[0].inventory.first!
+        XCTAssertNil(game.negotiateManualSale(
+            storeID: storeID,
+            buyerLeadID: extraLead.id,
+            inventoryID: extraInventory.id,
+            strategy: .closeDeal
+        ))
+    }
+
+    func testThreeWorkersCannotCreateCustomersWhenOnlyOneArrives() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        let storeID = game.stores[0].id
+        game.stores[0].staff = 3
+        game.buyerLeads = [
+            BuyerLead(
+                id: UUID(), storeID: storeID,
+                desiredCategory: game.stores[0].inventory[0].category,
+                budget: 300, minimumQuality: 0.5,
+                priceSensitivity: 1, generatedTurn: game.turn
+            )
+        ]
+
+        let lead = game.buyerLeads[0]
+        let inventory = game.stores[0].inventory[0]
+        XCTAssertNotNil(game.negotiateManualSale(
+            storeID: storeID,
+            buyerLeadID: lead.id,
+            inventoryID: inventory.id,
+            strategy: .smallDiscount
+        ))
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 15)
+        XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 14)
+        XCTAssertFalse(game.canSellManually(storeID: storeID))
+    }
+
+    func testDelegatingPricingPreventsOwnerFromHandlingTheSameCustomers() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let purchaseCase = game.purchaseCases.first!
+
+        XCTAssertTrue(game.hireManager(for: storeID))
+        var store = game.stores[0]
+        store.delegatePricing = true
+        game.updateStore(store)
+
+        XCTAssertFalse(game.canNegotiatePurchaseCase(purchaseCase.id))
+        if case .unavailable = game.negotiatePurchaseCase(purchaseCase.id, offerPercent: 100) {
+            // The manager owns delegated customer negotiations until the week is processed.
+        } else {
+            XCTFail("The owner should not handle a purchase case delegated to the manager")
+        }
+        XCTAssertFalse(game.canSellManually(storeID: storeID))
+    }
+
+    func testAdvertisingAndReputationRaiseShareWithoutCreatingRegionalDemand() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        var store = game.stores[0]
+        let district = game.plot(id: store.plotID)!.district
+        let regionalDemand = game.weeklyBuyerPool(in: district)
+        let originalShare = game.marketShare(for: store)
+
+        store.advertising = 500
+        store.reputation = 1.1
+        game.updateStore(store)
+
+        XCTAssertGreaterThan(game.marketShare(for: game.stores[0]), originalShare)
+        XCTAssertEqual(game.weeklyBuyerPool(in: district), regionalDemand)
+    }
+
+    func testNormalWeeksCanProduceZeroOrOneVisitorAtAStore() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        var observedQuietWeek = false
+
+        for _ in 0..<40 {
+            game.advanceWeek()
+            let store = game.stores[0]
+            if store.buyerArrivalsThisWeek + store.sellerArrivalsThisWeek <= 1 {
+                observedQuietWeek = true
+                break
+            }
+        }
+
+        XCTAssertTrue(observedQuietWeek)
+    }
+
+    func testStoreTrafficLevelVisuallyTracksWeeklyVisitors() {
+        XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 0), .quiet)
+        XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 1), .light)
+        XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 4), .steady)
+        XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 8), .busy)
+        XCTAssertEqual(StoreTrafficLevel.from(visitorCount: 12), .packed)
+    }
+
+    func testVehicleSellerCanRejectDealerLowballOffer() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let item = game.purchaseCases[0]
+        let fullOffer = game.purchaseNegotiationPreview(item.id, offerPercent: 100)
+        let lowOffer = game.purchaseNegotiationPreview(item.id, offerPercent: 88)
+
+        XCTAssertGreaterThan(fullOffer?.closeChance ?? 0, lowOffer?.closeChance ?? 1)
+        XCTAssertLessThan(fullOffer?.closeChance ?? 1, 1)
+        XCTAssertLessThan(lowOffer?.price ?? 0, fullOffer?.price ?? 0)
+    }
+
+    func testNewGameUsesConstrainedStartingCapital() {
+        let game = GameEngine()
+        game.resetGame()
+        game.startNewGame()
+
+        XCTAssertEqual(game.cash, 6_500)
+        XCTAssertEqual(game.debt, 3_000)
+        XCTAssertEqual(game.weekOfMonth, 1)
+        XCTAssertLessThan(game.cash, 10_000)
+    }
+
+    func testReturnToTitlePreservesSaveAndLoadRestoresIt() {
+        let game = GameEngine()
+        game.resetGame()
+        game.startNewGame()
+        game.cash = 6_123
+
+        game.returnToTitle()
+        XCTAssertFalse(game.hasStarted)
+        XCTAssertTrue(game.hasSaveData)
+
+        game.cash = 1
+        game.loadGame()
+        XCTAssertTrue(game.hasStarted)
+        XCTAssertEqual(game.cash, 6_123)
     }
 }

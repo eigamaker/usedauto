@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var game: GameEngine
+    @AppStorage("settings.showTutorialHints") private var showTutorialHints = true
+    @State private var isMapExpanded = false
 
     var body: some View {
         Group {
@@ -25,8 +27,11 @@ struct RootView: View {
                 ZStack(alignment: .top) {
                     GameTheme.cream.ignoresSafeArea()
                     VStack(spacing: 0) {
-                        GameHeader()
-                        CityMapView()
+                        if !isMapExpanded {
+                            GameHeader()
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                        CityMapView(isExpanded: $isMapExpanded)
                     }
                 }
                 .sheet(isPresented: $game.showMonthlyReport) {
@@ -36,7 +41,7 @@ struct RootView: View {
                     GameEndView()
                 }
                 .overlay(alignment: .top) {
-                    if let message = game.tutorialMessage {
+                    if showTutorialHints, let message = game.tutorialMessage {
                         TutorialBanner(message: message) { game.tutorialMessage = nil }
                             .padding(.horizontal, 12)
                             .padding(.top, 78)
@@ -48,20 +53,26 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: game.hasStarted)
+        .animation(.easeInOut(duration: 0.22), value: isMapExpanded)
+        .onChange(of: game.hasStarted) { _, hasStarted in
+            if !hasStarted { isMapExpanded = false }
+        }
     }
 }
 
 private struct GameHeader: View {
     @EnvironmentObject private var game: GameEngine
+    @AppStorage("settings.confirmWeeklyAdvance") private var confirmWeeklyAdvance = true
     @State private var confirmAdvance = false
+    @State private var showSettings = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(String(game.year))年 \(game.month)月")
+                Text("\(String(game.year))年 \(game.month)月 第\(game.weekOfMonth)週")
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(.white)
-                Text("\(game.turn + 1) / 120か月")
+                Text("\(game.turn + 1) / \(game.maxTurns)週")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.65))
             }
@@ -74,14 +85,19 @@ private struct GameHeader: View {
                     .font(.subheadline.bold().monospacedDigit())
                     .foregroundStyle(game.cash < 0 ? Color.red.opacity(0.9) : .white)
             }
-            Button { confirmAdvance = true } label: {
+            Button {
+                if confirmWeeklyAdvance { confirmAdvance = true }
+                else { game.advanceWeek() }
+            } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "play.fill")
-                    Text("月を進める")
+                    Text("1週間進める")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                 }
                 .font(.subheadline.bold())
                 .foregroundStyle(GameTheme.ink)
-                .padding(.horizontal, 13)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 10)
                 .background(GameTheme.mint)
                 .clipShape(Capsule())
@@ -94,15 +110,30 @@ private struct GameHeader: View {
             }
             .disabled(game.isTutorialActive && game.tutorialStep != .runFirstMonth)
             .opacity(game.isTutorialActive && game.tutorialStep != .runFirstMonth ? 0.48 : 1)
+            Button { showSettings = true } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.subheadline.bold())
+                    Text("設定")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 40)
+                .contentShape(Rectangle())
+            }
+            .accessibilityLabel("ゲーム設定")
         }
-        .padding(.horizontal, 15)
+        .padding(.horizontal, 10)
         .padding(.vertical, 10)
         .background(GameTheme.navy)
-        .confirmationDialog("設定した方針で1か月進めますか？", isPresented: $confirmAdvance, titleVisibility: .visible) {
-            Button("\(game.year)年\(game.month)月を実行") { game.advanceMonth() }
+        .confirmationDialog("現在の方針で1週間進めますか？", isPresented: $confirmAdvance, titleVisibility: .visible) {
+            Button("\(game.year)年\(game.month)月 第\(game.weekOfMonth)週を実行") { game.advanceWeek() }
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("仕入・価格・広告など、現在の設定を使って販売結果を計算します。")
+        }
+        .sheet(isPresented: $showSettings) {
+            GameSettingsView()
         }
     }
 }
@@ -154,6 +185,76 @@ struct TutorialCoachCard: View {
                 .stroke(GameTheme.orange.opacity(0.55), lineWidth: 1.5)
         }
         .shadow(color: GameTheme.ink.opacity(0.13), radius: 9, y: 4)
+    }
+}
+
+private struct GameSettingsView: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("settings.confirmWeeklyAdvance") private var confirmWeeklyAdvance = true
+    @AppStorage("settings.autoShowWeeklyReport") private var autoShowWeeklyReport = true
+    @AppStorage("settings.showTutorialHints") private var showTutorialHints = true
+    @State private var confirmRestart = false
+    @State private var confirmDelete = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("ゲーム進行") {
+                    Toggle("週を進める前に確認", isOn: $confirmWeeklyAdvance)
+                    Toggle("週間レポートを自動表示", isOn: $autoShowWeeklyReport)
+                    Toggle("チュートリアル案内を表示", isOn: $showTutorialHints)
+                }
+
+                Section("現在のゲーム") {
+                    LabeledContent("日時", value: "\(game.year)年\(game.month)月 第\(game.weekOfMonth)週")
+                    LabeledContent("経過", value: "\(game.turn)週間")
+                    LabeledContent("現金", value: game.cash.currency)
+                    Button {
+                        dismiss()
+                        game.returnToTitle()
+                    } label: {
+                        Label("セーブしてタイトルへ戻る", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) { confirmRestart = true } label: {
+                        Label("ゲームを最初からやり直す", systemImage: "arrow.counterclockwise")
+                    }
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        Label("セーブを削除してタイトルへ", systemImage: "trash")
+                    }
+                } header: {
+                    Text("セーブデータ")
+                } footer: {
+                    Text("やり直すと現在の進行状況は上書きされます。")
+                }
+            }
+            .navigationTitle("設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完了") { dismiss() }
+                }
+            }
+            .confirmationDialog("最初からやり直しますか？", isPresented: $confirmRestart, titleVisibility: .visible) {
+                Button("新しいゲームを開始", role: .destructive) {
+                    dismiss()
+                    game.startNewGame()
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("現在のセーブデータは上書きされます。")
+            }
+            .confirmationDialog("セーブデータを削除しますか？", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("削除してタイトルへ", role: .destructive) {
+                    dismiss()
+                    game.resetGame()
+                }
+                Button("キャンセル", role: .cancel) {}
+            }
+        }
     }
 }
 

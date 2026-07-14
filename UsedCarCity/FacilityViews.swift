@@ -72,7 +72,7 @@ enum MapFacility: String, CaseIterable, Identifiable {
         case .bank: "借入 \(game.debt.currency)"
         case .realEstate: "売地 \(game.plots.filter { if case .available = $0.occupant { true } else { false } }.count)件"
         case .workshop: "整備提携受付中"
-        case .advertising: "今月の広告枠あり"
+        case .advertising: "今週の広告枠あり"
         case .recruiting: "候補者12名"
         case .cityHall: "補助金1件"
         }
@@ -222,10 +222,10 @@ private struct AuctionContent: View {
                 MetricView(title: "得意車種", value: venue.specialty)
                 MetricView(title: "手数料", value: venue.fee.currency)
                 MetricView(title: "陸送", value: venue.shippingCost.currency)
-                MetricView(title: "入庫", value: "\(venue.shippingMonths)か月後", tint: venue.tint)
+                MetricView(title: "入庫", value: "\(venue.shippingMonths)週間後", tint: venue.tint)
             }.gameCard()
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "出品車両・上限入札", subtitle: "月末にAI競合と入札し、上限内なら落札")
+                SectionTitle(title: "出品車両・上限入札", subtitle: "次の週間処理で競合と入札し、上限内なら落札")
                 if let store = selectedStore {
                     ForEach(listings.prefix(7)) { listing in
                         AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
@@ -240,11 +240,11 @@ private struct AuctionContent: View {
                         HStack {
                             Label(category.name, systemImage: category.icon).font(.subheadline.bold())
                             Spacer()
-                            Button("業販3台・1か月") {
-                                message = game.orderDealerTrade(category: category, count: 3, storeID: store.id) ? "業販で\(category.name)3台を発注しました" : "資金または入庫枠が不足しています"
+                            Button("業販3台・1週間") {
+                                message = game.orderDealerTrade(category: category, count: 3, storeID: store.id) ? "業販で\(category.name)3台を発注しました。到着後は個別在庫になります" : "資金または入庫枠が不足しています"
                             }.buttonStyle(.bordered).tint(.teal)
-                            Button("法人5台・2か月") {
-                                message = game.orderFleetPurchase(category: category, count: 5, storeID: store.id) ? "法人一括で\(category.name)5台を発注しました" : "資金または入庫枠が不足しています"
+                            Button("法人5台・2週間") {
+                                message = game.orderFleetPurchase(category: category, count: 5, storeID: store.id) ? "法人一括で\(category.name)5台を発注しました。到着後は個別在庫になります" : "資金または入庫枠が不足しています"
                             }.buttonStyle(.bordered).tint(.orange)
                         }
                     }
@@ -254,12 +254,12 @@ private struct AuctionContent: View {
                     ForEach(store.inventory.filter { $0.count > 0 }) { batch in
                         HStack {
                             VStack(alignment: .leading) {
-                                Text(batch.category.name).font(.subheadline.bold())
-                                Text("在庫\(batch.count)台・簿価\(batch.averageCost.currency)/台").font(.caption).foregroundStyle(.secondary)
+                                Text("\(batch.category.name) #\(batch.id.uuidString.prefix(4).uppercased())").font(.subheadline.bold())
+                                Text("個別在庫・簿価\(batch.averageCost.currency)・品質\(Int(batch.quality * 100))").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("1台出品") {
-                                message = game.consignInventory(storeID: store.id, category: batch.category, count: 1, venue: venue) ? "\(venue.name)へ1台出品しました" : "出品できませんでした"
+                                message = game.consignInventory(storeID: store.id, inventoryID: batch.id, venue: venue) ? "\(venue.name)へ1台出品しました" : "出品できませんでした"
                             }.buttonStyle(.bordered).tint(venue.tint)
                         }
                     }
@@ -267,12 +267,12 @@ private struct AuctionContent: View {
             }
             if !game.inboundShipments.isEmpty || !game.auctionConsignments.isEmpty {
                 VStack(alignment: .leading, spacing: 9) {
-                    SectionTitle(title: "進行中", subtitle: "入庫と出品成約は月次処理で進みます")
+                    SectionTitle(title: "進行中", subtitle: "入庫と出品成約は週間処理で進みます")
                     ForEach(game.inboundShipments) { shipment in
-                        FacilityRow("\(shipment.source.name)・\(shipment.category.name) \(shipment.count)台", "あと\(shipment.monthsRemaining)か月", tint: .blue)
+                        FacilityRow("\(shipment.source.name)・\(shipment.category.name) \(shipment.count)台", "あと\(shipment.monthsRemaining)週間", tint: .blue)
                     }
                     ForEach(game.auctionConsignments) { order in
-                        FacilityRow("出品中・\(order.category.name) \(order.count)台", "成約まで\(order.monthsRemaining)か月", tint: venue.tint)
+                        FacilityRow("出品中・\(order.category.name) \(order.count)台", "成約まで\(order.monthsRemaining)週間", tint: venue.tint)
                     }
                 }.gameCard()
             }
@@ -407,7 +407,7 @@ private struct CityHallContent: View {
             SectionTitle(title: "税金・補助金・許認可")
             Label("中古車品質認証：有効", systemImage: "checkmark.seal.fill").foregroundStyle(GameTheme.teal)
             Label("整備設備導入補助金：申請可能", systemImage: "yensign.circle.fill").foregroundStyle(.blue)
-            Label("次回法人税納付：3か月後", systemImage: "calendar").foregroundStyle(.secondary)
+            Label("次回法人税納付：12週間後", systemImage: "calendar").foregroundStyle(.secondary)
             Text("EV設備と環境規制は事業規模の拡大後に解放されます。").font(.caption).foregroundStyle(.secondary)
         }.gameCard()
     }

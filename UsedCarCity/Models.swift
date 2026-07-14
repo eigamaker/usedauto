@@ -66,9 +66,8 @@ enum TutorialStep: String, Codable, CaseIterable, Identifiable {
         case .chooseLocation: 1
         case .buildStore: 2
         case .purchaseInventory: 3
-        case .setPrice: 4
-        case .runFirstMonth, .reviewFirstResult: 5
-        case .completed: 5
+        case .setPrice, .runFirstMonth: 4
+        case .reviewFirstResult, .completed: 5
         }
     }
 
@@ -79,8 +78,8 @@ enum TutorialStep: String, Codable, CaseIterable, Identifiable {
         case .chooseLocation: "創業地を選ぶ"
         case .buildStore: "店舗を計画する"
         case .purchaseInventory: "販売車を仕入れる"
-        case .setPrice: "販売価格を決める"
-        case .runFirstMonth: "最初の1か月を営業する"
+        case .setPrice: "最初の販売商談"
+        case .runFirstMonth: "最初の1週間を営業する"
         case .reviewFirstResult: "経営結果を確認する"
         case .completed: "チュートリアル完了"
         }
@@ -89,10 +88,10 @@ enum TutorialStep: String, Codable, CaseIterable, Identifiable {
     var instruction: String {
         switch self {
         case .chooseLocation: "光っている候補地をタップ。客層、交通量、賃料を比べて最初の店を置く場所を選びましょう。"
-        case .buildStore: "選んだ土地の詳細から出店計画へ進み、取得方法・店舗タイプ・狙う客層を決めて契約します。"
+        case .buildStore: "選んだ土地の詳細から出店計画へ進み、取得方法・店舗タイプ・資金計画を決めて契約します。運営方針は店長採用後に設定できます。"
         case .purchaseInventory: "店舗画面で地域需要を確認し、売りたい車種を3台仕入れましょう。支払った金額と在庫が本番データに反映されます。"
-        case .setPrice: "仕入れた車の販売方針を選びます。安くすれば売れやすく、高くすれば1台あたりの利益が増えます。"
-        case .runFirstMonth: "右上の「月を進める」を押すと、設定した在庫と価格で来客・販売・利益が計算されます。"
+        case .setPrice: "店舗の店頭販売から1台を選び、お客様との値下げ交渉を始めましょう。"
+        case .runFirstMonth: "店舗の「店頭販売」で値引き幅を選んで商談し、右上の「1週間進める」を押して最初の結果を確定しましょう。商談は不成立になることもあります。"
         case .reviewFirstResult: "販売台数、売上、営業利益と、その数字になった理由を確認しましょう。"
         case .completed: "ここからは自由経営です。街の変化を見ながら会社を育ててください。"
         }
@@ -146,6 +145,65 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .budget: 52
         }
     }
+}
+
+enum SaleNegotiationStrategy: String, CaseIterable, Identifiable {
+    case holdPrice
+    case smallDiscount
+    case closeDeal
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .holdPrice: "価格を維持"
+        case .smallDiscount: "3%値引き"
+        case .closeDeal: "7%値引き"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .holdPrice: "粗利優先・離脱しやすい"
+        case .smallDiscount: "粗利と成約率のバランス"
+        case .closeDeal: "成約優先・粗利は下がる"
+        }
+    }
+    var discountRate: Double {
+        switch self {
+        case .holdPrice: 0
+        case .smallDiscount: 0.03
+        case .closeDeal: 0.07
+        }
+    }
+    var baseCloseChance: Double {
+        switch self {
+        case .holdPrice: 0.32
+        case .smallDiscount: 0.56
+        case .closeDeal: 0.76
+        }
+    }
+}
+
+struct SaleNegotiationResult {
+    let succeeded: Bool
+    let salePrice: Int
+    let grossProfit: Int
+    let closeChance: Double
+}
+
+struct BuyerLead: Identifiable, Codable, Hashable {
+    let id: UUID
+    let storeID: UUID
+    let desiredCategory: VehicleCategory
+    let budget: Int
+    let minimumQuality: Double
+    let priceSensitivity: Double
+    let generatedTurn: Int
+}
+
+enum PurchaseNegotiationOutcome {
+    case purchased(price: Int)
+    case rejected(walkedAway: Bool)
+    case unavailable
 }
 
 struct NationalCity: Identifiable, Hashable {
@@ -328,6 +386,44 @@ enum AcquisitionMode: String, Codable, CaseIterable, Identifiable {
     case purchase, lease
     var id: String { rawValue }
     var name: String { self == .purchase ? "購入" : "賃借" }
+}
+
+enum StoreTrafficLevel: Int, CaseIterable, Equatable {
+    case quiet
+    case light
+    case steady
+    case busy
+    case packed
+
+    static func from(visitorCount: Int) -> StoreTrafficLevel {
+        switch max(0, visitorCount) {
+        case 0: .quiet
+        case 1...2: .light
+        case 3...5: .steady
+        case 6...9: .busy
+        default: .packed
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .quiet: "閑散"
+        case .light: "ゆっくり"
+        case .steady: "通常"
+        case .busy: "にぎわい"
+        case .packed: "混雑"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .quiet: "moon.zzz.fill"
+        case .light: "person.fill"
+        case .steady: "person.2.fill"
+        case .busy: "person.3.fill"
+        case .packed: "figure.walk.motion"
+        }
+    }
 }
 
 enum MapLayer: String, CaseIterable, Identifiable {
@@ -554,8 +650,16 @@ struct Store: Identifiable, Codable, Hashable {
     var openingMonthsRemaining: Int?
     var pendingType: StoreType?
     var renovationMonthsRemaining: Int?
+    var managerHired: Bool?
+    var pendingManualSales: Int?
+    var pendingManualRevenue: Int?
+    var pendingManualCOGS: Int?
+    var pendingManualNegotiations: Int?
+    var pendingPurchaseNegotiations: Int?
+    var weeklyBuyerArrivals: Int?
+    var weeklySellerArrivals: Int?
 
-    init(name: String, plotID: Int, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 4, openingMonthsRemaining: Int? = nil) {
+    init(name: String, plotID: Int, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 1, openingMonthsRemaining: Int? = nil) {
         id = UUID()
         self.name = name
         self.plotID = plotID
@@ -581,11 +685,30 @@ struct Store: Identifiable, Codable, Hashable {
         self.openingMonthsRemaining = openingMonthsRemaining
         pendingType = nil
         renovationMonthsRemaining = nil
+        managerHired = false
+        pendingManualSales = 0
+        pendingManualRevenue = 0
+        pendingManualCOGS = 0
+        pendingManualNegotiations = 0
+        pendingPurchaseNegotiations = 0
+        weeklyBuyerArrivals = 0
+        weeklySellerArrivals = 0
     }
 
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
     var isOperational: Bool { openingMonthsRemaining == nil }
     var isRenovating: Bool { pendingType != nil && renovationMonthsRemaining != nil }
+    var hasManager: Bool {
+        managerHired ?? (delegateStaff || delegatePricing || delegateMarketing || delegateService)
+    }
+    var manualSalesThisWeek: Int { pendingManualSales ?? 0 }
+    var manualNegotiationsThisWeek: Int { pendingManualNegotiations ?? 0 }
+    var purchaseNegotiationsThisWeek: Int { pendingPurchaseNegotiations ?? 0 }
+    var buyerArrivalsThisWeek: Int { weeklyBuyerArrivals ?? 0 }
+    var sellerArrivalsThisWeek: Int { weeklySellerArrivals ?? 0 }
+    var weeklyVisitorCount: Int { buyerArrivalsThisWeek + sellerArrivalsThisWeek }
+    var trafficLevel: StoreTrafficLevel { .from(visitorCount: weeklyVisitorCount) }
+    var usedOpportunitiesThisWeek: Int { manualNegotiationsThisWeek + purchaseNegotiationsThisWeek }
     var visualTier: Int {
         let profitTier = lastProfit >= 500 ? 2 : lastProfit >= 120 ? 1 : 0
         let reputationTier = reputation >= 0.95 ? 1 : 0
@@ -615,6 +738,7 @@ struct MonthlyReport: Identifiable, Codable, Hashable {
     let id: UUID
     let year: Int
     let month: Int
+    var week: Int?
     let sales: Int
     let revenue: Int
     let grossProfit: Int
@@ -640,9 +764,11 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let expectedDays: Int
     let demand: Double
     var appraisalAccuracy: Int
+    var negotiationAttempts: Int?
 
     var expectedGrossProfit: Int { expectedSalePrice - askingPrice - repairCost }
     var conditionScore: Int { (exterior + interior + mechanical) / 3 }
+    var negotiations: Int { negotiationAttempts ?? 0 }
 }
 
 enum StartupPlan: String, Codable, CaseIterable, Identifiable {
@@ -659,7 +785,7 @@ enum StartupPlan: String, Codable, CaseIterable, Identifiable {
         }
     }
     var icon: String { switch self { case .family: "figure.2.and.child.holdinghands"; case .discount: "tag.fill"; case .quality: "sparkles" } }
-    var startingCash: Int { switch self { case .family: 28_000; case .discount: 33_000; case .quality: 25_000 } }
+    var startingCash: Int { 6_500 }
     var recommendedDistrict: DistrictKind { switch self { case .family: .suburb; case .discount: .industrial; case .quality: .downtown } }
     var recommendedStoreType: StoreType { switch self { case .family: .standard; case .discount: .small; case .quality: .premium } }
     var recommendedFocus: CustomerFocus { switch self { case .family: .family; case .discount: .value; case .quality: .affluent } }

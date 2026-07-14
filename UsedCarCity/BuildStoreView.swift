@@ -7,25 +7,9 @@ struct BuildStoreView: View {
     @State private var step = 0
     @State private var mode: AcquisitionMode = .lease
     @State private var type: StoreType = .standard
-    @State private var focus: CustomerFocus = .family
-    @State private var concept: StoreConcept = .general
     @State private var loan = 0
     @State private var completed = false
     @State private var foundingBuildCompleted = false
-    @State private var appliedStartupDefaults = false
-
-    init(plot: LandPlot) {
-        self.plot = plot
-        let recommended: StoreConcept
-        switch plot.district {
-        case .downtown: recommended = .premium
-        case .suburb, .station: recommended = .keiLocal
-        case .industrial: recommended = .custom
-        case .emerging: recommended = .family
-        case .highway: recommended = .business
-        }
-        _concept = State(initialValue: recommended)
-    }
 
     private var landCost: Int { mode == .purchase ? plot.price : plot.monthlyRent * 6 }
     private var total: Int { landCost + type.buildCost }
@@ -34,7 +18,7 @@ struct BuildStoreView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ProgressView(value: Double(step + 1), total: 4).tint(GameTheme.teal).padding()
+                ProgressView(value: Double(step + 1), total: 3).tint(GameTheme.teal).padding()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         if game.tutorialStep == .buildStore {
@@ -43,27 +27,26 @@ struct BuildStoreView: View {
                         Text(stepTitle).font(.title2.bold()).foregroundStyle(GameTheme.ink)
                         if step == 0 { acquisitionStep }
                         if step == 1 { storeTypeStep }
-                        if step == 2 { focusStep }
-                        if step == 3 { forecastStep }
+                        if step == 2 { forecastStep }
                     }
                     .padding(18)
                 }
                 HStack(spacing: 12) {
                     if step > 0 { Button("戻る") { step -= 1 }.buttonStyle(.bordered) }
-                    Button(step == 3 ? "契約して出店" : "次へ") {
-                        if step < 3 { step += 1 }
+                    Button(step == 2 ? "契約して出店" : "次へ") {
+                        if step < 2 { step += 1 }
                         else { completeBuild() }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(GameTheme.teal)
                     .frame(maxWidth: .infinity)
-                    .disabled(step == 3 && game.cash + loan < total)
+                    .disabled(step == 2 && game.cash + loan < total)
                 }
                 .padding()
                 .background(.white)
             }
             .background(GameTheme.cream)
-            .navigationTitle("出店計画 \(step + 1)/4")
+            .navigationTitle("出店計画 \(step + 1)/3")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
             .alert(foundingBuildCompleted ? "創業店がオープンしました" : "新店舗の建設を開始しました", isPresented: $completed) {
@@ -72,14 +55,13 @@ struct BuildStoreView: View {
                 if foundingBuildCompleted {
                     Text("\(plot.district.shortName)地区の居抜き物件に\(type.name)を開業しました。在庫はまだ0台です。次は店舗画面から販売車を仕入れましょう。")
                 } else {
-                    Text("\(plot.district.shortName)地区で\(type.name)を着工しました。完成まで\(type.constructionMonths)か月です。マップ上で工事の進行を確認できます。")
+                    Text("\(plot.district.shortName)地区で\(type.name)を着工しました。完成まで\(type.constructionMonths)週間です。マップ上で工事の進行を確認できます。")
                 }
             }
-            .onAppear { applyStartupDefaultsIfNeeded() }
         }
     }
 
-    private var stepTitle: String { ["土地の使い方", "店舗タイプ", "狙う客層", "収支予測と資金"][step] }
+    private var stepTitle: String { ["土地の使い方", "店舗タイプ", "収支予測と資金"][step] }
 
     private var acquisitionStep: some View {
         VStack(spacing: 12) {
@@ -93,35 +75,18 @@ struct BuildStoreView: View {
     private var storeTypeStep: some View {
         VStack(spacing: 10) {
             ForEach(StoreType.allCases) { item in
-                ChoiceCard(title: item.name, subtitle: "展示\(item.capacity)台・工期\(item.constructionMonths)か月・建設 \(item.buildCost.currency)・固定費 \(item.monthlyFixedCost.currency)/月", icon: item.icon, selected: type == item) { type = item }
-            }
-        }
-    }
-
-    private var focusStep: some View {
-        VStack(spacing: 10) {
-            Text("店舗の魅力は立地とコンセプトで変わります。この地区で作る店の強みを選びましょう。")
-                .font(.subheadline).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("店舗コンセプト").font(.headline)
-                ForEach(StoreConcept.allCases) { item in
-                    ChoiceCard(title: item.name, subtitle: item.summary, icon: item.icon, selected: concept == item) { concept = item }
-                }
-            }
-            Text("狙う客層").font(.headline).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-            ForEach(CustomerFocus.allCases) { item in
-                ChoiceCard(title: item.name, subtitle: focusDescription(item), icon: "person.crop.circle", selected: focus == item) { focus = item }
+                ChoiceCard(title: item.name, subtitle: "展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)・固定費 \(item.monthlyFixedCost.currency)/月", icon: item.icon, selected: type == item) { type = item }
             }
         }
     }
 
     private var forecastStep: some View {
         VStack(spacing: 14) {
-            let sales = game.estimatedSales(for: plot, type: type, focus: focus, concept: concept)
+            let sales = game.estimatedSales(for: plot, type: type, focus: .family, concept: .general)
             VStack(alignment: .leading, spacing: 14) {
-                SectionTitle(title: "標準シナリオ", subtitle: "予測値は競合や景気で変動します")
+                SectionTitle(title: "標準シナリオ", subtitle: "店長採用前はオーナー直営・方針設定なしで試算")
                 HStack { MetricView(title: "初期投資", value: total.currency); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
-                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)か月") }
+                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
                 Divider()
                 ScenarioRow(name: "最悪", sales: max(1, sales.lowerBound - 3), profit: (sales.lowerBound - 3) * 32 - type.monthlyFixedCost - (mode == .lease ? plot.monthlyRent : 0), color: GameTheme.danger)
                 ScenarioRow(name: "標準", sales: (sales.lowerBound + sales.upperBound) / 2, profit: ((sales.lowerBound + sales.upperBound) / 2) * 32 - type.monthlyFixedCost - (mode == .lease ? plot.monthlyRent : 0), color: GameTheme.teal)
@@ -139,24 +104,12 @@ struct BuildStoreView: View {
         }
     }
 
-    private func focusDescription(_ focus: CustomerFocus) -> String {
-        switch focus { case .family: "保証・整備品質・ミニバンを重視"; case .value: "安さと維持費を重視"; case .young: "コンパクトさとデザインを重視"; case .affluent: "ブランドと車両状態を重視"; case .business: "稼働率と商用性を重視" }
-    }
-
     private func completeBuild() {
         let isFounding = game.stores.isEmpty && game.tutorialStep == .buildStore
-        if game.buildStore(on: plot, type: type, mode: mode, focus: focus, concept: concept, loanAmount: loan) {
+        if game.buildStore(on: plot, type: type, mode: mode, focus: .family, concept: .general, loanAmount: loan) {
             foundingBuildCompleted = isFounding
             completed = true
         }
-    }
-
-    private func applyStartupDefaultsIfNeeded() {
-        guard !appliedStartupDefaults, game.stores.isEmpty, let plan = game.startupPlan else { return }
-        appliedStartupDefaults = true
-        type = plan.recommendedStoreType
-        focus = plan.recommendedFocus
-        concept = plan.recommendedConcept
     }
 }
 

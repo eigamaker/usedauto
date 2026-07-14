@@ -32,7 +32,7 @@ private struct CompanyScoreCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) { Text("翠浜ユーズドカー").font(.title3.bold()); Text("経営 \(game.turn + 1)か月目").font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 3) { Text("翠浜ユーズドカー").font(.title3.bold()); Text("経営 \(game.turn + 1)週目").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 CapsuleLabel(text: rank, color: GameTheme.teal, icon: "trophy.fill")
             }
@@ -51,7 +51,7 @@ private struct TutorialProgressCard: View {
     let features = ["仕入", "価格設定", "整備", "広告", "人員配置", "財務", "出店"]
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "経営機能", subtitle: "最初の6か月で段階的に解放")
+            SectionTitle(title: "経営機能", subtitle: "最初の6週間で段階的に解放")
             ForEach(features, id: \.self) { feature in
                 HStack {
                     Image(systemName: game.unlockedFeatures.contains(feature) ? "checkmark.circle.fill" : "lock.circle.fill").foregroundStyle(game.unlockedFeatures.contains(feature) ? GameTheme.teal : .gray.opacity(0.5))
@@ -87,13 +87,13 @@ private struct RecentReportsCard: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "月次履歴", subtitle: "最近の業績")
+            SectionTitle(title: "週間履歴", subtitle: "最近の業績")
             if game.reports.isEmpty {
-                Text("月を進めるとレポートが記録されます").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 20)
+                Text("1週間進めるとレポートが記録されます").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 20)
             } else {
                 ForEach(game.reports.prefix(6)) { report in
                     HStack {
-                        Text("\(report.year).\(String(format: "%02d", report.month))").font(.caption.bold().monospacedDigit()).frame(width: 64, alignment: .leading)
+                        Text("\(report.month)月\(report.week ?? 1)週").font(.caption.bold().monospacedDigit()).frame(width: 64, alignment: .leading)
                         Text("\(report.sales)台").font(.subheadline.monospacedDigit())
                         Spacer()
                         Text(report.operatingProfit.currency).font(.subheadline.bold().monospacedDigit()).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.danger)
@@ -121,7 +121,7 @@ struct MonthlyReportView: View {
                         Image(systemName: report.operatingProfit >= 0 ? "chart.line.uptrend.xyaxis.circle.fill" : "exclamationmark.circle.fill")
                             .font(.system(size: 48)).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.orange)
                         Text(report.headline).font(.title3.bold()).multilineTextAlignment(.center)
-                        Text("\(report.year)年\(report.month)月 月次レポート").font(.caption).foregroundStyle(.secondary)
+                        Text("\(report.year)年\(report.month)月 第\(report.week ?? 1)週 週間レポート").font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity).gameCard()
                     HStack {
@@ -145,7 +145,7 @@ struct MonthlyReportView: View {
                     .gameCard()
                     if !report.notes.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionTitle(title: "今月のニュース")
+                            SectionTitle(title: "今週のニュース")
                             ForEach(report.notes, id: \.self) { note in Label(note, systemImage: "bell.fill").font(.subheadline).foregroundStyle(GameTheme.ink) }
                         }
                         .gameCard()
@@ -164,7 +164,7 @@ struct MonthlyReportView: View {
                 .padding(15)
             }
             .background(GameTheme.cream)
-            .navigationTitle("月次レポート")
+            .navigationTitle("週間レポート")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -187,13 +187,12 @@ struct MonthlyReportView: View {
 
 struct GameEndView: View {
     @EnvironmentObject private var game: GameEngine
-    @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: game.cash < 0 ? "building.2.crop.circle" : "trophy.circle.fill").font(.system(size: 72)).foregroundStyle(game.cash < 0 ? GameTheme.orange : GameTheme.teal)
             Text(game.cash < 0 ? "資金が尽きました" : "10年間の経営完了").font(.largeTitle.bold())
             Text(game.cash < 0 ? "在庫、価格、立地、固定費を見直して再挑戦しましょう。" : "最終企業価値は \(game.companyValue.currency) です。").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("新しい会社で再挑戦") { dismiss(); game.resetGame() }.buttonStyle(.borderedProminent).tint(GameTheme.teal)
+            Button("スタート画面に戻って再挑戦") { game.resetGame() }.buttonStyle(.borderedProminent).tint(GameTheme.teal)
         }
         .padding(28)
         .interactiveDismissDisabled()

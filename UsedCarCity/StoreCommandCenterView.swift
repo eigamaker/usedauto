@@ -15,7 +15,7 @@ struct StoreCommandCenterView: View {
         if let store, let plot {
             VStack(spacing: 14) {
                 if let step = game.tutorialStep,
-                   step == .purchaseInventory || step == .setPrice || step == .runFirstMonth {
+                   step == .purchaseInventory || step == .runFirstMonth {
                     TutorialCoachCard(step: step)
                 }
                 StoreSceneHeader(store: store, plot: plot, managerName: managerName)
@@ -23,15 +23,14 @@ struct StoreCommandCenterView: View {
                     if game.tutorialStep == .purchaseInventory {
                         FoundingInventoryTutorialPanel(store: store, plot: plot)
                     }
-                    if game.tutorialStep == .setPrice {
-                        FoundingPriceTutorialPanel(store: store)
-                    }
                     StorePanelPicker(selection: $panel)
                     Group {
                         switch panel {
                         case .store:
                             VStack(spacing: 14) {
+                                WeeklyOpportunityPanel(store: store)
                                 PurchaseCasesPanel(storeID: store.id)
+                                ManualSalesPanel(store: store)
                                 StoreOverviewPanel(store: store, plot: plot)
                             }
                         case .team: ManagerPanel(store: store, managerName: managerName, update: update)
@@ -40,10 +39,9 @@ struct StoreCommandCenterView: View {
                         }
                     }
                     StoreActionDock(
+                        canManagePolicy: store.hasManager,
                         settings: { showSettings = true },
-                        advertise: { runCampaign(amount: 40, message: "地域広告を強化しました") },
-                        purchase: purchaseRecommended,
-                        highlightPurchase: game.tutorialStep == .purchaseInventory
+                        advertise: { runCampaign(amount: 40, message: "地域広告を強化しました") }
                     )
                 } else {
                     StoreConstructionPanel(store: store, plot: plot) { showSettings = true }
@@ -64,19 +62,53 @@ struct StoreCommandCenterView: View {
     private func update(_ changed: Store) { game.updateStore(changed) }
 
     private func runCampaign(amount: Int, message: String) {
-        guard var current = store else { return }
+        guard var current = store, current.hasManager else { return }
         current.advertising = min(500, current.advertising + amount)
         game.updateStore(current)
         actionMessage = "\(message)。広告予算は月\(current.advertising.currency)です。"
     }
 
-    private func purchaseRecommended() {
-        guard let store, let plot, let category = game.recommendedCategories(for: plot.district).first else { return }
-        if game.buyInventory(category: category, count: 3, storeID: store.id) {
-            actionMessage = "\(category.name)を3台仕入れました。"
-        } else {
-            actionMessage = "現金または展示スペースが不足しています。"
+}
+
+private struct WeeklyOpportunityPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+
+    private var capacity: Int { game.weeklyOpportunityCapacity(storeID: store.id) }
+    private var remaining: Int { game.remainingWeeklyOpportunities(storeID: store.id) }
+    private var waitingBuyers: Int { game.buyerLeads(for: store.id).count }
+    private var waitingSellers: Int { game.purchaseCases.filter { $0.storeID == store.id }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "今週の客足と営業枠", subtitle: "来店数と対応できる回数は別々に決まります")
+            HStack {
+                MetricView(title: "販売客", value: "\(store.buyerArrivalsThisWeek)人", detail: "未対応 \(waitingBuyers)人")
+                MetricView(title: "買取客", value: "\(store.sellerArrivalsThisWeek)人", detail: "未対応 \(waitingSellers)人")
+                MetricView(title: "営業枠", value: "\(store.usedOpportunitiesThisWeek)/\(capacity)", detail: "残り \(remaining)回", tint: remaining > 0 ? GameTheme.teal : GameTheme.orange)
+            }
+            ProgressView(value: Double(store.usedOpportunitiesThisWeek), total: Double(max(1, capacity)))
+                .tint(remaining > 0 ? GameTheme.teal : GameTheme.orange)
+            if store.buyerArrivalsThisWeek + store.sellerArrivalsThisWeek == 0 {
+                Label("今週は来店がありません。営業枠が余っていても商談はできません。", systemImage: "person.crop.circle.badge.questionmark")
+                    .font(.caption).foregroundStyle(GameTheme.orange)
+            }
+            VStack(spacing: 7) {
+                ForEach(game.customerTrafficFactors(for: store)) { factor in
+                    HStack {
+                        Image(systemName: factor.effect >= 0 ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill")
+                            .foregroundStyle(factor.effect >= 0 ? GameTheme.teal : GameTheme.orange)
+                        Text(factor.title).font(.caption)
+                        Spacer()
+                        Text(String(format: "%+.1f", factor.effect))
+                            .font(.caption.bold().monospacedDigit())
+                    }
+                }
+            }
+            Text("広告は地域全体の購入者を増やすのではなく、競合より自店が選ばれる確率を高めます。")
+                .font(.caption2).foregroundStyle(.secondary)
         }
+        .gameCard()
     }
 }
 
@@ -112,62 +144,13 @@ private struct FoundingInventoryTutorialPanel: View {
                     .disabled(game.cash < category.purchaseCost * 3)
                 }
             }
-            Label("仕入れると現金が減り、店舗在庫が3台増えます。", systemImage: "info.circle.fill")
+            Label("3台は個別在庫になり、商談・移動・出品は1台ずつ行います。", systemImage: "info.circle.fill")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .gameCard()
         .overlay {
             RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
         }
-    }
-}
-
-private struct FoundingPriceTutorialPanel: View {
-    @EnvironmentObject private var game: GameEngine
-    let store: Store
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            SectionTitle(title: "販売方針を設定", subtitle: "選択した価格は最初の月の販売計算に使われます")
-            HStack(spacing: 8) {
-                PriceStrategyButton(title: "回転重視", detail: "92%", icon: "hare.fill", color: .blue) {
-                    game.setTutorialPrice(storeID: store.id, priceIndex: 0.92)
-                }
-                PriceStrategyButton(title: "標準", detail: "100%", icon: "equal.circle.fill", color: GameTheme.teal) {
-                    game.setTutorialPrice(storeID: store.id, priceIndex: 1.0)
-                }
-                PriceStrategyButton(title: "粗利重視", detail: "108%", icon: "banknote.fill", color: GameTheme.orange) {
-                    game.setTutorialPrice(storeID: store.id, priceIndex: 1.08)
-                }
-            }
-        }
-        .gameCard()
-        .overlay {
-            RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
-        }
-    }
-}
-
-private struct PriceStrategyButton: View {
-    let title: String
-    let detail: String
-    let icon: String
-    let color: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: icon).font(.headline).foregroundStyle(color)
-                Text(title).font(.caption.bold()).foregroundStyle(GameTheme.ink)
-                Text(detail).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 11)
-            .background(color.opacity(0.09))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -182,14 +165,14 @@ private struct StoreConstructionPanel: View {
             ProgressView(value: progress)
                 .tint(GameTheme.orange)
             HStack {
-                MetricView(title: "完成まで", value: "\(remaining)か月", tint: GameTheme.orange)
+                MetricView(title: "完成まで", value: "\(remaining)週間", tint: GameTheme.orange)
                 MetricView(title: "店舗タイプ", value: store.type.name, tint: GameTheme.teal)
             }
-            Label("\(plot.district.name)の需要に合わせ、価格・広告・整備方針は開店前から設定できます。", systemImage: "info.circle.fill")
+            Label("開店前に設備と人員を確認できます。運営方針は店長採用後に設定します。", systemImage: "info.circle.fill")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button(action: openSettings) {
-                Label("開店前の経営方針を設定", systemImage: "slider.horizontal.3")
+                Label("店舗・設備を確認", systemImage: "wrench.and.screwdriver.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -210,11 +193,16 @@ private struct PurchaseCasesPanel: View {
     let storeID: UUID
     @State private var message: String?
     private var cases: [PurchaseCase] { game.purchaseCases.filter { $0.storeID == storeID } }
+    private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
+    private var isDelegated: Bool { store?.hasManager == true && store?.delegatePricing == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                SectionTitle(title: "本日の買取", subtitle: "顧客からの査定依頼")
+                SectionTitle(
+                    title: "今週の買取客",
+                    subtitle: isDelegated ? "店長が週間処理で査定・価格交渉します" : "価格交渉を始めると共通営業枠を1回使います"
+                )
                 if !cases.isEmpty { Text("\(cases.count)件").font(.caption.bold()).foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5).background(GameTheme.orange).clipShape(Capsule()) }
             }
             if cases.isEmpty {
@@ -228,11 +216,34 @@ private struct PurchaseCasesPanel: View {
                             Spacer(); VStack(alignment: .trailing) { Text("希望 \(item.askingPrice.currency)").font(.caption.bold()); Text("粗利予測 \(item.expectedGrossProfit.currency)").font(.caption2).foregroundStyle(item.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
                         }
                         HStack { PurchaseMetric(title: "整備", value: item.repairCost.currency); PurchaseMetric(title: "販売予測", value: item.expectedSalePrice.currency); PurchaseMetric(title: "期間", value: "\(item.expectedDays)日"); PurchaseMetric(title: "査定精度", value: "\(item.appraisalAccuracy)%") }
+                        if item.negotiations > 0 {
+                            Label("交渉 \(item.negotiations)回・次に断られると売主が帰る可能性があります", systemImage: "exclamationmark.bubble.fill")
+                                .font(.caption2)
+                                .foregroundStyle(GameTheme.orange)
+                        }
                         HStack(spacing: 6) {
-                            CaseActionButton("買取", color: GameTheme.teal) { message = game.acceptPurchaseCase(item.id) ? "提示額で買い取りました" : "現金または展示枠が不足しています" }
-                            CaseActionButton("交渉", color: GameTheme.orange) { message = game.acceptPurchaseCase(item.id, negotiated: true) ? "希望額の88%で交渉成立しました" : "交渉不成立、または資金不足です" }
+                            Menu {
+                                purchaseOfferButton(item, percent: 100, title: "希望額で提示")
+                                purchaseOfferButton(item, percent: 94, title: "6%値下げを交渉")
+                                purchaseOfferButton(item, percent: 88, title: "12%値下げを交渉")
+                            } label: {
+                                Label("価格を提示", systemImage: "bubble.left.and.bubble.right.fill")
+                                    .font(.caption2.bold())
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(GameTheme.orange)
+                            .disabled(!game.canNegotiatePurchaseCase(item.id))
                             CaseActionButton("詳細検査", color: .blue) { game.inspectPurchaseCase(item.id); message = "査定士が詳細検査しました" }
+                                .disabled(isDelegated)
                             Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Image(systemName: "xmark").font(.caption.bold()).padding(8) }.buttonStyle(.bordered)
+                                .disabled(isDelegated)
+                        }
+                        if isDelegated {
+                            Label("この案件は店長へ委任中です", systemImage: "person.crop.circle.badge.checkmark")
+                                .font(.caption2).foregroundStyle(GameTheme.teal)
+                        } else if !game.canNegotiatePurchaseCase(item.id) {
+                            Label("今週の営業枠を使い切っています", systemImage: "clock.badge.exclamationmark")
+                                .font(.caption2).foregroundStyle(GameTheme.orange)
                         }
                     }
                     .padding(11).background(GameTheme.cream).clipShape(RoundedRectangle(cornerRadius: 13))
@@ -242,11 +253,149 @@ private struct PurchaseCasesPanel: View {
         .gameCard()
         .alert("買取結果", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK") { message = nil } } message: { Text(message ?? "") }
     }
+
+    @ViewBuilder
+    private func purchaseOfferButton(_ item: PurchaseCase, percent: Int, title: String) -> some View {
+        if let preview = game.purchaseNegotiationPreview(item.id, offerPercent: percent) {
+            Button("\(title)・\(preview.price.currency)（見込\(Int(preview.closeChance * 100))%）") {
+                switch game.negotiatePurchaseCase(item.id, offerPercent: percent) {
+                case let .purchased(price):
+                    message = "\(price.currency)で買取成立しました。整備費を含めて在庫へ追加しました。"
+                case let .rejected(walkedAway):
+                    message = walkedAway
+                        ? "提示を断られ、売主は帰りました。"
+                        : "提示を断られました。条件を変えてもう一度だけ交渉できます。"
+                case .unavailable:
+                    message = game.remainingWeeklyOpportunities(storeID: item.storeID) == 0
+                        ? "今週の営業枠を使い切っています。"
+                        : "現金または展示スペースが不足しています。"
+                }
+            }
+        }
+    }
 }
 
 private struct PurchaseMetric: View {
     let title: String; let value: String
     var body: some View { VStack(alignment: .leading, spacing: 2) { Text(title).font(.system(size: 8)).foregroundStyle(.secondary); Text(value).font(.caption2.bold().monospacedDigit()) }.frame(maxWidth: .infinity, alignment: .leading) }
+}
+
+private struct ManualSalesPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    @State private var message: String?
+
+    private var isDelegated: Bool { store.hasManager && store.delegatePricing }
+    private var leads: [BuyerLead] { game.buyerLeads(for: store.id) }
+    private var capacity: Int { game.weeklyOpportunityCapacity(storeID: store.id) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionTitle(title: "今週の販売客", subtitle: isDelegated ? "店長が来店客へ在庫を提案" : "顧客の希望に合う在庫車を提案")
+                Spacer()
+                Text("営業枠 \(store.usedOpportunitiesThisWeek)/\(capacity)・成約 \(store.manualSalesThisWeek)")
+                    .font(.caption.bold().monospacedDigit())
+                    .foregroundStyle(GameTheme.teal)
+            }
+
+            if isDelegated {
+                Label("未対応の販売客は次の週間処理で店長が対応します。希望車種の在庫がなければ成約できません。", systemImage: "person.crop.circle.badge.checkmark")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else if leads.isEmpty {
+                Label("今週は対応できる販売客がいません。広告・評判・立地・在庫構成が次週以降の来店に影響します。", systemImage: "person.crop.circle.badge.questionmark")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 10)
+            } else if store.inventoryCount == 0 {
+                Label("販売できる在庫がありません", systemImage: "car.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 10)
+            } else {
+                ForEach(leads) { lead in
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack(spacing: 11) {
+                            Image(systemName: lead.desiredCategory.icon)
+                            .foregroundStyle(GameTheme.teal)
+                            .frame(width: 34, height: 34)
+                            .background(GameTheme.teal.opacity(0.1))
+                            .clipShape(Circle())
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("\(lead.desiredCategory.name)を探しているお客様").font(.subheadline.bold())
+                                Text("予算 \(lead.budget.currency)・希望品質 \(Int(lead.minimumQuality * 100))以上")
+                                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            Menu {
+                                ForEach(inventoryOptions(for: lead)) { batch in
+                                    Menu("\(batch.category.name) #\(batch.id.uuidString.prefix(4).uppercased())") {
+                                        ForEach(SaleNegotiationStrategy.allCases) { strategy in
+                                            if let preview = game.saleNegotiationPreview(storeID: store.id, buyerLeadID: lead.id, inventoryID: batch.id, strategy: strategy) {
+                                                Button("\(strategy.name)・\(preview.price.currency)（成約見込\(Int(preview.closeChance * 100))%）") {
+                                                    negotiate(leadID: lead.id, inventoryID: batch.id, category: batch.category, strategy: strategy)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("車を提案", systemImage: "bubble.left.and.bubble.right.fill")
+                                    .font(.caption.bold())
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(GameTheme.orange)
+                            .disabled(!game.canSellManually(storeID: store.id))
+                        }
+                        let matching = store.inventory.filter { $0.category == lead.desiredCategory }.count
+                        Label(matching > 0 ? "希望一致の在庫 \(matching)台" : "希望車種なし・代替提案は成約率が大幅に下がります", systemImage: matching > 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(matching > 0 ? GameTheme.teal : GameTheme.orange)
+                    }
+                    .padding(10)
+                    .background(GameTheme.cream)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                Text("商談すると成否に関係なく営業枠を1回使い、このお客様は帰ります。値引き・予算・希望車種・品質で成約率が変わります。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .gameCard()
+        .overlay {
+            if game.tutorialStep == .runFirstMonth {
+                RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
+            }
+        }
+        .alert("販売結果", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK") { message = nil }
+        } message: {
+            Text(message ?? "")
+        }
+    }
+
+    private func inventoryOptions(for lead: BuyerLead) -> [InventoryBatch] {
+        store.inventory.filter { $0.count > 0 }.sorted {
+            let leftMatches = $0.category == lead.desiredCategory
+            let rightMatches = $1.category == lead.desiredCategory
+            if leftMatches != rightMatches { return leftMatches }
+            return $0.quality > $1.quality
+        }
+    }
+
+    private func negotiate(leadID: UUID, inventoryID: UUID, category: VehicleCategory, strategy: SaleNegotiationStrategy) {
+        guard let result = game.negotiateManualSale(storeID: store.id, buyerLeadID: leadID, inventoryID: inventoryID, strategy: strategy) else {
+            message = "今週の営業枠に達したか、お客様または在庫がありません。"
+            return
+        }
+        if result.succeeded {
+            message = "交渉成立。\(category.name)を\(result.salePrice.currency)で販売し、粗利は\(result.grossProfit.currency)でした。"
+        } else {
+            message = "価格条件が合わず、お客様は購入を見送りました。在庫は残っています。"
+        }
+    }
 }
 
 private struct CaseActionButton: View {
@@ -299,27 +448,30 @@ private struct StoreSceneHeader: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.name).font(.title3.bold()).foregroundStyle(.white)
-                    Text("\(plot.district.name)・\(plot.localNumber)番区画").font(.caption).foregroundStyle(.white.opacity(0.65))
+                    Text("\(plot.district.name)・\(plot.localNumber)番区画・\(store.type.name)").font(.caption).foregroundStyle(.white.opacity(0.65))
                 }
                 Spacer()
-                CapsuleLabel(text: store.concept.name, color: GameTheme.mint, icon: store.concept.icon)
+                if store.hasManager {
+                    CapsuleLabel(text: store.concept.name, color: GameTheme.mint, icon: store.concept.icon)
+                }
             }
             .padding(15).background(GameTheme.ink)
             ZStack(alignment: .top) {
                 StoreScene(store: store)
-                    .frame(height: 238)
+                    .frame(height: 258)
                 HStack(spacing: 9) {
                     Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(GameTheme.mint)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("店長 \(managerName)").font(.caption.bold()).foregroundStyle(.white.opacity(0.7))
+                        Text(store.hasManager ? "店長 \(managerName)" : "オーナー直営").font(.caption.bold()).foregroundStyle(.white.opacity(0.7))
                         Text(greeting).font(.subheadline.bold()).foregroundStyle(.white)
                     }
                     Spacer()
                 }
                 .padding(11).background(.black.opacity(0.66))
+                StoreSceneStatusOverlay(store: store)
             }
             HStack {
-                MetricView(title: "客足", value: "\(max(0, store.lastSales * 8 + 42))人/月", tint: .white)
+                MetricView(title: "今週来店", value: "\(store.buyerArrivalsThisWeek + store.sellerArrivalsThisWeek)人", tint: .white)
                 MetricView(title: "販売", value: "\(store.lastSales)台", tint: .white)
                 MetricView(title: "満足度", value: "\(store.satisfaction)", tint: .white)
                 MetricView(title: "営業利益", value: store.lastProfit.currency, tint: store.lastProfit >= 0 ? GameTheme.mint : .red)
@@ -331,50 +483,373 @@ private struct StoreSceneHeader: View {
     }
 
     private var greeting: String {
-        if let remaining = store.openingMonthsRemaining { return "建設中です。あと\(remaining)か月で開店予定です" }
-        if let remaining = store.renovationMonthsRemaining { return "営業を続けながら改装中。あと\(remaining)か月です" }
+        if let remaining = store.openingMonthsRemaining { return "建設中です。あと\(remaining)週間で開店予定です" }
+        if let remaining = store.renovationMonthsRemaining { return "営業を続けながら改装中。あと\(remaining)週間です" }
         if store.inventoryCount < 5 { return "在庫が少なく、販売機会を逃しています" }
-        if store.lastProfit < 0 { return "今月は赤字です。価格と広告を見直しましょう" }
+        if store.lastProfit < 0 { return "今週は赤字です。価格と広告を見直しましょう" }
         if store.satisfaction >= 80 { return "口コミが好調です。この流れを維持しましょう" }
-        return "今月もお客様の動きを確認していきましょう"
+        return store.hasManager ? "今週もお客様の動きを確認していきましょう" : "仕入れと販売はオーナーが操作します"
     }
+
 }
 
 private struct StoreScene: View {
     let store: Store
 
     var body: some View {
-        Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .linearGradient(Gradient(colors: [Color(red: 0.62, green: 0.80, blue: 0.88), Color(red: 0.81, green: 0.87, blue: 0.74)]), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
-            let road = Path(CGRect(x: 0, y: size.height * 0.72, width: size.width, height: size.height * 0.28))
-            context.fill(road, with: .color(GameTheme.road))
-            var line = Path(); line.move(to: CGPoint(x: 0, y: size.height * 0.86)); line.addLine(to: CGPoint(x: size.width, y: size.height * 0.86))
-            context.stroke(line, with: .color(.white.opacity(0.75)), style: StrokeStyle(lineWidth: 2, dash: [12, 9]))
-
-            let center = CGPoint(x: size.width * 0.50, y: size.height * 0.66)
-            let roof = polygon([CGPoint(x: center.x, y: 28), CGPoint(x: size.width * 0.84, y: 78), CGPoint(x: center.x, y: 124), CGPoint(x: size.width * 0.16, y: 78)])
-            let left = polygon([CGPoint(x: size.width * 0.16, y: 78), CGPoint(x: center.x, y: 124), center, CGPoint(x: size.width * 0.16, y: 161)])
-            let right = polygon([CGPoint(x: center.x, y: 124), CGPoint(x: size.width * 0.84, y: 78), CGPoint(x: size.width * 0.84, y: 161), center])
-            context.fill(left, with: .color(GameTheme.teal.opacity(0.72)))
-            context.fill(right, with: .color(GameTheme.teal.opacity(0.52)))
-            context.fill(roof, with: .color(GameTheme.navy))
-            for index in 0..<4 {
-                let x = size.width * (0.23 + CGFloat(index) * 0.12)
-                let window = CGRect(x: x, y: 129 + CGFloat(index) * 3, width: 25, height: 30)
-                context.fill(Path(roundedRect: window, cornerRadius: 2), with: .color(Color.cyan.opacity(0.65)))
+        GeometryReader { proxy in
+            ZStack {
+                StoreSceneBackdrop(type: store.type)
+                Image(store.type.mapAssetName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: proxy.size.width * store.type.sceneAssetScale)
+                    .position(x: proxy.size.width * 0.5, y: proxy.size.height * store.type.sceneAssetCenterY)
+                    .shadow(color: GameTheme.ink.opacity(0.22), radius: 7, y: 5)
+                StoreTrafficAnimation(store: store)
             }
-            context.draw(Text(store.name).font(.caption.bold()).foregroundStyle(.white), at: CGPoint(x: center.x, y: 87))
-            for index in 0..<5 {
-                let x = size.width * (0.15 + CGFloat(index) * 0.17)
-                let person = CGRect(x: x, y: size.height * 0.76 + CGFloat(index % 2) * 8, width: 7, height: 13)
-                context.fill(Path(roundedRect: person, cornerRadius: 3), with: .color(index.isMultiple(of: 2) ? GameTheme.orange : GameTheme.mint))
+            .clipped()
+        }
+    }
+}
+
+private struct StoreSceneBackdrop: View {
+    let type: StoreType
+
+    var body: some View {
+        Canvas { context, size in
+            let bounds = CGRect(origin: .zero, size: size)
+            context.fill(
+                Path(bounds),
+                with: .linearGradient(
+                    Gradient(colors: [Color(red: 0.50, green: 0.73, blue: 0.86), Color(red: 0.88, green: 0.91, blue: 0.80)]),
+                    startPoint: .zero,
+                    endPoint: CGPoint(x: 0, y: size.height * 0.78)
+                )
+            )
+
+            let sun = CGRect(x: size.width * 0.82, y: size.height * 0.12, width: 42, height: 42)
+            context.fill(Path(ellipseIn: sun), with: .color(Color.yellow.opacity(0.30)))
+
+            for index in 0..<7 {
+                let width = size.width * (0.07 + CGFloat(index % 3) * 0.015)
+                let height = size.height * (0.15 + CGFloat((index * 3) % 4) * 0.035)
+                let x = CGFloat(index) * size.width / 6.2 - width * 0.2
+                let rect = CGRect(x: x, y: size.height * 0.43 - height, width: width, height: height)
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(GameTheme.navy.opacity(0.10)))
+                for floor in 0..<2 {
+                    let window = CGRect(x: rect.minX + 6, y: rect.minY + 8 + CGFloat(floor) * 11, width: max(4, rect.width - 12), height: 3)
+                    context.fill(Path(window), with: .color(Color.white.opacity(0.28)))
+                }
+            }
+
+            let ground = CGRect(x: 0, y: size.height * 0.43, width: size.width, height: size.height * 0.31)
+            context.fill(Path(ground), with: .linearGradient(Gradient(colors: [Color(red: 0.63, green: 0.76, blue: 0.58), Color(red: 0.48, green: 0.64, blue: 0.49)]), startPoint: CGPoint(x: 0, y: ground.minY), endPoint: CGPoint(x: 0, y: ground.maxY)))
+
+            let sidewalk = CGRect(x: 0, y: size.height * 0.73, width: size.width, height: size.height * 0.09)
+            context.fill(Path(sidewalk), with: .color(Color(red: 0.72, green: 0.73, blue: 0.69)))
+            context.fill(Path(CGRect(x: 0, y: sidewalk.minY, width: size.width, height: 3)), with: .color(.white.opacity(0.62)))
+
+            let destination = normalized(type.sceneVehicleDestination, in: size)
+            let driveway = polygon([
+                CGPoint(x: destination.x - 20, y: destination.y + 5),
+                CGPoint(x: destination.x + 20, y: destination.y + 5),
+                CGPoint(x: destination.x + 31, y: sidewalk.maxY + 4),
+                CGPoint(x: destination.x - 31, y: sidewalk.maxY + 4)
+            ])
+            context.fill(driveway, with: .color(GameTheme.road.opacity(0.82)))
+
+            let road = CGRect(x: 0, y: size.height * 0.81, width: size.width, height: size.height * 0.19)
+            context.fill(Path(road), with: .linearGradient(Gradient(colors: [GameTheme.road, GameTheme.ink.opacity(0.92)]), startPoint: CGPoint(x: 0, y: road.minY), endPoint: CGPoint(x: 0, y: road.maxY)))
+            context.fill(Path(CGRect(x: 0, y: road.minY, width: size.width, height: 3)), with: .color(Color.white.opacity(0.75)))
+
+            var lane = Path()
+            lane.move(to: CGPoint(x: 0, y: size.height * 0.91))
+            lane.addLine(to: CGPoint(x: size.width, y: size.height * 0.91))
+            context.stroke(lane, with: .color(Color.white.opacity(0.75)), style: StrokeStyle(lineWidth: 2, dash: [14, 10]))
+
+            for index in 0..<4 {
+                let x = size.width * (0.08 + CGFloat(index) * 0.28)
+                let trunk = CGRect(x: x, y: size.height * 0.43, width: 4, height: 18)
+                let crown = CGRect(x: x - 8, y: size.height * 0.39, width: 20, height: 22)
+                context.fill(Path(trunk), with: .color(Color.brown.opacity(0.55)))
+                context.fill(Path(ellipseIn: crown), with: .color(Color.green.opacity(0.38)))
             }
         }
     }
 
+    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: point.x * size.width, y: point.y * size.height)
+    }
+
     private func polygon(_ points: [CGPoint]) -> Path {
-        var path = Path(); guard let first = points.first else { return path }; path.move(to: first)
-        for point in points.dropFirst() { path.addLine(to: point) }; path.closeSubpath(); return path
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        for point in points.dropFirst() { path.addLine(to: point) }
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct StoreTrafficAnimation: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let store: Store
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || store.weeklyVisitorCount == 0)) { timeline in
+            Canvas { context, size in
+                guard store.weeklyVisitorCount > 0 else { return }
+                let seconds = reduceMotion ? 1.4 : timeline.date.timeIntervalSinceReferenceDate
+                drawEntranceGlow(context: &context, size: size, seconds: seconds)
+                drawPedestrians(context: &context, size: size, seconds: seconds)
+                drawArrivingCars(context: &context, size: size, seconds: seconds)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func drawEntranceGlow(context: inout GraphicsContext, size: CGSize, seconds: Double) {
+        let entrance = normalized(store.type.sceneEntrance, in: size)
+        let pulse = reduceMotion ? 0.65 : 0.48 + (sin(seconds * 2.4) + 1) * 0.12
+        let area = CGRect(x: entrance.x - 17, y: entrance.y - 10, width: 34, height: 20)
+        context.fill(Path(ellipseIn: area), with: .color(GameTheme.mint.opacity(pulse * 0.28)))
+        context.stroke(Path(ellipseIn: area), with: .color(GameTheme.mint.opacity(pulse)), lineWidth: 1.3)
+    }
+
+    private func drawPedestrians(context: inout GraphicsContext, size: CGSize, seconds: Double) {
+        let arrivals = store.buyerArrivalsThisWeek
+        guard arrivals > 0 else { return }
+        let count = min(5, arrivals)
+        let cycle = pedestrianCycle
+        let active = pedestrianActiveFraction
+        let entrance = normalized(store.type.sceneEntrance, in: size)
+        let colors: [Color] = [GameTheme.orange, GameTheme.mint, .white, .yellow, .cyan]
+
+        for index in 0..<count {
+            let phase = (seconds / cycle + Double(index) / Double(max(1, count))).truncatingRemainder(dividingBy: 1)
+            guard phase <= active else { continue }
+            let progress = CGFloat(phase / active)
+            let start = CGPoint(
+                x: size.width * (0.10 + CGFloat((index * 17) % 52) / 100),
+                y: size.height * (0.79 + CGFloat(index % 2) * 0.012)
+            )
+            let control = CGPoint(x: entrance.x + (start.x - entrance.x) * 0.20, y: size.height * 0.70)
+            let point = quadraticPoint(from: start, control: control, to: entrance, t: easeInOut(progress))
+            let fade = min(1, Double(progress) * 6, Double(1 - progress) * 8)
+            drawPerson(context: &context, at: point, color: colors[index % colors.count].opacity(fade))
+        }
+    }
+
+    private func drawArrivingCars(context: inout GraphicsContext, size: CGSize, seconds: Double) {
+        let arrivals = store.sellerArrivalsThisWeek
+        guard arrivals > 0 else { return }
+        let count = min(3, arrivals)
+        let cycle = vehicleCycle
+        let active = vehicleActiveFraction
+        let destination = normalized(store.type.sceneVehicleDestination, in: size)
+        let colors: [Color] = [GameTheme.mint, Color(red: 0.96, green: 0.72, blue: 0.22), Color(red: 0.46, green: 0.75, blue: 0.94)]
+
+        for index in 0..<count {
+            let phase = (seconds / cycle + Double(index) / Double(max(1, count))).truncatingRemainder(dividingBy: 1)
+            guard phase <= active else { continue }
+            let progress = CGFloat(phase / active)
+            let fromRight = index.isMultiple(of: 2)
+            let start = CGPoint(x: size.width * (fromRight ? 1.08 : -0.08), y: size.height * 0.91)
+            let control1 = CGPoint(x: size.width * (fromRight ? 0.82 : 0.34), y: size.height * 0.91)
+            let control2 = CGPoint(x: destination.x + (fromRight ? 28 : -28), y: size.height * 0.80)
+            let point = cubicPoint(from: start, control1: control1, control2: control2, to: destination, t: easeInOut(progress))
+            let fade = min(1, Double(progress) * 8, Double(1 - progress) * 10)
+            drawCar(context: &context, at: point, color: colors[index % colors.count].opacity(fade), facingLeft: fromRight)
+        }
+    }
+
+    private var pedestrianCycle: Double {
+        switch store.trafficLevel {
+        case .quiet: 20
+        case .light: 12
+        case .steady: 9
+        case .busy: 6.8
+        case .packed: 5.2
+        }
+    }
+
+    private var pedestrianActiveFraction: Double {
+        switch store.trafficLevel {
+        case .quiet: 0
+        case .light: 0.36
+        case .steady: 0.52
+        case .busy: 0.72
+        case .packed: 0.90
+        }
+    }
+
+    private var vehicleCycle: Double {
+        switch store.trafficLevel {
+        case .quiet: 20
+        case .light: 14
+        case .steady: 11
+        case .busy: 8.5
+        case .packed: 7
+        }
+    }
+
+    private var vehicleActiveFraction: Double {
+        switch store.trafficLevel {
+        case .quiet: 0
+        case .light: 0.42
+        case .steady: 0.55
+        case .busy: 0.68
+        case .packed: 0.80
+        }
+    }
+
+    private func drawPerson(context: inout GraphicsContext, at point: CGPoint, color: Color) {
+        let shadow = CGRect(x: point.x - 6, y: point.y + 8, width: 12, height: 4)
+        context.fill(Path(ellipseIn: shadow), with: .color(GameTheme.ink.opacity(0.24)))
+        context.fill(Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 10, width: 7, height: 7)), with: .color(color))
+        context.fill(Path(roundedRect: CGRect(x: point.x - 4, y: point.y - 3, width: 8, height: 10), cornerRadius: 3), with: .color(color))
+        var limbs = Path()
+        limbs.move(to: CGPoint(x: point.x - 1.5, y: point.y + 6))
+        limbs.addLine(to: CGPoint(x: point.x - 4, y: point.y + 11))
+        limbs.move(to: CGPoint(x: point.x + 1.5, y: point.y + 6))
+        limbs.addLine(to: CGPoint(x: point.x + 4, y: point.y + 11))
+        limbs.move(to: CGPoint(x: point.x - 3, y: point.y))
+        limbs.addLine(to: CGPoint(x: point.x - 7, y: point.y + 4))
+        limbs.move(to: CGPoint(x: point.x + 3, y: point.y))
+        limbs.addLine(to: CGPoint(x: point.x + 7, y: point.y + 4))
+        context.stroke(limbs, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+    }
+
+    private func drawCar(context: inout GraphicsContext, at point: CGPoint, color: Color, facingLeft: Bool) {
+        let shadow = CGRect(x: point.x - 15, y: point.y - 5, width: 30, height: 14)
+        context.fill(Path(roundedRect: shadow, cornerRadius: 6), with: .color(GameTheme.ink.opacity(0.25)))
+        let body = CGRect(x: point.x - 14, y: point.y - 8, width: 28, height: 14)
+        context.fill(Path(roundedRect: body, cornerRadius: 5), with: .color(color))
+        let cabin = CGRect(x: point.x - 5, y: point.y - 6, width: 12, height: 10)
+        context.fill(Path(roundedRect: cabin, cornerRadius: 3), with: .color(GameTheme.navy.opacity(0.78)))
+        context.stroke(Path(roundedRect: body, cornerRadius: 5), with: .color(.white.opacity(0.70)), lineWidth: 1)
+        let headlightX = facingLeft ? body.minX + 1 : body.maxX - 3
+        context.fill(Path(ellipseIn: CGRect(x: headlightX, y: point.y - 5, width: 2, height: 3)), with: .color(Color.yellow.opacity(0.95)))
+        for offset in [-9.0, 7.0] {
+            context.fill(Path(roundedRect: CGRect(x: point.x + offset, y: point.y - 9, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
+            context.fill(Path(roundedRect: CGRect(x: point.x + offset, y: point.y + 6, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
+        }
+    }
+
+    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: point.x * size.width, y: point.y * size.height)
+    }
+
+    private func easeInOut(_ value: CGFloat) -> CGFloat {
+        value * value * (3 - 2 * value)
+    }
+
+    private func quadraticPoint(from start: CGPoint, control: CGPoint, to end: CGPoint, t: CGFloat) -> CGPoint {
+        let u = 1 - t
+        return CGPoint(
+            x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
+            y: u * u * start.y + 2 * u * t * control.y + t * t * end.y
+        )
+    }
+
+    private func cubicPoint(from start: CGPoint, control1: CGPoint, control2: CGPoint, to end: CGPoint, t: CGFloat) -> CGPoint {
+        let u = 1 - t
+        return CGPoint(
+            x: u * u * u * start.x + 3 * u * u * t * control1.x + 3 * u * t * t * control2.x + t * t * t * end.x,
+            y: u * u * u * start.y + 3 * u * u * t * control1.y + 3 * u * t * t * control2.y + t * t * t * end.y
+        )
+    }
+}
+
+private struct StoreSceneStatusOverlay: View {
+    let store: Store
+
+    var body: some View {
+        VStack {
+            HStack {
+                Spacer()
+                Label(store.trafficLevel.name, systemImage: store.trafficLevel.icon)
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(store.trafficLevel.color.opacity(0.92))
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 53)
+            .padding(.horizontal, 10)
+            Spacer()
+            HStack(spacing: 14) {
+                Label("販売客 \(store.buyerArrivalsThisWeek)人", systemImage: "figure.walk")
+                    .foregroundStyle(GameTheme.orange)
+                Label("買取車 \(store.sellerArrivalsThisWeek)台", systemImage: "car.side.fill")
+                    .foregroundStyle(GameTheme.mint)
+                Spacer()
+                Text("週 \(store.weeklyVisitorCount)件")
+                    .foregroundStyle(.white)
+            }
+            .font(.caption2.bold().monospacedDigit())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.62))
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private extension StoreTrafficLevel {
+    var color: Color {
+        switch self {
+        case .quiet: .gray
+        case .light: .blue
+        case .steady: GameTheme.teal
+        case .busy: GameTheme.orange
+        case .packed: .red
+        }
+    }
+}
+
+private extension StoreType {
+    var sceneAssetScale: CGFloat {
+        switch self {
+        case .small: 0.82
+        case .standard: 0.94
+        case .roadside: 1.02
+        case .premium: 0.91
+        case .service: 0.98
+        }
+    }
+
+    var sceneAssetCenterY: CGFloat {
+        switch self {
+        case .small: 0.53
+        case .standard: 0.54
+        case .roadside: 0.53
+        case .premium: 0.53
+        case .service: 0.54
+        }
+    }
+
+    var sceneEntrance: CGPoint {
+        switch self {
+        case .small: CGPoint(x: 0.43, y: 0.64)
+        case .standard: CGPoint(x: 0.44, y: 0.63)
+        case .roadside: CGPoint(x: 0.34, y: 0.62)
+        case .premium: CGPoint(x: 0.46, y: 0.64)
+        case .service: CGPoint(x: 0.31, y: 0.64)
+        }
+    }
+
+    var sceneVehicleDestination: CGPoint {
+        switch self {
+        case .small: CGPoint(x: 0.73, y: 0.68)
+        case .standard: CGPoint(x: 0.76, y: 0.67)
+        case .roadside: CGPoint(x: 0.78, y: 0.64)
+        case .premium: CGPoint(x: 0.77, y: 0.66)
+        case .service: CGPoint(x: 0.70, y: 0.61)
+        }
     }
 }
 
@@ -403,9 +878,9 @@ private struct StoreOverviewPanel: View {
             }
             .gameCard()
             VStack(alignment: .leading, spacing: 10) {
-                SectionTitle(title: "今月の経営要因", subtitle: "販売台数が動いた理由")
+                SectionTitle(title: "今週の経営要因", subtitle: "販売台数が動いた理由")
                 if store.causes.isEmpty {
-                    Text("月を進めると分析結果が表示されます").font(.subheadline).foregroundStyle(.secondary)
+                    Text("1週間進めると分析結果が表示されます").font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     ForEach(store.causes) { cause in
                         HStack {
@@ -438,12 +913,31 @@ private struct ReviewMetric: View {
 }
 
 private struct ManagerPanel: View {
+    @EnvironmentObject private var game: GameEngine
     let store: Store
     let managerName: String
     let update: (Store) -> Void
 
     var body: some View {
         VStack(spacing: 14) {
+            if !store.hasManager {
+                VStack(alignment: .leading, spacing: 13) {
+                    SectionTitle(title: "店長を採用", subtitle: "採用後に仕入・販売・広告などを委任できます")
+                    Label("現在はオーナー直営です。車の仕入れと販売を自分で操作してください。", systemImage: "person.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        _ = game.hireManager(for: store.id)
+                    } label: {
+                        Label("店長を採用・\(game.managerHiringCost.currency)", systemImage: "person.badge.plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(GameTheme.teal)
+                    .disabled(game.cash < game.managerHiringCost)
+                }
+                .gameCard()
+            } else {
             VStack(alignment: .leading, spacing: 14) {
                 SectionTitle(title: "店長", subtitle: "店舗運営を任せる範囲を設定")
                 HStack(spacing: 16) {
@@ -467,6 +961,7 @@ private struct ManagerPanel: View {
                 DelegationToggle(title: "店舗マーケティング", icon: "megaphone.fill", isOn: binding(\.delegateMarketing))
                 DelegationToggle(title: "整備とトラブル対応", icon: "wrench.and.screwdriver.fill", isOn: binding(\.delegateService))
             }.gameCard()
+            }
         }
     }
 
@@ -499,56 +994,81 @@ private struct DelegationToggle: View {
 }
 
 private struct MarketPanel: View {
+    @EnvironmentObject private var game: GameEngine
     let store: Store
     let plot: LandPlot
     let campaign: (Int, String) -> Void
 
     private var shares: [ShareSlice] {
-        let player = max(12, min(55, 16 + store.lastSales * 2))
-        let remain = 100 - player
-        let a = remain * 38 / 100, b = remain * 34 / 100
-        return [
-            ShareSlice(name: "自社", value: player, color: GameTheme.teal),
-            ShareSlice(name: "バリューオート", value: a, color: GameTheme.orange),
-            ShareSlice(name: "プレミア", value: b, color: .purple),
-            ShareSlice(name: "その他", value: remain - a - b, color: .gray.opacity(0.55))
-        ]
+        var result = [ShareSlice(name: store.name, value: game.marketShare(for: store) * 100, color: GameTheme.teal)]
+        let otherOwnShare = game.stores
+            .filter { $0.id != store.id && game.plot(id: $0.plotID)?.district == plot.district }
+            .reduce(0.0) { $0 + game.marketShare(for: $1) }
+        if otherOwnShare > 0.001 {
+            result.append(ShareSlice(name: "自社の他店舗", value: otherOwnShare * 100, color: .blue))
+        }
+        let rivalColors: [Color] = [GameTheme.orange, .purple, .pink, .indigo]
+        for (index, competitor) in game.competitors.enumerated() {
+            let share = game.competitorMarketShare(competitor, in: plot.district)
+            if share > 0.001 {
+                result.append(ShareSlice(name: competitor.name, value: share * 100, color: rivalColors[index % rivalColors.count]))
+            }
+        }
+        return result
     }
+
+    private var selectedStoreShare: Int { Int((game.marketShare(for: store) * 100).rounded()) }
 
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(title: "\(plot.district.name)の市場シェア", subtitle: "商圏内の推定販売シェア")
+                SectionTitle(
+                    title: "\(plot.district.name)の市場シェア",
+                    subtitle: "週\(game.weeklyBuyerPool(in: plot.district))台の購入需要を自社と競合で奪い合います"
+                )
                 HStack(spacing: 15) {
                     ZStack {
                         Chart(shares) { slice in
                             SectorMark(angle: .value("シェア", slice.value), innerRadius: .ratio(0.62), angularInset: 1.5)
                                 .foregroundStyle(slice.color)
                         }
-                        VStack { Text("自社").font(.caption2); Text("\(shares[0].value)%").font(.title2.bold()).foregroundStyle(GameTheme.teal) }
+                        VStack {
+                            Text("この店舗").font(.caption2)
+                            Text("\(selectedStoreShare)%").font(.title2.bold()).foregroundStyle(GameTheme.teal)
+                        }
                     }.frame(width: 150, height: 150)
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(shares) { slice in
-                            HStack { Circle().fill(slice.color).frame(width: 8, height: 8); Text(slice.name).font(.caption); Spacer(); Text("\(slice.value)%").font(.caption.bold().monospacedDigit()) }
+                            HStack {
+                                Circle().fill(slice.color).frame(width: 8, height: 8)
+                                Text(slice.name).font(.caption).lineLimit(1)
+                                Spacer()
+                                Text("\(Int(slice.value.rounded()))%").font(.caption.bold().monospacedDigit())
+                            }
                         }
                     }
                 }
+                Label("同じ地域に出店すると、既存店と新店で同じ購入者を分け合います。", systemImage: "person.2.slash.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }.gameCard()
-            VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(title: "マーケティング施策", subtitle: "客足と認知度を高める")
-                HStack(spacing: 10) {
-                    CampaignCard(title: "地域SNS広告", detail: "+60万円/月", icon: "wifi", color: .blue) { campaign(60, "地域SNS広告を開始しました") }
-                    CampaignCard(title: "ロードサイド看板", detail: "+100万円/月", icon: "signpost.right.fill", color: GameTheme.orange) { campaign(100, "幹線道路に大型看板を設置しました") }
-                }
-            }.gameCard()
+            if store.hasManager {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionTitle(title: "マーケティング施策", subtitle: "店長が継続運用する集客方針")
+                    HStack(spacing: 10) {
+                        CampaignCard(title: "地域SNS広告", detail: "+60万円/月", icon: "wifi", color: .blue) { campaign(60, "地域SNS広告を開始しました") }
+                        CampaignCard(title: "ロードサイド看板", detail: "+100万円/月", icon: "signpost.right.fill", color: GameTheme.orange) { campaign(100, "幹線道路に大型看板を設置しました") }
+                    }
+                }.gameCard()
+            }
         }
     }
 }
 
 private struct ShareSlice: Identifiable {
-    let id = UUID()
+    var id: String { name }
     let name: String
-    let value: Int
+    let value: Double
     let color: Color
 }
 
@@ -580,15 +1100,22 @@ private struct StoreFinancePanel: View {
                 MetricView(title: "営業利益", value: store.lastProfit.currency, tint: store.lastProfit >= 0 ? GameTheme.teal : GameTheme.danger)
                 MetricView(title: "在庫回転", value: store.lastSales > 0 ? "\(store.inventoryCount * 30 / store.lastSales)日" : "—")
             }.gameCard()
-            VStack(alignment: .leading, spacing: 13) {
-                SectionTitle(title: "経営レバー", subtitle: "次月の販売量と利益率を調整")
-                Text("価格水準  \(Int(store.priceIndex * 100))").font(.subheadline.bold())
-                Slider(value: binding(\.priceIndex), in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
-                HStack { Text("販売量重視").font(.caption2).foregroundStyle(.secondary); Spacer(); Text("粗利重視").font(.caption2).foregroundStyle(.secondary) }
-                Divider()
-                Text("広告予算  \(store.advertising.currency)/月").font(.subheadline.bold())
-                Slider(value: Binding(get: { Double(store.advertising) }, set: { value in var changed = store; changed.advertising = Int(value); update(changed) }), in: 0...500, step: 20).tint(GameTheme.orange)
-            }.gameCard()
+            if store.hasManager {
+                VStack(alignment: .leading, spacing: 13) {
+                    SectionTitle(title: "店長の経営方針", subtitle: "自動運営時の販売量と利益率を調整")
+                    Text("価格水準  \(Int(store.priceIndex * 100))").font(.subheadline.bold())
+                    Slider(value: binding(\.priceIndex), in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
+                    HStack { Text("販売量重視").font(.caption2).foregroundStyle(.secondary); Spacer(); Text("粗利重視").font(.caption2).foregroundStyle(.secondary) }
+                    Divider()
+                    Text("広告予算  \(store.advertising.currency)/月").font(.subheadline.bold())
+                    Slider(value: Binding(get: { Double(store.advertising) }, set: { value in var changed = store; changed.advertising = Int(value); update(changed) }), in: 0...500, step: 20).tint(GameTheme.orange)
+                }.gameCard()
+            } else {
+                Label("店長を採用すると、自動運営の価格・広告方針を設定できます。", systemImage: "lock.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .gameCard()
+            }
         }
     }
 
@@ -598,15 +1125,15 @@ private struct StoreFinancePanel: View {
 }
 
 private struct StoreActionDock: View {
+    let canManagePolicy: Bool
     let settings: () -> Void
     let advertise: () -> Void
-    let purchase: () -> Void
-    var highlightPurchase = false
     var body: some View {
         HStack(spacing: 8) {
-            DockButton(title: "詳細設定", icon: "slider.horizontal.3", color: GameTheme.navy, action: settings)
-            DockButton(title: "宣伝", icon: "megaphone.fill", color: GameTheme.orange, action: advertise)
-            DockButton(title: "仕入", icon: "car.2.fill", color: GameTheme.teal, highlighted: highlightPurchase, action: purchase)
+            DockButton(title: "店舗・設備", icon: "wrench.and.screwdriver.fill", color: GameTheme.navy, action: settings)
+            if canManagePolicy {
+                DockButton(title: "店長に広告を指示", icon: "megaphone.fill", color: GameTheme.orange, action: advertise)
+            }
         }
         .padding(8).background(GameTheme.ink).clipShape(RoundedRectangle(cornerRadius: 16))
     }

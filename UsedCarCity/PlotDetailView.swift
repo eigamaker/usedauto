@@ -34,7 +34,7 @@ struct PlotDetailView: View {
                                         .foregroundStyle(.white).background(GameTheme.teal).clipShape(RoundedRectangle(cornerRadius: 15))
                                 }
                             } else {
-                                Label(game.stores.isEmpty ? "マップ上の出店候補地を選択してください" : "5か月目の終了後に出店が解放されます", systemImage: "lock.fill")
+                                Label(game.stores.isEmpty ? "マップ上の出店候補地を選択してください" : "5週目の終了後に出店が解放されます", systemImage: "lock.fill")
                                     .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(15).background(.gray.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14))
                             }
                         case .unavailable:
@@ -115,7 +115,7 @@ private struct LandOpportunityCard: View {
             SectionTitle(title: "この土地でできること", subtitle: "市場調査に基づく標準店の予測")
             HStack {
                 MetricView(title: "売出価格", value: plot.price.currency)
-                MetricView(title: "月額賃料", value: plot.monthlyRent.currency, detail: "地価前月比 \(String(format: "%+.1f", plot.lastPriceChange * 100))%")
+                MetricView(title: "月額賃料", value: plot.monthlyRent.currency, detail: "地価前週比 \(String(format: "%+.1f", plot.lastPriceChange * 100))%")
             }
             Divider()
             HStack {
@@ -163,7 +163,7 @@ private struct DevelopmentDetailCard: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: project.title, subtitle: "都市開発計画")
             HStack {
-                MetricView(title: "完成まで", value: "\(project.monthsRemaining)か月", tint: GameTheme.orange)
+                MetricView(title: "完成まで", value: "\(project.monthsRemaining)週間", tint: GameTheme.orange)
                 MetricView(title: "人口効果", value: "+\(project.populationBoost.formatted())人")
                 MetricView(title: "交通効果", value: "+\(Int(project.trafficBoost * 100))%")
             }
@@ -227,51 +227,6 @@ private struct StoreDetailCard: View {
             }
         }
         .gameCard()
-    }
-}
-
-private struct StoreQuickActions: View {
-    @EnvironmentObject private var game: GameEngine
-    let storeID: UUID
-    @State private var showSettings = false
-    @State private var resultMessage: String?
-
-    private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "この店舗で行動", subtitle: "変更は次の月次処理へ反映されます")
-            HStack(spacing: 10) {
-                ActionButton(title: "経営設定", icon: "slider.horizontal.3", color: GameTheme.teal) {
-                    showSettings = true
-                }
-                ActionButton(title: "広告を強化", icon: "megaphone.fill", color: GameTheme.orange) {
-                    guard var current = store else { return }
-                    current.advertising = min(400, current.advertising + 40)
-                    game.updateStore(current)
-                    resultMessage = "広告予算を40万円増やしました。次月の客足に反映されます。"
-                }
-                ActionButton(title: "推奨車を仕入", icon: "wrench.and.screwdriver.fill", color: GameTheme.navy) {
-                    guard let current = store,
-                          let plot = game.plot(id: current.plotID),
-                          let category = game.recommendedCategories(for: plot.district).first else { return }
-                    if game.buyInventory(category: category, count: 3, storeID: current.id) {
-                        resultMessage = "\(category.name)を3台仕入れました。"
-                    } else {
-                        resultMessage = "現金または展示スペースが不足しています。"
-                    }
-                }
-            }
-        }
-        .gameCard()
-        .sheet(isPresented: $showSettings) {
-            StoreSettingsView(storeID: storeID)
-        }
-        .alert("アクション結果", isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
-            Button("OK") { resultMessage = nil }
-        } message: {
-            Text(resultMessage ?? "")
-        }
     }
 }
 

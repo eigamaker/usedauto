@@ -2,6 +2,8 @@ import SwiftUI
 
 struct CityMapView: View {
     @EnvironmentObject private var game: GameEngine
+    @AppStorage("settings.showTutorialHints") private var showTutorialHints = true
+    @Binding var isExpanded: Bool
     @State private var layer: MapLayer = CommandLine.arguments.contains("-demo-competition") ? .competition : (CommandLine.arguments.contains("-demo-vehicle-demand") ? .vehicleDemand : .normal)
     @State private var demandCategory: VehicleCategory = .kei
     @State private var selectedPlot: LandPlot?
@@ -15,7 +17,15 @@ struct CityMapView: View {
         NavigationStack {
             GeometryReader { proxy in
                 ZStack {
-                    IsometricCitySurface(layer: layer, demandCategory: demandCategory, selectedPlot: $selectedPlot, selectedFacility: $selectedFacility, focusRequest: focusRequest)
+                    IsometricCitySurface(
+                        layer: layer,
+                        demandCategory: demandCategory,
+                        selectedPlot: $selectedPlot,
+                        selectedFacility: $selectedFacility,
+                        focusRequest: focusRequest,
+                        isExpanded: isExpanded,
+                        toggleExpanded: { isExpanded.toggle() }
+                    )
                         .frame(width: proxy.size.width, height: proxy.size.height)
                     VStack(spacing: 0) {
                         MapStatusStrip(layer: layer, demandCategory: demandCategory)
@@ -35,7 +45,7 @@ struct CityMapView: View {
                         )
                         .padding(.horizontal, 14).padding(.bottom, 82)
                     }
-                    if let step = game.tutorialStep, game.isTutorialActive, step != .reviewFirstResult {
+                    if showTutorialHints, let step = game.tutorialStep, game.isTutorialActive, step != .reviewFirstResult {
                         VStack {
                             TutorialCoachCard(
                                 step: step,
@@ -52,6 +62,7 @@ struct CityMapView: View {
             .background(Color(red: 0.71, green: 0.83, blue: 0.91))
             .navigationTitle("翠浜市 事業マップ")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(isExpanded ? .hidden : .visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showNationalMap = true } label: {
@@ -130,7 +141,7 @@ struct CityMapView: View {
         switch step {
         case .chooseLocation: "おすすめ候補を拡大"
         case .buildStore: "選んだ土地を開く"
-        case .purchaseInventory, .setPrice: "創業店を開く"
+        case .purchaseInventory, .setPrice, .runFirstMonth: "創業店を開く"
         default: nil
         }
     }
@@ -148,7 +159,7 @@ struct CityMapView: View {
                 focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: id))
                 selectedPlot = plot
             }
-        case .purchaseInventory, .setPrice:
+        case .purchaseInventory, .setPrice, .runFirstMonth:
             return {
                 guard let store = game.stores.first, let plot = game.plot(id: store.plotID) else { return }
                 focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id))
@@ -170,7 +181,7 @@ private struct MapBottomHUD: View {
             VStack(alignment: .leading, spacing: 3) {
                 Label("翠浜市", systemImage: "building.2.fill")
                     .font(.subheadline.bold())
-                Text(layer == .demand ? "青い光が今月の主な客足です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : layer == .competition ? "円は店舗の商圏、重なりは顧客競争です" : "ドラッグで移動・ピンチで拡大")
+                Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : layer == .competition ? "固定需要を自社と競合の商圏で奪い合います" : "6地域をドラッグで移動・ピンチで拡大")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
@@ -277,7 +288,7 @@ private struct NotificationCenterView: View {
                         }
                     }
                 }
-                ForEach(game.reports.first?.notes ?? [], id: \.self) { note in NotificationRow(icon: "bell.fill", title: note, detail: "直近の月次レポート", color: GameTheme.teal) }
+                ForEach(game.reports.first?.notes ?? [], id: \.self) { note in NotificationRow(icon: "bell.fill", title: note, detail: "直近の週間レポート", color: GameTheme.teal) }
             }.navigationTitle("未処理案件・通知").toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
         }
     }
@@ -644,7 +655,7 @@ private struct CustomerTrafficCard: View {
 private struct CityPulseCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            SectionTitle(title: "今月の街の動き", subtitle: "出店判断に影響する変化")
+            SectionTitle(title: "今週の街の動き", subtitle: "出店判断に影響する変化")
             HStack(spacing: 12) {
                 Image(systemName: "house.lodge.fill").foregroundStyle(.green).frame(width: 34, height: 34).background(Color.green.opacity(0.12)).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
@@ -671,12 +682,12 @@ struct MapLandmark: Identifiable {
 
 enum CityMapLayout {
     static let plotPositions: [CGPoint] = [
-        .init(x: 0.10, y: 0.13), .init(x: 0.21, y: 0.11), .init(x: 0.34, y: 0.14), .init(x: 0.11, y: 0.27), .init(x: 0.23, y: 0.25), .init(x: 0.36, y: 0.27),
-        .init(x: 0.48, y: 0.12), .init(x: 0.60, y: 0.13), .init(x: 0.70, y: 0.11), .init(x: 0.49, y: 0.27), .init(x: 0.61, y: 0.26), .init(x: 0.71, y: 0.28),
-        .init(x: 0.80, y: 0.12), .init(x: 0.92, y: 0.16), .init(x: 0.81, y: 0.27), .init(x: 0.92, y: 0.29), .init(x: 0.81, y: 0.38), .init(x: 0.93, y: 0.39),
-        .init(x: 0.08, y: 0.41), .init(x: 0.20, y: 0.39), .init(x: 0.34, y: 0.41), .init(x: 0.08, y: 0.55), .init(x: 0.21, y: 0.53), .init(x: 0.38, y: 0.57),
-        .init(x: 0.58, y: 0.44), .init(x: 0.72, y: 0.45), .init(x: 0.88, y: 0.48), .init(x: 0.59, y: 0.59), .init(x: 0.75, y: 0.60), .init(x: 0.90, y: 0.62),
-        .init(x: 0.09, y: 0.79), .init(x: 0.23, y: 0.78), .init(x: 0.39, y: 0.81), .init(x: 0.58, y: 0.80), .init(x: 0.75, y: 0.79), .init(x: 0.90, y: 0.81)
+        .init(x: 0.06, y: 0.12), .init(x: 0.18, y: 0.10), .init(x: 0.31, y: 0.13), .init(x: 0.07, y: 0.27), .init(x: 0.20, y: 0.25), .init(x: 0.33, y: 0.28),
+        .init(x: 0.43, y: 0.11), .init(x: 0.56, y: 0.12), .init(x: 0.68, y: 0.10), .init(x: 0.44, y: 0.27), .init(x: 0.57, y: 0.25), .init(x: 0.69, y: 0.28),
+        .init(x: 0.79, y: 0.11), .init(x: 0.92, y: 0.14), .init(x: 0.80, y: 0.25), .init(x: 0.93, y: 0.27), .init(x: 0.81, y: 0.37), .init(x: 0.93, y: 0.39),
+        .init(x: 0.06, y: 0.43), .init(x: 0.18, y: 0.40), .init(x: 0.35, y: 0.42), .init(x: 0.07, y: 0.59), .init(x: 0.21, y: 0.56), .init(x: 0.38, y: 0.61),
+        .init(x: 0.57, y: 0.44), .init(x: 0.72, y: 0.45), .init(x: 0.89, y: 0.47), .init(x: 0.58, y: 0.60), .init(x: 0.74, y: 0.61), .init(x: 0.91, y: 0.63),
+        .init(x: 0.07, y: 0.82), .init(x: 0.21, y: 0.79), .init(x: 0.38, y: 0.82), .init(x: 0.57, y: 0.81), .init(x: 0.75, y: 0.80), .init(x: 0.91, y: 0.83)
     ]
 
     static let landmarks: [MapLandmark] = [
@@ -812,7 +823,7 @@ struct NationalExpansionView: View {
                         Image(systemName: "building.2.fill")
                         VStack(alignment: .leading) {
                             Text("地域本社を開設").font(.headline)
-                            Text("初期投資 \(city.expansionCost.currency)・輸送\(city.shippingMonths)か月").font(.caption)
+                            Text("初期投資 \(city.expansionCost.currency)・輸送\(city.shippingMonths)週間").font(.caption)
                         }
                         Spacer()
                         Image(systemName: game.canExpandNationally ? "chevron.right" : "lock.fill")
@@ -839,7 +850,7 @@ struct NationalExpansionView: View {
             Stepper("輸送台数 \(shippingCount)台", value: $shippingCount, in: 1...5)
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("所要 \(city.shippingMonths)か月").font(.subheadline.bold())
+                    Text("所要 \(city.shippingMonths)週間").font(.subheadline.bold())
                     Text("輸送費 \((city.shippingCostPerVehicle * shippingCount).currency)").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -857,7 +868,7 @@ struct NationalExpansionView: View {
                     Image(systemName: "truck.box.fill").foregroundStyle(GameTheme.orange)
                     Text("\(shipment.category.name) \(shipment.count)台").font(.caption.bold())
                     Spacer()
-                    Text("あと\(shipment.monthsRemaining)か月").font(.caption).foregroundStyle(.secondary)
+                    Text("あと\(shipment.monthsRemaining)週間").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
