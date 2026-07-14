@@ -666,14 +666,23 @@ struct MapLandmark: Identifiable {
 }
 
 enum CityMapLayout {
-    static let plotPositions: [CGPoint] = [
-        .init(x: 0.06, y: 0.12), .init(x: 0.18, y: 0.10), .init(x: 0.31, y: 0.13), .init(x: 0.07, y: 0.27), .init(x: 0.20, y: 0.25), .init(x: 0.33, y: 0.28),
-        .init(x: 0.43, y: 0.11), .init(x: 0.56, y: 0.12), .init(x: 0.68, y: 0.10), .init(x: 0.44, y: 0.27), .init(x: 0.57, y: 0.25), .init(x: 0.69, y: 0.28),
-        .init(x: 0.79, y: 0.11), .init(x: 0.92, y: 0.14), .init(x: 0.80, y: 0.25), .init(x: 0.93, y: 0.27), .init(x: 0.81, y: 0.37), .init(x: 0.93, y: 0.39),
-        .init(x: 0.06, y: 0.43), .init(x: 0.18, y: 0.40), .init(x: 0.35, y: 0.42), .init(x: 0.07, y: 0.59), .init(x: 0.21, y: 0.56), .init(x: 0.38, y: 0.61),
-        .init(x: 0.57, y: 0.44), .init(x: 0.72, y: 0.45), .init(x: 0.89, y: 0.47), .init(x: 0.58, y: 0.60), .init(x: 0.74, y: 0.61), .init(x: 0.91, y: 0.63),
-        .init(x: 0.07, y: 0.82), .init(x: 0.21, y: 0.79), .init(x: 0.38, y: 0.82), .init(x: 0.57, y: 0.81), .init(x: 0.75, y: 0.80), .init(x: 0.91, y: 0.83)
+    static let columnCount = 12
+    static let rowCount = 12
+    static let columnSpacing: CGFloat = 0.0745
+    static let rowSpacing: CGFloat = 0.075
+
+    /// Every placeable plot uses one of these grid cells. Roads run between the
+    /// cells, so a newly built store never floats over a street or district edge.
+    private static let plotGrid: [(column: Int, row: Int)] = [
+        (0, 0), (2, 0), (4, 0), (0, 2), (2, 2), (4, 2),
+        (5, 0), (7, 0), (8, 0), (5, 2), (7, 2), (8, 2),
+        (9, 0), (11, 0), (9, 1), (11, 1), (9, 2), (11, 2),
+        (0, 5), (2, 5), (4, 5), (0, 7), (2, 7), (4, 7),
+        (6, 5), (8, 5), (10, 5), (6, 7), (8, 7), (10, 7),
+        (0, 10), (2, 10), (4, 10), (6, 10), (8, 10), (10, 10)
     ]
+
+    static let plotPositions: [CGPoint] = plotGrid.map { gridPoint(column: $0.column, row: $0.row) }
 
     static let landmarks: [MapLandmark] = [
         MapLandmark(id: "boutique", title: "ブティック通り", subtitle: "高所得・高級車", icon: "bag.fill", x: 0.19, y: 0.035, tint: .purple),
@@ -686,6 +695,28 @@ enum CityMapLayout {
 
     static func position(for plotID: Int) -> CGPoint {
         plotPositions.indices.contains(plotID) ? plotPositions[plotID] : .init(x: 0.5, y: 0.5)
+    }
+
+    static func gridPoint(column: Int, row: Int) -> CGPoint {
+        CGPoint(
+            x: 0.09 + CGFloat(column) * columnSpacing,
+            y: 0.08 + CGFloat(row) * rowSpacing
+        )
+    }
+
+    static func gridCellRect(column: Int, row: Int) -> CGRect {
+        let center = gridPoint(column: column, row: row)
+        return CGRect(
+            x: center.x - columnSpacing * 0.46,
+            y: center.y - rowSpacing * 0.43,
+            width: columnSpacing * 0.92,
+            height: rowSpacing * 0.86
+        )
+    }
+
+    static func lotRect(for plotID: Int) -> CGRect {
+        let center = position(for: plotID)
+        return CGRect(x: center.x - 0.031, y: center.y - 0.026, width: 0.062, height: 0.052)
     }
 
     static func trafficBadgePosition(for kind: DistrictKind) -> CGPoint {

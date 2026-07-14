@@ -52,14 +52,14 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     var worldPoint: CGPoint {
         switch self {
-        case .headquarters: .init(x: 0.64, y: 0.88)
-        case .auction: .init(x: 0.28, y: 0.87)
-        case .bank: .init(x: 0.22, y: 0.18)
-        case .realEstate: .init(x: 0.50, y: 0.32)
-        case .workshop: .init(x: 0.70, y: 0.56)
-        case .advertising: .init(x: 0.12, y: 0.29)
-        case .recruiting: .init(x: 0.56, y: 0.14)
-        case .cityHall: .init(x: 0.82, y: 0.40)
+        case .headquarters: CityMapLayout.gridPoint(column: 7, row: 11)
+        case .auction: CityMapLayout.gridPoint(column: 3, row: 11)
+        case .bank: CityMapLayout.gridPoint(column: 1, row: 1)
+        case .realEstate: CityMapLayout.gridPoint(column: 6, row: 3)
+        case .workshop: CityMapLayout.gridPoint(column: 7, row: 6)
+        case .advertising: CityMapLayout.gridPoint(column: 3, row: 1)
+        case .recruiting: CityMapLayout.gridPoint(column: 6, row: 1)
+        case .cityHall: CityMapLayout.gridPoint(column: 10, row: 6)
         }
     }
 

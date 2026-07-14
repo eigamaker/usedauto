@@ -30,6 +30,31 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.plots.count, 36)
     }
 
+    func testAllCityPlotsAreUniqueGridAlignedCells() {
+        XCTAssertEqual(Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" }).count, 36)
+        for point in CityMapLayout.plotPositions {
+            let column = (point.x - 0.09) / CityMapLayout.columnSpacing
+            let row = (point.y - 0.08) / CityMapLayout.rowSpacing
+            XCTAssertEqual(column, column.rounded(), accuracy: 0.0001)
+            XCTAssertEqual(row, row.rounded(), accuracy: 0.0001)
+            XCTAssertTrue((0...1).contains(point.x))
+            XCTAssertTrue((0...1).contains(point.y))
+        }
+    }
+
+    func testFacilitiesUseGridCellsSeparateFromStorePlots() {
+        let plotPoints = Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" })
+        let facilityPoints = MapFacility.allCases.map(\.worldPoint)
+        XCTAssertEqual(Set(facilityPoints.map { "\($0.x),\($0.y)" }).count, MapFacility.allCases.count)
+        for point in facilityPoints {
+            XCTAssertFalse(plotPoints.contains("\(point.x),\(point.y)"))
+            let column = (point.x - 0.09) / CityMapLayout.columnSpacing
+            let row = (point.y - 0.08) / CityMapLayout.rowSpacing
+            XCTAssertEqual(column, column.rounded(), accuracy: 0.0001)
+            XCTAssertEqual(row, row.rounded(), accuracy: 0.0001)
+        }
+    }
+
     func testStartupBeginsWithLocationSelectionOnMap() {
         let game = GameEngine()
         game.resetGame()

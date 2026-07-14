@@ -20,43 +20,40 @@ struct IsometricCitySurface: View {
             let size = proxy.size
             ZStack {
                 ZStack {
-                    Image("CityMapBackgroundV2")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: size.width, height: size.height)
-                        .clipped()
                     IsometricCityCanvas(layer: layer, demandCategory: demandCategory)
                     if layer == .demand { IsometricCustomerFlow(emphasized: true) }
                     if layer == .competition { IsometricCatchmentOverlay() }
                     ForEach(game.plots) { plot in
                         if case .competitor(let name) = plot.occupant {
                             let type = competitorStoreType(for: plot.id)
+                            let buildingWidth = type.mapAssetWidth * 0.65
                             let point = IsoProjection.project(CityMapLayout.position(for: plot.id), in: size)
                             DynamicStoreBuilding(
-                                assetName: type.mapAssetName,
-                                width: type.mapAssetWidth * 0.72,
+                                type: type,
+                                width: buildingWidth,
                                 tier: 1,
                                 owner: .competitor,
                                 phase: .operating,
                                 interfaceScale: interfaceScale,
                                 accessibilityName: "競合店舗 \(name)"
                             ) { select(plot) }
-                            .position(x: point.x, y: point.y - 18)
+                            .position(x: point.x, y: point.y - buildingWidth * 0.38)
                         }
                     }
                     ForEach(game.stores) { store in
                         if let plot = game.plot(id: store.plotID) {
+                            let buildingWidth = store.type.mapAssetWidth * 0.74
                             let point = IsoProjection.project(CityMapLayout.position(for: plot.id), in: size)
                             DynamicStoreBuilding(
-                                assetName: store.type.mapAssetName,
-                                width: store.type.mapAssetWidth,
+                                type: store.type,
+                                width: buildingWidth,
                                 tier: store.visualTier,
                                 owner: .player,
                                 phase: buildingPhase(for: store),
                                 interfaceScale: interfaceScale,
                                 accessibilityName: "\(store.name)、\(store.type.name)"
                             ) { select(plot) }
-                            .position(x: point.x, y: point.y - 22)
+                            .position(x: point.x, y: point.y - buildingWidth * 0.38)
                         }
                     }
                     ForEach(CityMapLayout.landmarks) { landmark in
@@ -86,7 +83,7 @@ struct IsometricCitySurface: View {
                             let point = IsoProjection.project(facility.worldPoint, in: size)
                             FacilityMapMarker(facility: facility, compact: !facility.isPrimary) { select(facility) }
                                 .scaleEffect(interfaceScale)
-                                .position(x: point.x, y: point.y - 30)
+                                .position(x: point.x, y: point.y - (facility.isPrimary ? 31 : 26))
                         }
                     }
                     if layer == .demand {
@@ -301,7 +298,7 @@ private enum DynamicBuildingPhase: Equatable {
 }
 
 private struct DynamicStoreBuilding: View {
-    let assetName: String
+    let type: StoreType
     let width: CGFloat
     let tier: Int
     let owner: DynamicBuildingOwner
@@ -313,27 +310,57 @@ private struct DynamicStoreBuilding: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .bottom) {
-                Ellipse()
-                    .fill(owner == .player ? GameTheme.teal.opacity(0.30) : GameTheme.orange.opacity(0.36))
-                    .frame(width: width * 0.76, height: width * 0.24)
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(red: 0.76, green: 0.77, blue: 0.71))
+                    .frame(width: width, height: width * 0.39)
                     .overlay {
-                        Ellipse()
-                            .stroke(owner == .player ? Color.white.opacity(0.9) : GameTheme.orange,
-                                    lineWidth: owner == .player ? 1.5 : 2)
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(ownerColor.opacity(0.92), lineWidth: owner == .player ? 2.2 : 1.7)
                     }
-                    .offset(y: 2)
-                Image(assetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: width * tierScale)
-                    .saturation(owner == .player ? 1 : 0.58)
-                    .contrast(owner == .player ? 1 : 0.92)
+                Rectangle()
+                    .fill(GameTheme.road.opacity(0.86))
+                    .frame(width: width * 0.18, height: width * 0.22)
+                    .offset(x: width * 0.31)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(owner == .player ? Color(red: 0.91, green: 0.95, blue: 0.93) : Color(red: 0.91, green: 0.87, blue: 0.82))
+                    .frame(width: width * 0.68 * tierScale, height: width * 0.40 * tierScale)
+                    .overlay(alignment: .bottom) {
+                        HStack(spacing: 3) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 1)
+                                    .fill(Color.cyan.opacity(0.68))
+                                    .frame(width: width * 0.12, height: width * 0.13)
+                            }
+                        }
+                        .padding(.bottom, width * 0.07)
+                    }
+                    .overlay {
+                        Image(systemName: type.icon)
+                            .font(.system(size: width * 0.16, weight: .black))
+                            .foregroundStyle(ownerColor)
+                            .offset(y: -width * 0.08)
+                    }
+                    .overlay(alignment: .top) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(ownerColor)
+                            .frame(width: width * 0.74, height: width * 0.10)
+                            .offset(y: -width * 0.04)
+                    }
+                    .offset(x: -width * 0.08, y: -width * 0.18)
                     .opacity(phase == .operating ? 1 : 0.58)
-                    .id(assetName)
-                    .transition(.scale(scale: 0.75).combined(with: .opacity))
+                    .transition(.scale(scale: 0.72, anchor: .bottom).combined(with: .opacity))
                 if phase != .operating {
                     ConstructionScaffold(width: width, phase: phase)
                 }
+                Text(owner == .player ? "自社" : "競合")
+                    .font(.system(size: 7, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(ownerColor)
+                    .clipShape(Capsule())
+                    .scaleEffect(interfaceScale)
+                    .offset(x: -width * 0.31, y: -width * 0.47)
                 if tier > 1, owner == .player {
                     Text("Lv.\(tier)")
                         .font(.system(size: 7, weight: .black))
@@ -346,12 +373,12 @@ private struct DynamicStoreBuilding: View {
                         .offset(x: width * 0.31, y: -width * 0.43)
                 }
             }
-            .frame(width: width * 1.18, height: width * 0.82, alignment: .bottom)
+            .frame(width: width * 1.10, height: width * 0.76, alignment: .bottom)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.24), radius: 4, y: 3)
-        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: assetName)
+        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: type)
         .animation(.spring(response: 0.42, dampingFraction: 0.78), value: tier)
         .animation(.spring(response: 0.42, dampingFraction: 0.78), value: phase)
         .accessibilityLabel(accessibilityName)
@@ -360,6 +387,10 @@ private struct DynamicStoreBuilding: View {
 
     private var tierScale: CGFloat {
         1 + CGFloat(max(0, tier - 1)) * 0.045
+    }
+
+    private var ownerColor: Color {
+        owner == .player ? GameTheme.teal : GameTheme.orange
     }
 }
 
@@ -403,16 +434,51 @@ private struct FacilityMapMarker: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 2) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: compact ? 7 : 10).fill(facility.color).frame(width: compact ? 27 : 38, height: compact ? 27 : 38)
-                    RoundedRectangle(cornerRadius: compact ? 7 : 10).stroke(.white, lineWidth: 2).frame(width: compact ? 27 : 38, height: compact ? 27 : 38)
-                    Image(systemName: facility.icon).font(compact ? .caption2.bold() : .subheadline.bold()).foregroundStyle(.white)
-                    if badge > 0 { Text("\(badge)").font(.system(size: 8, weight: .black)).foregroundStyle(.white).frame(width: 16, height: 16).background(GameTheme.danger).clipShape(Circle()).offset(x: 17, y: -17) }
+            VStack(spacing: 1) {
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color(red: 0.76, green: 0.77, blue: 0.72))
+                        .frame(width: compact ? 42 : 54, height: compact ? 23 : 29)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5).stroke(.white.opacity(0.94), lineWidth: 1.5)
+                        }
+                    RoundedRectangle(cornerRadius: compact ? 4 : 5)
+                        .fill(facility.color)
+                        .frame(width: compact ? 27 : 35, height: compact ? 27 : 35)
+                        .overlay(alignment: .top) {
+                            Rectangle()
+                                .fill(.white.opacity(0.82))
+                                .frame(height: compact ? 4 : 5)
+                        }
+                        .overlay {
+                            Image(systemName: facility.icon)
+                                .font(.system(size: compact ? 11 : 15, weight: .black))
+                                .foregroundStyle(.white)
+                        }
+                        .offset(y: compact ? -7 : -9)
+                    if badge > 0 {
+                        Text("\(badge)")
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundStyle(.white)
+                            .frame(width: 16, height: 16)
+                            .background(GameTheme.danger)
+                            .clipShape(Circle())
+                            .offset(x: compact ? 16 : 20, y: compact ? -26 : -34)
+                    }
                 }
-                Text(facility.shortName).font(.system(size: compact ? 6 : 7, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 2).background(facility.color).clipShape(Capsule())
-            }.frame(minWidth: 48, minHeight: 52)
-        }.buttonStyle(.plain).shadow(color: .black.opacity(0.28), radius: 4, y: 3).accessibilityLabel("\(facility.name)、\(facility.status(game: game))")
+                Text(facility.shortName)
+                    .font(.system(size: compact ? 6 : 7, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(facility.color)
+                    .clipShape(Capsule())
+            }
+            .frame(minWidth: compact ? 44 : 56, minHeight: compact ? 50 : 62)
+        }
+        .buttonStyle(.plain)
+        .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+        .accessibilityLabel("\(facility.name)、\(facility.status(game: game))")
     }
     private var badge: Int {
         if facility == .headquarters { return game.purchaseCases.count }
@@ -473,7 +539,16 @@ private struct IsometricCityCanvas: View {
 
     var body: some View {
         Canvas { context, size in
+            drawBackdrop(context: &context, size: size)
+            drawTerrain(context: &context, size: size)
             drawZones(context: &context, size: size)
+            drawGrid(context: &context, size: size)
+            drawWaterAndParks(context: &context, size: size)
+            drawStreets(context: &context, size: size)
+            drawHighway(context: &context, size: size)
+            drawLots(context: &context, size: size)
+            drawFacilityLots(context: &context, size: size)
+            drawGridCoordinates(context: &context, size: size)
         }
     }
 
@@ -483,16 +558,10 @@ private struct IsometricCityCanvas: View {
             startPoint: .zero,
             endPoint: CGPoint(x: 0, y: size.height)
         ))
-        let hillColors = [Color(red: 0.40, green: 0.61, blue: 0.43), Color(red: 0.34, green: 0.54, blue: 0.39), Color(red: 0.47, green: 0.66, blue: 0.45)]
-        for index in 0..<5 {
-            let x = CGFloat(index) * size.width * 0.23 - 30
-            var hill = Path()
-            hill.move(to: CGPoint(x: x, y: size.height * 0.16))
-            hill.addLine(to: CGPoint(x: x + size.width * 0.16, y: size.height * (0.035 + CGFloat(index % 2) * 0.02)))
-            hill.addLine(to: CGPoint(x: x + size.width * 0.32, y: size.height * 0.16))
-            hill.closeSubpath()
-            context.fill(hill, with: .color(hillColors[index % hillColors.count].opacity(0.8)))
-        }
+        context.fill(
+            Path(CGRect(x: 0, y: size.height * 0.94, width: size.width, height: size.height * 0.06)),
+            with: .color(Color.blue.opacity(0.28))
+        )
     }
 
     private func drawTerrain(context: inout GraphicsContext, size: CGSize) {
@@ -521,18 +590,30 @@ private struct IsometricCityCanvas: View {
         for (kind, rect) in zones {
             let district = game.districts.first(where: { $0.kind == kind })
             let path = worldRect(rect, size)
-            context.fill(path, with: .color(zoneColor(kind, district: district).opacity(layer == .normal ? 0.13 : 0.52)))
-            context.stroke(path, with: .color(kind.color.opacity(layer == .normal ? 0.52 : 0.78)), style: StrokeStyle(lineWidth: layer == .normal ? 1.2 : 2, dash: [5, 3]))
+            context.fill(path, with: .color(zoneColor(kind, district: district).opacity(layer == .normal ? 0.50 : 0.67)))
+            context.stroke(path, with: .color(kind.color.opacity(layer == .normal ? 0.72 : 0.92)), style: StrokeStyle(lineWidth: layer == .normal ? 1.4 : 2, dash: [5, 3]))
+        }
+    }
+
+    private func drawGrid(context: inout GraphicsContext, size: CGSize) {
+        for row in 0..<CityMapLayout.rowCount {
+            for column in 0..<CityMapLayout.columnCount {
+                let cell = worldRect(CityMapLayout.gridCellRect(column: column, row: row), size)
+                if (row + column).isMultiple(of: 2) {
+                    context.fill(cell, with: .color(Color.white.opacity(0.035)))
+                }
+                context.stroke(cell, with: .color(GameTheme.navy.opacity(0.18)), lineWidth: 0.7)
+            }
         }
     }
 
     private func drawWaterAndParks(context: inout GraphicsContext, size: CGSize) {
-        let river = worldRect(CGRect(x: 0.94, y: 0.20, width: 0.055, height: 0.78), size)
-        context.fill(river, with: .linearGradient(Gradient(colors: [.cyan.opacity(0.68), .blue.opacity(0.46)]), startPoint: iso(.init(x: 0.94, y: 0.2), size), endPoint: iso(.init(x: 1, y: 0.98), size)))
+        let river = worldRect(CGRect(x: 0.975, y: 0.20, width: 0.025, height: 0.78), size)
+        context.fill(river, with: .linearGradient(Gradient(colors: [.cyan.opacity(0.68), .blue.opacity(0.46)]), startPoint: iso(.init(x: 0.975, y: 0.2), size), endPoint: iso(.init(x: 1, y: 0.98), size)))
         context.stroke(river, with: .color(.white.opacity(0.48)), lineWidth: 2)
-        let park = worldRect(CGRect(x: 0.77, y: 0.24, width: 0.18, height: 0.13), size)
+        let park = worldRect(CGRect(x: 0.79, y: 0.36, width: 0.15, height: 0.075), size)
         context.fill(park, with: .color(Color.green.opacity(0.42)))
-        context.draw(Text("中央公園").font(.system(size: 7, weight: .bold)).foregroundStyle(Color.green.opacity(0.9)), at: iso(.init(x: 0.85, y: 0.31), size))
+        context.draw(Text("中央公園").font(.system(size: 7, weight: .bold)).foregroundStyle(Color.green.opacity(0.9)), at: iso(.init(x: 0.865, y: 0.398), size))
     }
 
     private func drawStreets(context: inout GraphicsContext, size: CGSize) {
@@ -542,8 +623,7 @@ private struct IsometricCityCanvas: View {
             (.init(x: 0, y: 0.66), .init(x: 1, y: 0.66), 10),
             (.init(x: 0.42, y: 0), .init(x: 0.42, y: 0.68), 10),
             (.init(x: 0.74, y: 0), .init(x: 0.74, y: 0.68), 10),
-            (.init(x: 0.18, y: 0), .init(x: 0.18, y: 0.68), 8),
-            (.init(x: 0.90, y: 0), .init(x: 0.90, y: 0.68), 8)
+            (.init(x: 0.18, y: 0), .init(x: 0.18, y: 0.68), 8)
         ]
         for (startW, endW, width) in roads {
             let start = iso(startW, size), end = iso(endW, size)
@@ -556,12 +636,52 @@ private struct IsometricCityCanvas: View {
 
     private func drawLots(context: inout GraphicsContext, size: CGSize) {
         for plot in game.plots {
-            guard case .available = plot.occupant else { continue }
-            let point = CityMapLayout.position(for: plot.id)
-            let rect = CGRect(x: point.x - 0.027, y: point.y - 0.027, width: 0.054, height: 0.054)
+            let path = worldRect(CityMapLayout.lotRect(for: plot.id), size)
+            let fill: Color
+            let border: Color
+            let dash: [CGFloat]
+            switch plot.occupant {
+            case .player:
+                fill = GameTheme.teal.opacity(0.30)
+                border = GameTheme.teal
+                dash = []
+            case .competitor:
+                fill = GameTheme.orange.opacity(0.26)
+                border = GameTheme.orange
+                dash = []
+            case .available:
+                fill = plot.isForLease ? Color.white.opacity(0.82) : GameTheme.sand.opacity(0.88)
+                border = GameTheme.navy.opacity(0.72)
+                dash = [3, 2]
+            case .unavailable:
+                fill = Color.gray.opacity(0.22)
+                border = Color.gray.opacity(0.58)
+                dash = [2, 2]
+            }
+            context.fill(path, with: .color(fill))
+            context.stroke(path, with: .color(border), style: StrokeStyle(lineWidth: 1.5, dash: dash))
+        }
+    }
+
+    private func drawFacilityLots(context: inout GraphicsContext, size: CGSize) {
+        for facility in MapFacility.allCases {
+            let point = facility.worldPoint
+            let rect = CGRect(x: point.x - 0.035, y: point.y - 0.025, width: 0.07, height: 0.05)
             let path = worldRect(rect, size)
-            context.fill(path, with: .color(plot.isForLease ? Color.white.opacity(0.82) : GameTheme.sand.opacity(0.86)))
-            context.stroke(path, with: .color(GameTheme.navy.opacity(0.65)), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+            context.fill(path, with: .color(Color.white.opacity(0.78)))
+            context.stroke(path, with: .color(facility.color.opacity(0.90)), lineWidth: 1.8)
+        }
+    }
+
+    private func drawGridCoordinates(context: inout GraphicsContext, size: CGSize) {
+        for column in 0..<CityMapLayout.columnCount {
+            let letter = String(UnicodeScalar(65 + column)!)
+            let point = iso(.init(x: CityMapLayout.gridPoint(column: column, row: 0).x, y: 0.012), size)
+            context.draw(Text(letter).font(.system(size: 6, weight: .black)).foregroundStyle(GameTheme.navy.opacity(0.70)), at: point)
+        }
+        for row in 0..<CityMapLayout.rowCount {
+            let point = iso(.init(x: 0.012, y: CityMapLayout.gridPoint(column: 0, row: row).y), size)
+            context.draw(Text("\(row + 1)").font(.system(size: 6, weight: .black)).foregroundStyle(GameTheme.navy.opacity(0.70)), at: point)
         }
     }
 

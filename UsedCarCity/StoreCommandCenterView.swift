@@ -713,17 +713,116 @@ private struct StoreScene: View {
         GeometryReader { proxy in
             ZStack {
                 StoreSceneBackdrop(type: store.type)
-                Image(store.type.mapAssetName)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: proxy.size.width * store.type.sceneAssetScale)
-                    .position(x: proxy.size.width * 0.5, y: proxy.size.height * store.type.sceneAssetCenterY)
-                    .shadow(color: GameTheme.ink.opacity(0.22), radius: 7, y: 5)
+                StoreSceneBuilding(type: store.type, inventoryCount: store.inventoryCount)
+                StoreAccessOverlay(type: store.type)
                 StoreTrafficAnimation(store: store)
             }
             .clipped()
         }
+    }
+}
+
+private struct StoreSceneBuilding: View {
+    let type: StoreType
+    let inventoryCount: Int
+
+    var body: some View {
+        Canvas { context, size in
+            let building = scaled(type.sceneBuildingRect, in: size)
+            let entrance = normalized(type.sceneEntrance, in: size)
+            let accent = type.sceneAccentColor
+
+            context.fill(
+                Path(roundedRect: building.offsetBy(dx: 5, dy: 5), cornerRadius: 5),
+                with: .color(GameTheme.ink.opacity(0.20))
+            )
+            context.fill(Path(roundedRect: building, cornerRadius: 5), with: .color(Color(red: 0.91, green: 0.93, blue: 0.90)))
+            context.stroke(Path(roundedRect: building, cornerRadius: 5), with: .color(.white.opacity(0.92)), lineWidth: 2)
+
+            let roof = CGRect(x: building.minX - 4, y: building.minY - 5, width: building.width + 8, height: 16)
+            context.fill(Path(roundedRect: roof, cornerRadius: 4), with: .color(accent))
+            let sign = CGRect(x: building.midX - min(70, building.width * 0.32), y: building.minY + 16, width: min(140, building.width * 0.64), height: 21)
+            context.fill(Path(roundedRect: sign, cornerRadius: 5), with: .color(accent.opacity(0.92)))
+            context.draw(Text(type.sceneShortName).font(.system(size: 10, weight: .black)).foregroundStyle(.white), at: CGPoint(x: sign.midX, y: sign.midY))
+
+            let windowCount = type == .small ? 2 : 3
+            let windowTop = building.minY + 44
+            let windowWidth = min(38, (building.width - 40) / CGFloat(windowCount))
+            for index in 0..<windowCount {
+                let centerX = building.minX + 22 + CGFloat(index) * (windowWidth + 8)
+                let window = CGRect(x: centerX, y: windowTop, width: windowWidth, height: max(18, building.maxY - windowTop - 12))
+                context.fill(Path(roundedRect: window, cornerRadius: 3), with: .color(Color.cyan.opacity(0.55)))
+                context.stroke(Path(roundedRect: window, cornerRadius: 3), with: .color(accent.opacity(0.72)), lineWidth: 1.4)
+            }
+
+            let door = CGRect(x: entrance.x - 10, y: entrance.y - 28, width: 20, height: 28)
+            context.fill(Path(roundedRect: door, cornerRadius: 3), with: .color(accent))
+            context.fill(Path(roundedRect: door.insetBy(dx: 4, dy: 4), cornerRadius: 2), with: .color(Color.cyan.opacity(0.62)))
+            context.fill(Path(ellipseIn: CGRect(x: door.maxX - 6, y: door.midY, width: 3, height: 3)), with: .color(.white))
+
+            drawParkingBays(context: &context, size: size)
+            drawFence(context: &context, size: size)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func drawParkingBays(context: inout GraphicsContext, size: CGSize) {
+        let shown = min(4, max(1, inventoryCount))
+        let positions: [CGPoint] = [
+            .init(x: 0.66, y: 0.57), .init(x: 0.77, y: 0.57),
+            .init(x: 0.88, y: 0.57), .init(x: 0.88, y: 0.68)
+        ]
+        for (index, position) in positions.enumerated() {
+            let point = normalized(position, in: size)
+            let bay = CGRect(x: point.x - 17, y: point.y - 11, width: 34, height: 22)
+            context.stroke(Path(roundedRect: bay, cornerRadius: 2), with: .color(.white.opacity(0.72)), lineWidth: 1.3)
+            guard index < shown else { continue }
+            let car = bay.insetBy(dx: 5, dy: 4)
+            let colors: [Color] = [.cyan, .white, .yellow, .blue]
+            context.fill(Path(roundedRect: car, cornerRadius: 5), with: .color(colors[index % colors.count].opacity(0.88)))
+            context.fill(Path(roundedRect: car.insetBy(dx: 6, dy: 3), cornerRadius: 2), with: .color(GameTheme.navy.opacity(0.72)))
+        }
+    }
+
+    private func drawFence(context: inout GraphicsContext, size: CGSize) {
+        let y = size.height * 0.71
+        let pedestrianX = size.width * type.scenePedestrianGate.x
+        let vehicleX = size.width * type.sceneVehicleGate.x
+        let gaps = [
+            (pedestrianX - 13, pedestrianX + 13),
+            (vehicleX - 28, vehicleX + 28)
+        ].sorted { $0.0 < $1.0 }
+        var cursor = size.width * 0.055
+        for gap in gaps {
+            if gap.0 > cursor { drawFenceSegment(from: cursor, to: gap.0, y: y, context: &context) }
+            drawGatePost(x: gap.0, y: y, context: &context)
+            drawGatePost(x: gap.1, y: y, context: &context)
+            cursor = max(cursor, gap.1)
+        }
+        drawFenceSegment(from: cursor, to: size.width * 0.945, y: y, context: &context)
+    }
+
+    private func drawFenceSegment(from start: CGFloat, to end: CGFloat, y: CGFloat, context: inout GraphicsContext) {
+        guard end > start else { return }
+        var path = Path()
+        path.move(to: CGPoint(x: start, y: y))
+        path.addLine(to: CGPoint(x: end, y: y))
+        context.stroke(path, with: .color(type.sceneAccentColor.opacity(0.92)), style: StrokeStyle(lineWidth: 5, lineCap: .square))
+        context.stroke(path, with: .color(.white.opacity(0.86)), style: StrokeStyle(lineWidth: 1.2, dash: [6, 4]))
+    }
+
+    private func drawGatePost(x: CGFloat, y: CGFloat, context: inout GraphicsContext) {
+        let post = CGRect(x: x - 3, y: y - 8, width: 6, height: 12)
+        context.fill(Path(roundedRect: post, cornerRadius: 1), with: .color(.white))
+        context.stroke(Path(roundedRect: post, cornerRadius: 1), with: .color(type.sceneAccentColor), lineWidth: 1)
+    }
+
+    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: point.x * size.width, y: point.y * size.height)
+    }
+
+    private func scaled(_ rect: CGRect, in size: CGSize) -> CGRect {
+        CGRect(x: rect.minX * size.width, y: rect.minY * size.height, width: rect.width * size.width, height: rect.height * size.height)
     }
 }
 
@@ -765,13 +864,23 @@ private struct StoreSceneBackdrop: View {
             context.fill(Path(CGRect(x: 0, y: sidewalk.minY, width: size.width, height: 3)), with: .color(.white.opacity(0.62)))
 
             let destination = normalized(type.sceneVehicleDestination, in: size)
+            let vehicleGate = normalized(type.sceneVehicleGate, in: size)
             let driveway = polygon([
-                CGPoint(x: destination.x - 20, y: destination.y + 5),
-                CGPoint(x: destination.x + 20, y: destination.y + 5),
-                CGPoint(x: destination.x + 31, y: sidewalk.maxY + 4),
-                CGPoint(x: destination.x - 31, y: sidewalk.maxY + 4)
+                CGPoint(x: destination.x - 18, y: destination.y + 5),
+                CGPoint(x: destination.x + 18, y: destination.y + 5),
+                CGPoint(x: vehicleGate.x + 25, y: sidewalk.maxY + 4),
+                CGPoint(x: vehicleGate.x - 25, y: sidewalk.maxY + 4)
             ])
             context.fill(driveway, with: .color(GameTheme.road.opacity(0.82)))
+
+            let pedestrianGate = normalized(type.scenePedestrianGate, in: size)
+            let entrance = normalized(type.sceneEntrance, in: size)
+            var walkway = Path()
+            walkway.move(to: CGPoint(x: pedestrianGate.x, y: sidewalk.midY))
+            walkway.addLine(to: pedestrianGate)
+            walkway.addLine(to: entrance)
+            context.stroke(walkway, with: .color(.white.opacity(0.95)), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
+            context.stroke(walkway, with: .color(Color(red: 0.79, green: 0.72, blue: 0.58)), style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
 
             let road = CGRect(x: 0, y: size.height * 0.81, width: size.width, height: size.height * 0.19)
             context.fill(Path(road), with: .linearGradient(Gradient(colors: [GameTheme.road, GameTheme.ink.opacity(0.92)]), startPoint: CGPoint(x: 0, y: road.minY), endPoint: CGPoint(x: 0, y: road.maxY)))
@@ -803,6 +912,52 @@ private struct StoreSceneBackdrop: View {
         for point in points.dropFirst() { path.addLine(to: point) }
         path.closeSubpath()
         return path
+    }
+}
+
+private struct StoreAccessOverlay: View {
+    let type: StoreType
+
+    var body: some View {
+        Canvas { context, size in
+            let pedestrianGate = normalized(type.scenePedestrianGate, in: size)
+            let entrance = normalized(type.sceneEntrance, in: size)
+            let vehicleGate = normalized(type.sceneVehicleGate, in: size)
+            let destination = normalized(type.sceneVehicleDestination, in: size)
+
+            var drivewayOpening = Path()
+            drivewayOpening.move(to: CGPoint(x: vehicleGate.x, y: size.height * 0.82))
+            drivewayOpening.addLine(to: vehicleGate)
+            context.stroke(drivewayOpening, with: .color(.white.opacity(0.92)), style: StrokeStyle(lineWidth: 16, lineCap: .butt))
+            context.stroke(drivewayOpening, with: .color(GameTheme.road), style: StrokeStyle(lineWidth: 11, lineCap: .butt))
+
+            var vehicleGuide = Path()
+            vehicleGuide.move(to: vehicleGate)
+            vehicleGuide.addLine(to: destination)
+            context.stroke(vehicleGuide, with: .color(.white.opacity(0.82)), style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
+
+            var pedestrianOpening = Path()
+            pedestrianOpening.move(to: CGPoint(x: pedestrianGate.x, y: size.height * 0.78))
+            pedestrianOpening.addLine(to: pedestrianGate)
+            pedestrianOpening.addLine(to: entrance)
+            context.stroke(pedestrianOpening, with: .color(.white.opacity(0.96)), style: StrokeStyle(lineWidth: 11, lineCap: .round, lineJoin: .round))
+            context.stroke(pedestrianOpening, with: .color(Color(red: 0.80, green: 0.73, blue: 0.59)), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+            context.stroke(pedestrianOpening, with: .color(GameTheme.teal.opacity(0.78)), style: StrokeStyle(lineWidth: 1.3, dash: [3, 3]))
+
+            drawLabel("歩行入口", at: CGPoint(x: pedestrianGate.x, y: size.height * 0.745), context: &context)
+            drawLabel("車両入口", at: CGPoint(x: vehicleGate.x, y: size.height * 0.79), context: &context)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: point.x * size.width, y: point.y * size.height)
+    }
+
+    private func drawLabel(_ text: String, at point: CGPoint, context: inout GraphicsContext) {
+        let background = CGRect(x: point.x - 25, y: point.y - 8, width: 50, height: 16)
+        context.fill(Path(roundedRect: background, cornerRadius: 8), with: .color(GameTheme.navy.opacity(0.82)))
+        context.draw(Text(text).font(.system(size: 7, weight: .black)).foregroundStyle(.white), at: point)
     }
 }
 
@@ -838,18 +993,22 @@ private struct StoreTrafficAnimation: View {
         let cycle = pedestrianCycle
         let active = pedestrianActiveFraction
         let entrance = normalized(store.type.sceneEntrance, in: size)
+        let gate = normalized(store.type.scenePedestrianGate, in: size)
         let colors: [Color] = [GameTheme.orange, GameTheme.mint, .white, .yellow, .cyan]
 
         for index in 0..<count {
             let phase = (seconds / cycle + Double(index) / Double(max(1, count))).truncatingRemainder(dividingBy: 1)
             guard phase <= active else { continue }
             let progress = CGFloat(phase / active)
-            let start = CGPoint(
-                x: size.width * (0.10 + CGFloat((index * 17) % 52) / 100),
-                y: size.height * (0.79 + CGFloat(index % 2) * 0.012)
-            )
-            let control = CGPoint(x: entrance.x + (start.x - entrance.x) * 0.20, y: size.height * 0.70)
-            let point = quadraticPoint(from: start, control: control, to: entrance, t: easeInOut(progress))
+            let fromRight = index.isMultiple(of: 2)
+            let start = CGPoint(x: size.width * (fromRight ? 1.04 : -0.04), y: size.height * 0.775)
+            let route = [
+                start,
+                CGPoint(x: gate.x + (fromRight ? 18 : -18), y: size.height * 0.775),
+                gate,
+                entrance
+            ]
+            let point = sample(route: route, progress: easeInOut(progress)).point
             let fade = min(1, Double(progress) * 6, Double(1 - progress) * 8)
             drawPerson(context: &context, at: point, color: colors[index % colors.count].opacity(fade))
         }
@@ -862,6 +1021,7 @@ private struct StoreTrafficAnimation: View {
         let cycle = vehicleCycle
         let active = vehicleActiveFraction
         let destination = normalized(store.type.sceneVehicleDestination, in: size)
+        let gate = normalized(store.type.sceneVehicleGate, in: size)
         let colors: [Color] = [GameTheme.mint, Color(red: 0.96, green: 0.72, blue: 0.22), Color(red: 0.46, green: 0.75, blue: 0.94)]
 
         for index in 0..<count {
@@ -870,11 +1030,16 @@ private struct StoreTrafficAnimation: View {
             let progress = CGFloat(phase / active)
             let fromRight = index.isMultiple(of: 2)
             let start = CGPoint(x: size.width * (fromRight ? 1.08 : -0.08), y: size.height * 0.91)
-            let control1 = CGPoint(x: size.width * (fromRight ? 0.82 : 0.34), y: size.height * 0.91)
-            let control2 = CGPoint(x: destination.x + (fromRight ? 28 : -28), y: size.height * 0.80)
-            let point = cubicPoint(from: start, control1: control1, control2: control2, to: destination, t: easeInOut(progress))
+            let route = [
+                start,
+                CGPoint(x: gate.x + (fromRight ? 28 : -28), y: size.height * 0.91),
+                CGPoint(x: gate.x, y: size.height * 0.82),
+                gate,
+                destination
+            ]
+            let sample = sample(route: route, progress: easeInOut(progress))
             let fade = min(1, Double(progress) * 8, Double(1 - progress) * 10)
-            drawCar(context: &context, at: point, color: colors[index % colors.count].opacity(fade), facingLeft: fromRight)
+            drawCar(context: &context, at: sample.point, color: colors[index % colors.count].opacity(fade), angle: sample.angle)
         }
     }
 
@@ -935,19 +1100,22 @@ private struct StoreTrafficAnimation: View {
         context.stroke(limbs, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
     }
 
-    private func drawCar(context: inout GraphicsContext, at point: CGPoint, color: Color, facingLeft: Bool) {
-        let shadow = CGRect(x: point.x - 15, y: point.y - 5, width: 30, height: 14)
-        context.fill(Path(roundedRect: shadow, cornerRadius: 6), with: .color(GameTheme.ink.opacity(0.25)))
-        let body = CGRect(x: point.x - 14, y: point.y - 8, width: 28, height: 14)
-        context.fill(Path(roundedRect: body, cornerRadius: 5), with: .color(color))
-        let cabin = CGRect(x: point.x - 5, y: point.y - 6, width: 12, height: 10)
-        context.fill(Path(roundedRect: cabin, cornerRadius: 3), with: .color(GameTheme.navy.opacity(0.78)))
-        context.stroke(Path(roundedRect: body, cornerRadius: 5), with: .color(.white.opacity(0.70)), lineWidth: 1)
-        let headlightX = facingLeft ? body.minX + 1 : body.maxX - 3
-        context.fill(Path(ellipseIn: CGRect(x: headlightX, y: point.y - 5, width: 2, height: 3)), with: .color(Color.yellow.opacity(0.95)))
-        for offset in [-9.0, 7.0] {
-            context.fill(Path(roundedRect: CGRect(x: point.x + offset, y: point.y - 9, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
-            context.fill(Path(roundedRect: CGRect(x: point.x + offset, y: point.y + 6, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
+    private func drawCar(context: inout GraphicsContext, at point: CGPoint, color: Color, angle: CGFloat) {
+        context.drawLayer { layer in
+            layer.translateBy(x: point.x, y: point.y)
+            layer.rotate(by: .radians(Double(angle)))
+            let shadow = CGRect(x: -15, y: -6, width: 30, height: 14)
+            layer.fill(Path(roundedRect: shadow, cornerRadius: 6), with: .color(GameTheme.ink.opacity(0.25)))
+            let body = CGRect(x: -14, y: -8, width: 28, height: 14)
+            layer.fill(Path(roundedRect: body, cornerRadius: 5), with: .color(color))
+            let cabin = CGRect(x: -5, y: -6, width: 12, height: 10)
+            layer.fill(Path(roundedRect: cabin, cornerRadius: 3), with: .color(GameTheme.navy.opacity(0.78)))
+            layer.stroke(Path(roundedRect: body, cornerRadius: 5), with: .color(.white.opacity(0.70)), lineWidth: 1)
+            layer.fill(Path(ellipseIn: CGRect(x: body.maxX - 3, y: -5, width: 2, height: 3)), with: .color(Color.yellow.opacity(0.95)))
+            for offset in [-9.0, 7.0] {
+                layer.fill(Path(roundedRect: CGRect(x: offset, y: -9, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
+                layer.fill(Path(roundedRect: CGRect(x: offset, y: 6, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
+            }
         }
     }
 
@@ -959,20 +1127,24 @@ private struct StoreTrafficAnimation: View {
         value * value * (3 - 2 * value)
     }
 
-    private func quadraticPoint(from start: CGPoint, control: CGPoint, to end: CGPoint, t: CGFloat) -> CGPoint {
-        let u = 1 - t
-        return CGPoint(
-            x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
-            y: u * u * start.y + 2 * u * t * control.y + t * t * end.y
-        )
-    }
-
-    private func cubicPoint(from start: CGPoint, control1: CGPoint, control2: CGPoint, to end: CGPoint, t: CGFloat) -> CGPoint {
-        let u = 1 - t
-        return CGPoint(
-            x: u * u * u * start.x + 3 * u * u * t * control1.x + 3 * u * t * t * control2.x + t * t * t * end.x,
-            y: u * u * u * start.y + 3 * u * u * t * control1.y + 3 * u * t * t * control2.y + t * t * t * end.y
-        )
+    private func sample(route: [CGPoint], progress: CGFloat) -> (point: CGPoint, angle: CGFloat) {
+        guard route.count >= 2 else { return (route.first ?? .zero, 0) }
+        let lengths = zip(route, route.dropFirst()).map { start, end in hypot(end.x - start.x, end.y - start.y) }
+        let total = max(0.001, lengths.reduce(0, +))
+        var remaining = min(1, max(0, progress)) * total
+        for (index, length) in lengths.enumerated() {
+            if remaining <= length || index == lengths.count - 1 {
+                let start = route[index]
+                let end = route[index + 1]
+                let t = length > 0 ? remaining / length : 0
+                return (
+                    CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t),
+                    atan2(end.y - start.y, end.x - start.x)
+                )
+            }
+            remaining -= length
+        }
+        return (route.last ?? .zero, 0)
     }
 }
 
@@ -1045,6 +1217,36 @@ private extension StoreType {
         }
     }
 
+    var sceneBuildingRect: CGRect {
+        switch self {
+        case .small: CGRect(x: 0.13, y: 0.41, width: 0.43, height: 0.23)
+        case .standard: CGRect(x: 0.09, y: 0.38, width: 0.50, height: 0.25)
+        case .roadside: CGRect(x: 0.07, y: 0.34, width: 0.49, height: 0.28)
+        case .premium: CGRect(x: 0.09, y: 0.35, width: 0.52, height: 0.29)
+        case .service: CGRect(x: 0.07, y: 0.38, width: 0.49, height: 0.25)
+        }
+    }
+
+    var sceneAccentColor: Color {
+        switch self {
+        case .small: GameTheme.teal
+        case .standard: Color(red: 0.05, green: 0.54, blue: 0.62)
+        case .roadside: GameTheme.orange
+        case .premium: Color(red: 0.16, green: 0.24, blue: 0.32)
+        case .service: Color(red: 0.38, green: 0.43, blue: 0.47)
+        }
+    }
+
+    var sceneShortName: String {
+        switch self {
+        case .small: "CAR SHOP"
+        case .standard: "USED CAR CITY"
+        case .roadside: "MEGA AUTO"
+        case .premium: "PREMIUM"
+        case .service: "SALES & SERVICE"
+        }
+    }
+
     var sceneEntrance: CGPoint {
         switch self {
         case .small: CGPoint(x: 0.43, y: 0.64)
@@ -1052,6 +1254,26 @@ private extension StoreType {
         case .roadside: CGPoint(x: 0.34, y: 0.62)
         case .premium: CGPoint(x: 0.46, y: 0.64)
         case .service: CGPoint(x: 0.31, y: 0.64)
+        }
+    }
+
+    var scenePedestrianGate: CGPoint {
+        switch self {
+        case .small: CGPoint(x: 0.43, y: 0.71)
+        case .standard: CGPoint(x: 0.44, y: 0.71)
+        case .roadside: CGPoint(x: 0.36, y: 0.70)
+        case .premium: CGPoint(x: 0.46, y: 0.71)
+        case .service: CGPoint(x: 0.31, y: 0.70)
+        }
+    }
+
+    var sceneVehicleGate: CGPoint {
+        switch self {
+        case .small: CGPoint(x: 0.82, y: 0.71)
+        case .standard: CGPoint(x: 0.66, y: 0.71)
+        case .roadside: CGPoint(x: 0.52, y: 0.70)
+        case .premium: CGPoint(x: 0.83, y: 0.71)
+        case .service: CGPoint(x: 0.58, y: 0.70)
         }
     }
 
