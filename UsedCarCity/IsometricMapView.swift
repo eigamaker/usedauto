@@ -13,13 +13,14 @@ struct IsometricCitySurface: View {
     @State private var lastScale: CGFloat = 1.0
     @State private var cameraOffset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @State private var selectionBlockedUntil = Date.distantPast
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
                 ZStack {
-                    Image("CityMapBackground")
+                    Image("CityMapBackgroundV2")
                         .resizable()
                         .scaledToFill()
                         .frame(width: size.width, height: size.height)
@@ -83,7 +84,7 @@ struct IsometricCitySurface: View {
                     ForEach(MapFacility.allCases) { facility in
                         if facility.isPrimary || cameraScale >= 1.38 {
                             let point = IsoProjection.project(facility.worldPoint, in: size)
-                            FacilityMapMarker(facility: facility, compact: !facility.isPrimary) { selectedFacility = facility }
+                            FacilityMapMarker(facility: facility, compact: !facility.isPrimary) { select(facility) }
                                 .scaleEffect(interfaceScale)
                                 .position(x: point.x, y: point.y - 30)
                         }
@@ -102,11 +103,13 @@ struct IsometricCitySurface: View {
                 .offset(cameraOffset)
                 .contentShape(Rectangle())
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 7)
+                    DragGesture(minimumDistance: 12)
                         .onChanged { value in
+                            if dragDistance(value.translation) >= 12 { blockSelection() }
                             cameraOffset = CGSize(width: lastOffset.width + value.translation.width, height: lastOffset.height + value.translation.height)
                         }
-                        .onEnded { _ in
+                        .onEnded { value in
+                            if dragDistance(value.translation) >= 12 { blockSelection() }
                             cameraOffset = constrained(cameraOffset, size: size)
                             lastOffset = cameraOffset
                         }
@@ -114,10 +117,12 @@ struct IsometricCitySurface: View {
                 .simultaneousGesture(
                     MagnificationGesture()
                         .onChanged { value in
+                            blockSelection()
                             cameraScale = min(maxCameraScale, max(minCameraScale, lastScale * value))
                             cameraOffset = constrained(cameraOffset, size: size)
                         }
                         .onEnded { _ in
+                            blockSelection()
                             lastScale = cameraScale
                             cameraOffset = constrained(cameraOffset, size: size)
                             lastOffset = cameraOffset
@@ -140,7 +145,7 @@ struct IsometricCitySurface: View {
                     }
                     Spacer()
                 }
-                .padding(.top, 60).padding(.trailing, 10)
+                .padding(.top, 108).padding(.trailing, 10)
                 VStack {
                     HStack {
                         Label(cameraScale < 1.25 ? "都市全景" : "地区表示 \(Int(cameraScale * 100))%", systemImage: "map.fill")
@@ -153,7 +158,7 @@ struct IsometricCitySurface: View {
                     }
                     Spacer()
                 }
-                .padding(.top, 58).padding(.horizontal, 10).padding(.bottom, 10)
+                .padding(.top, 106).padding(.horizontal, 10).padding(.bottom, 10)
                 .allowsHitTesting(false)
             }
             .clipped()
@@ -215,11 +220,25 @@ struct IsometricCitySurface: View {
     }
 
     private func select(_ plot: LandPlot) {
+        guard Date() >= selectionBlockedUntil else { return }
         if case .available = plot.occupant,
            game.tutorialStep == .chooseLocation || game.tutorialStep == .buildStore {
             game.selectFoundingPlot(plot.id)
         }
         selectedPlot = plot
+    }
+
+    private func select(_ facility: MapFacility) {
+        guard Date() >= selectionBlockedUntil else { return }
+        selectedFacility = facility
+    }
+
+    private func blockSelection() {
+        selectionBlockedUntil = Date().addingTimeInterval(0.22)
+    }
+
+    private func dragDistance(_ translation: CGSize) -> CGFloat {
+        abs(translation.width) + abs(translation.height)
     }
 
     private func markerLift(for plot: LandPlot) -> CGFloat {
@@ -811,7 +830,7 @@ private struct IsometricPlotHitTarget: View {
                         .clipShape(Capsule())
                 }
             }
-            .frame(minWidth: 34, minHeight: 34)
+            .frame(width: hitTargetSize, height: hitTargetSize)
         }
         .buttonStyle(.plain)
         .shadow(color: GameTheme.ink.opacity(0.34), radius: 4, y: 3)
@@ -825,6 +844,15 @@ private struct IsometricPlotHitTarget: View {
         case .competitor: 23
         case .available where game.isTutorialActive && game.isFoundingCandidate(plot): 25
         default: 14
+        }
+    }
+    private var hitTargetSize: CGFloat {
+        switch plot.occupant {
+        case .player: 38
+        case .competitor: 34
+        case .available where game.isTutorialActive && game.isFoundingCandidate(plot): 36
+        case .available: 26
+        case .unavailable: 22
         }
     }
     private var markerIcon: String {

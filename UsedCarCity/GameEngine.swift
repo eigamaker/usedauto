@@ -86,7 +86,7 @@ final class GameEngine: ObservableObject {
         var attempts = 0
     }
 
-    private static let saveKey = "UsedCarCity.save.v7"
+    private static let saveKey = "UsedCarCity.save.v8"
     private var pendingSave: SaveData?
 
     init() {
@@ -324,8 +324,8 @@ final class GameEngine: ObservableObject {
         let newModelLift = age <= 3 ? 1.13 : age <= 11 ? 1.06 : 1.0
         let economyEffect: Double
         switch model.category {
-        case .premium, .suv: economyEffect = 0.72 + economicIndex * 0.28
-        case .budget, .kei: economyEffect = 1.10 - (economicIndex - 1) * 0.20
+        case .premium, .imported, .suv: economyEffect = 0.72 + economicIndex * 0.28
+        case .kei, .compact: economyEffect = 1.10 - (economicIndex - 1) * 0.20
         default: economyEffect = 0.88 + economicIndex * 0.12
         }
         return min(1.65, max(0.48, vehicleDemand(model.category, in: kind) * model.popularity * movement * newModelLift * economyEffect))
@@ -587,7 +587,7 @@ final class GameEngine: ObservableObject {
               let removed = removeInventory(category: category, count: count, from: storeIndex) else { return false }
         let specialtyBonus: Double
         switch (venue, category) {
-        case (.premium, .premium), (.port, .commercial), (.port, .suv), (.east, .kei), (.east, .compact): specialtyBonus = 1.08
+        case (.premium, .premium), (.premium, .imported), (.port, .commercial), (.port, .pickup), (.port, .suv), (.east, .kei), (.east, .compact): specialtyBonus = 1.08
         default: specialtyBonus = 0.98
         }
         let expected = Int(Double(max(removed.averageCost, category.purchaseCost)) * (1.06 + removed.quality * 0.08) * specialtyBonus)
@@ -608,7 +608,7 @@ final class GameEngine: ObservableObject {
         }
         let specialtyBonus: Double
         switch (venue, unit.category) {
-        case (.premium, .premium), (.port, .commercial), (.port, .suv), (.east, .kei), (.east, .compact): specialtyBonus = 1.08
+        case (.premium, .premium), (.premium, .imported), (.port, .commercial), (.port, .pickup), (.port, .suv), (.east, .kei), (.east, .compact): specialtyBonus = 1.08
         default: specialtyBonus = 0.98
         }
         let expected = Int(Double(max(unit.averageCost, unit.category.purchaseCost)) * (1.06 + unit.quality * 0.08) * specialtyBonus)
@@ -698,7 +698,13 @@ final class GameEngine: ObservableObject {
         let demand = vehicleDemand(batch.category, in: plot.district)
         let demandEffect = (demand - 1) * 0.08
         let reputationEffect = (store.reputation - 0.65) * 0.12
-        let modelEffect = batch.category == lead.desiredCategory ? 0.16 : -0.38
+        let preferenceEffect: Double
+        switch lead.preference {
+        case .category(let desiredCategory):
+            preferenceEffect = batch.category == desiredCategory ? 0.16 : -0.38
+        case .budgetFirst:
+            preferenceEffect = offer <= lead.budget ? 0.12 : -0.06
+        }
         let catalogEffect: Double
         if let model = VehicleCatalog.entry(id: batch.modelID) {
             catalogEffect = (catalogMarketIndex(for: model, in: plot.district) - 1) * 0.10
@@ -708,7 +714,7 @@ final class GameEngine: ObservableObject {
         let qualityEffect = (batch.quality - lead.minimumQuality) * 0.42
         let budgetRatio = Double(offer) / Double(max(1, lead.budget))
         let budgetEffect = budgetRatio <= 1 ? 0.10 : -min(0.48, (budgetRatio - 1) * 1.35 * lead.priceSensitivity)
-        let chance = min(0.93, max(0.03, strategy.baseCloseChance + demandEffect + reputationEffect + modelEffect + catalogEffect + qualityEffect + budgetEffect))
+        let chance = min(0.93, max(0.03, strategy.baseCloseChance + demandEffect + reputationEffect + preferenceEffect + catalogEffect + qualityEffect + budgetEffect))
         return (offer, offer - batch.averageCost, chance)
     }
 
@@ -762,6 +768,7 @@ final class GameEngine: ObservableObject {
 
     private func preferredBuyerLead(storeID: UUID, category: VehicleCategory) -> BuyerLead? {
         buyerLeads.first(where: { $0.storeID == storeID && $0.desiredCategory == category })
+            ?? buyerLeads.first(where: { $0.storeID == storeID && $0.preference == .budgetFirst })
             ?? buyerLeads.first(where: { $0.storeID == storeID })
     }
 
@@ -1220,10 +1227,10 @@ final class GameEngine: ObservableObject {
     private func conceptMarginBonus(_ concept: StoreConcept, category: VehicleCategory, district: DistrictKind, serviceAllocation: Double) -> Double {
         switch concept {
         case .custom:
-            let suitedCategory = [.suv, .budget, .commercial].contains(category)
+            let suitedCategory = [.suv, .pickup, .commercial].contains(category)
             return district == .industrial && suitedCategory ? 0.08 + serviceAllocation * 0.16 : 0.02
         case .premium:
-            return district == .downtown && category == .premium ? 0.13 : 0.03
+            return district == .downtown && [.premium, .imported].contains(category) ? 0.13 : 0.03
         case .keiLocal:
             return [.suburb, .station].contains(district) && category == .kei ? 0.055 : 0.01
         case .family:
@@ -1614,9 +1621,7 @@ final class GameEngine: ObservableObject {
         let waitingLeads = buyerLeads.filter { $0.storeID == storeID }
 
         for lead in waitingLeads where result.attempts < availableSlots {
-            guard let batchIndex = stores[storeIndex].inventory.firstIndex(where: {
-                $0.count > 0 && $0.category == lead.desiredCategory
-            }),
+            guard let batchIndex = automaticInventoryIndex(for: lead, storeIndex: storeIndex),
             let preview = saleNegotiationPreview(
                 storeID: storeID,
                 buyerLeadID: lead.id,
@@ -1627,16 +1632,37 @@ final class GameEngine: ObservableObject {
             result.attempts += 1
             stores[storeIndex].pendingManualNegotiations = stores[storeIndex].manualNegotiationsThisWeek + 1
             buyerLeads.removeAll { $0.id == lead.id }
-            let seed = turn * 257 + stores[storeIndex].plotID * 47 + categoryIndex(lead.desiredCategory) * 31 + result.attempts * 17
+            let category = stores[storeIndex].inventory[batchIndex].category
+            let seed = turn * 257 + stores[storeIndex].plotID * 47 + categoryIndex(category) * 31 + result.attempts * 17
             guard transactionRoll(seed: seed) < preview.closeChance else { continue }
 
             let unitCost = stores[storeIndex].inventory[batchIndex].averageCost
-            stores[storeIndex].inventory.remove(at: batchIndex)
+            stores[storeIndex].inventory[batchIndex].count -= 1
+            if stores[storeIndex].inventory[batchIndex].count == 0 {
+                stores[storeIndex].inventory.remove(at: batchIndex)
+            }
             result.sales += 1
             result.revenue += preview.price
             result.costOfSales += unitCost
         }
         return result
+    }
+
+    private func automaticInventoryIndex(for lead: BuyerLead, storeIndex: Int) -> Int? {
+        let candidates = stores[storeIndex].inventory.indices.filter { stores[storeIndex].inventory[$0].count > 0 }
+        switch lead.preference {
+        case .category(let desiredCategory):
+            return candidates.first { stores[storeIndex].inventory[$0].category == desiredCategory }
+        case .budgetFirst:
+            return candidates.min { left, right in
+                let leftPrice = manualSaleQuote(storeID: lead.storeID, inventoryID: stores[storeIndex].inventory[left].id)?.price ?? Int.max
+                let rightPrice = manualSaleQuote(storeID: lead.storeID, inventoryID: stores[storeIndex].inventory[right].id)?.price ?? Int.max
+                let leftFits = leftPrice <= lead.budget
+                let rightFits = rightPrice <= lead.budget
+                if leftFits != rightFits { return leftFits }
+                return leftPrice < rightPrice
+            }
+        }
     }
 
     private func resolveDelegatedPurchases(for storeIndex: Int) -> (attempts: Int, purchases: Int) {
@@ -1804,9 +1830,9 @@ final class GameEngine: ObservableObject {
             let venue = AuctionVenue.allCases[index % AuctionVenue.allCases.count]
             let categories: [VehicleCategory]
             switch venue {
-            case .east: categories = [.kei, .compact, .budget, .minivan]
-            case .port: categories = [.commercial, .suv, .budget, .minivan]
-            case .premium: categories = [.premium, .suv, .compact]
+            case .east: categories = [.kei, .compact, .minivan]
+            case .port: categories = [.commercial, .pickup, .suv, .minivan]
+            case .premium: categories = [.premium, .imported, .suv]
             }
             let category = categories[(index / 2 + turn) % categories.count]
             let quality = 0.58 + Double((index * 11 + turn * 7) % 37) / 100
@@ -1867,8 +1893,8 @@ final class GameEngine: ObservableObject {
             for offset in 0..<weeklyBuyerPool(in: kind) {
                 let seed = turn * 10_007 + districtIndex * 997 + offset * 61 + 17
                 guard let storeID = assignedStore(in: kind, forSeller: false, seed: seed) else { continue }
-                let category = leadCategory(in: kind, seed: seed + 23)
-                buyerLeads.append(makeBuyerLead(storeID: storeID, category: category, seed: seed))
+                let preference = leadPreference(in: kind, seed: seed + 23)
+                buyerLeads.append(makeBuyerLead(storeID: storeID, preference: preference, seed: seed))
                 if let storeIndex = stores.firstIndex(where: { $0.id == storeID }) {
                     stores[storeIndex].weeklyBuyerArrivals = stores[storeIndex].buyerArrivalsThisWeek + 1
                 }
@@ -1892,7 +1918,7 @@ final class GameEngine: ObservableObject {
            let storePlot = plot(id: stores[storeIndex].plotID) {
             let category = recommendedCategories(for: storePlot.district).first ?? .compact
             if !buyerLeads.contains(where: { $0.storeID == storeID }) {
-                buyerLeads.append(makeBuyerLead(storeID: storeID, category: category, seed: storePlot.id * 101 + 7))
+                buyerLeads.append(makeBuyerLead(storeID: storeID, preference: .category(category), seed: storePlot.id * 101 + 7))
                 stores[storeIndex].weeklyBuyerArrivals = stores[storeIndex].buyerArrivalsThisWeek + 1
             }
             if !purchaseCases.contains(where: { $0.storeID == storeID }) {
@@ -1942,8 +1968,8 @@ final class GameEngine: ObservableObject {
             let demand = district.demands[category] ?? 0.42
             let economyMultiplier: Double
             switch category {
-            case .premium, .suv: economyMultiplier = 0.72 + economicIndex * 0.28
-            case .budget, .kei: economyMultiplier = 1.20 - (economicIndex - 0.8) * 0.22
+            case .premium, .imported, .suv: economyMultiplier = 0.72 + economicIndex * 0.28
+            case .kei, .compact: economyMultiplier = 1.20 - (economicIndex - 0.8) * 0.22
             default: economyMultiplier = 0.88 + economicIndex * 0.12
             }
             return (category, max(0.05, demand * economyMultiplier))
@@ -1957,15 +1983,44 @@ final class GameEngine: ObservableObject {
         return weighted.last?.0 ?? .compact
     }
 
-    private func makeBuyerLead(storeID: UUID, category: VehicleCategory, seed: Int) -> BuyerLead {
-        let budgetRate = 1.13 + transactionRoll(seed: seed + 3) * 0.42
+    private func leadPreference(in kind: DistrictKind, seed: Int) -> BuyerVehiclePreference {
+        let budgetFirstShare: Double
+        switch kind {
+        case .downtown: budgetFirstShare = 0.10
+        case .station: budgetFirstShare = 0.26
+        case .emerging: budgetFirstShare = 0.17
+        case .suburb: budgetFirstShare = 0.21
+        case .industrial: budgetFirstShare = 0.34
+        case .highway: budgetFirstShare = 0.31
+        }
+        if transactionRoll(seed: seed + 101) < budgetFirstShare {
+            return .budgetFirst
+        }
+        return .category(leadCategory(in: kind, seed: seed))
+    }
+
+    private func makeBuyerLead(storeID: UUID, preference: BuyerVehiclePreference, seed: Int) -> BuyerLead {
+        let budget: Int
+        let minimumQuality: Double
+        let priceSensitivity: Double
+        switch preference {
+        case .category(let category):
+            let budgetRate = 1.13 + transactionRoll(seed: seed + 3) * 0.42
+            budget = max(35, Int(Double(category.purchaseCost) * budgetRate))
+            minimumQuality = 0.56 + transactionRoll(seed: seed + 5) * 0.28
+            priceSensitivity = 0.82 + transactionRoll(seed: seed + 7) * 0.36
+        case .budgetFirst:
+            budget = 80 + Int(transactionRoll(seed: seed + 3) * 111)
+            minimumQuality = 0.50 + transactionRoll(seed: seed + 5) * 0.24
+            priceSensitivity = 1.05 + transactionRoll(seed: seed + 7) * 0.35
+        }
         return BuyerLead(
             id: UUID(),
             storeID: storeID,
-            desiredCategory: category,
-            budget: max(35, Int(Double(category.purchaseCost) * budgetRate)),
-            minimumQuality: 0.56 + transactionRoll(seed: seed + 5) * 0.28,
-            priceSensitivity: 0.82 + transactionRoll(seed: seed + 7) * 0.36,
+            preference: preference,
+            budget: budget,
+            minimumQuality: minimumQuality,
+            priceSensitivity: priceSensitivity,
             generatedTurn: turn
         )
     }
@@ -1992,12 +2047,12 @@ final class GameEngine: ObservableObject {
 
     static func makeDistricts() -> [District] {
         [
-            District(kind: .downtown, population: 92_000, incomeIndex: 1.42, trafficIndex: 1.35, growthRate: 1.01, competition: 1.35, demands: [.premium: 1.48, .suv: 1.12, .compact: 1.0, .kei: 0.72]),
-            District(kind: .station, population: 76_000, incomeIndex: 1.03, trafficIndex: 1.42, growthRate: 1.015, competition: 1.28, demands: [.compact: 1.42, .kei: 1.25, .budget: 1.08, .premium: 0.78]),
-            District(kind: .emerging, population: 58_000, incomeIndex: 1.16, trafficIndex: 1.02, growthRate: 1.065, competition: 0.72, demands: [.suv: 1.52, .minivan: 1.45, .compact: 0.95]),
-            District(kind: .suburb, population: 88_000, incomeIndex: 1.08, trafficIndex: 1.18, growthRate: 1.02, competition: 1.02, demands: [.minivan: 1.48, .kei: 1.30, .suv: 1.26, .compact: 1.05]),
-            District(kind: .industrial, population: 43_000, incomeIndex: 0.82, trafficIndex: 0.88, growthRate: 0.99, competition: 0.58, demands: [.commercial: 1.55, .budget: 1.42, .kei: 1.15, .premium: 0.42]),
-            District(kind: .highway, population: 66_000, incomeIndex: 0.91, trafficIndex: 1.48, growthRate: 1.012, competition: 0.93, demands: [.kei: 1.42, .budget: 1.34, .suv: 1.12, .commercial: 1.08])
+            District(kind: .downtown, population: 92_000, incomeIndex: 1.42, trafficIndex: 1.35, growthRate: 1.01, competition: 1.35, demands: [.premium: 1.48, .imported: 1.38, .suv: 1.12, .compact: 1.0, .kei: 0.72]),
+            District(kind: .station, population: 76_000, incomeIndex: 1.03, trafficIndex: 1.42, growthRate: 1.015, competition: 1.28, demands: [.compact: 1.42, .kei: 1.25, .minivan: 1.08, .imported: 0.78]),
+            District(kind: .emerging, population: 58_000, incomeIndex: 1.16, trafficIndex: 1.02, growthRate: 1.065, competition: 0.72, demands: [.suv: 1.52, .minivan: 1.45, .compact: 0.95, .pickup: 0.88]),
+            District(kind: .suburb, population: 88_000, incomeIndex: 1.08, trafficIndex: 1.18, growthRate: 1.02, competition: 1.02, demands: [.minivan: 1.48, .kei: 1.30, .suv: 1.26, .compact: 1.05, .pickup: 0.82]),
+            District(kind: .industrial, population: 43_000, incomeIndex: 0.82, trafficIndex: 0.88, growthRate: 0.99, competition: 0.58, demands: [.commercial: 1.55, .pickup: 1.42, .kei: 1.15, .premium: 0.42]),
+            District(kind: .highway, population: 66_000, incomeIndex: 0.91, trafficIndex: 1.48, growthRate: 1.012, competition: 0.93, demands: [.kei: 1.42, .pickup: 1.34, .suv: 1.12, .commercial: 1.08])
         ]
     }
 
@@ -2025,7 +2080,7 @@ final class GameEngine: ObservableObject {
 
     static func makeCompetitors() -> [Competitor] {
         [
-            Competitor(id: UUID(), name: "バリューオート", strategy: "低価格・高回転", colorHex: "E46B35", cash: 42_000, plotIDs: [], strength: 1.02, category: .budget),
+            Competitor(id: UUID(), name: "バリューオート", strategy: "低価格・高回転", colorHex: "E46B35", cash: 42_000, plotIDs: [], strength: 1.02, category: .compact),
             Competitor(id: UUID(), name: "プレミアモータース", strategy: "品質と保証", colorHex: "7356A8", cash: 58_000, plotIDs: [], strength: 1.15, category: .premium),
             Competitor(id: UUID(), name: "ドライブMAX", strategy: "多店舗・大量展示", colorHex: "287DB2", cash: 64_000, plotIDs: [], strength: 1.08, category: .suv)
         ]
@@ -2034,10 +2089,10 @@ final class GameEngine: ObservableObject {
     static func makeNationalCities() -> [NationalCity] {
         [
             NationalCity(id: "suihama", name: "翠浜市", region: "首都圏", population: 423_000, incomeIndex: 1.08, landPriceIndex: 1.00, competitionIndex: 1.02, growthRate: 1.018, primaryDemand: [.minivan, .kei, .suv], expansionCost: 0, shippingMonths: 0, shippingCostPerVehicle: 0, mapX: 0.72, mapY: 0.42),
-            NationalCity(id: "hokusei", name: "北星市", region: "北日本", population: 318_000, incomeIndex: 0.91, landPriceIndex: 0.66, competitionIndex: 0.72, growthRate: 1.004, primaryDemand: [.suv, .kei, .commercial], expansionCost: 6_800, shippingMonths: 2, shippingCostPerVehicle: 18, mapX: 0.72, mapY: 0.12),
-            NationalCity(id: "shinonome", name: "東雲市", region: "中部", population: 512_000, incomeIndex: 1.04, landPriceIndex: 0.88, competitionIndex: 0.94, growthRate: 1.023, primaryDemand: [.commercial, .compact, .suv], expansionCost: 7_600, shippingMonths: 1, shippingCostPerVehicle: 11, mapX: 0.58, mapY: 0.48),
-            NationalCity(id: "naniwa", name: "浪華市", region: "関西", population: 884_000, incomeIndex: 1.16, landPriceIndex: 1.24, competitionIndex: 1.31, growthRate: 1.011, primaryDemand: [.premium, .minivan, .compact], expansionCost: 11_500, shippingMonths: 2, shippingCostPerVehicle: 15, mapX: 0.43, mapY: 0.55),
-            NationalCity(id: "setouchi", name: "瀬戸内市", region: "中国・四国", population: 276_000, incomeIndex: 0.89, landPriceIndex: 0.58, competitionIndex: 0.63, growthRate: 1.015, primaryDemand: [.kei, .commercial, .budget], expansionCost: 5_900, shippingMonths: 2, shippingCostPerVehicle: 17, mapX: 0.28, mapY: 0.61),
+            NationalCity(id: "hokusei", name: "北星市", region: "北日本", population: 318_000, incomeIndex: 0.91, landPriceIndex: 0.66, competitionIndex: 0.72, growthRate: 1.004, primaryDemand: [.suv, .pickup, .commercial], expansionCost: 6_800, shippingMonths: 2, shippingCostPerVehicle: 18, mapX: 0.72, mapY: 0.12),
+            NationalCity(id: "shinonome", name: "東雲市", region: "中部", population: 512_000, incomeIndex: 1.04, landPriceIndex: 0.88, competitionIndex: 0.94, growthRate: 1.023, primaryDemand: [.commercial, .compact, .pickup], expansionCost: 7_600, shippingMonths: 1, shippingCostPerVehicle: 11, mapX: 0.58, mapY: 0.48),
+            NationalCity(id: "naniwa", name: "浪華市", region: "関西", population: 884_000, incomeIndex: 1.16, landPriceIndex: 1.24, competitionIndex: 1.31, growthRate: 1.011, primaryDemand: [.premium, .imported, .minivan], expansionCost: 11_500, shippingMonths: 2, shippingCostPerVehicle: 15, mapX: 0.43, mapY: 0.55),
+            NationalCity(id: "setouchi", name: "瀬戸内市", region: "中国・四国", population: 276_000, incomeIndex: 0.89, landPriceIndex: 0.58, competitionIndex: 0.63, growthRate: 1.015, primaryDemand: [.kei, .commercial, .pickup], expansionCost: 5_900, shippingMonths: 2, shippingCostPerVehicle: 17, mapX: 0.28, mapY: 0.61),
             NationalCity(id: "hinata", name: "日向市", region: "九州", population: 391_000, incomeIndex: 0.94, landPriceIndex: 0.72, competitionIndex: 0.81, growthRate: 1.029, primaryDemand: [.kei, .suv, .minivan], expansionCost: 6_500, shippingMonths: 3, shippingCostPerVehicle: 22, mapX: 0.16, mapY: 0.76)
         ]
     }

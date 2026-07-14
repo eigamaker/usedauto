@@ -302,7 +302,7 @@ private struct ManualSalesPanel: View {
             }
 
             if isDelegated {
-                Label("未対応の販売客は次の週間処理で店長が対応します。希望車種の在庫がなければ成約できません。", systemImage: "person.crop.circle.badge.checkmark")
+                Label("未対応の販売客は次の週間処理で店長が対応します。車種または予算の希望に合う在庫から提案します。", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
@@ -320,13 +320,13 @@ private struct ManualSalesPanel: View {
                 ForEach(leads) { lead in
                     VStack(alignment: .leading, spacing: 9) {
                         HStack(spacing: 11) {
-                            Image(systemName: lead.desiredCategory.icon)
+                            Image(systemName: lead.preference.icon)
                             .foregroundStyle(GameTheme.teal)
                             .frame(width: 34, height: 34)
                             .background(GameTheme.teal.opacity(0.1))
                             .clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("\(lead.desiredCategory.name)を探しているお客様").font(.subheadline.bold())
+                                Text(lead.preference.customerDescription).font(.subheadline.bold())
                                 Text("予算 \(lead.budget.currency)・希望品質 \(Int(lead.minimumQuality * 100))以上")
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                             }
@@ -341,8 +341,8 @@ private struct ManualSalesPanel: View {
                             .tint(GameTheme.orange)
                             .disabled(!game.canSellManually(storeID: store.id))
                         }
-                        let matching = store.inventory.filter { $0.category == lead.desiredCategory }.count
-                        Label(matching > 0 ? "希望一致の在庫 \(matching)台" : "希望車種なし・代替提案は成約率が大幅に下がります", systemImage: matching > 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        let matching = fittingInventoryCount(for: lead)
+                        Label(matching > 0 ? "希望条件に合う在庫 \(matching)台" : noMatchingInventoryMessage(for: lead), systemImage: matching > 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .font(.caption2)
                             .foregroundStyle(matching > 0 ? GameTheme.teal : GameTheme.orange)
                     }
@@ -350,7 +350,7 @@ private struct ManualSalesPanel: View {
                     .background(GameTheme.cream)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                Text("商談すると成否に関係なく営業枠を1回使い、このお客様は帰ります。値引き・予算・希望車種・品質で成約率が変わります。")
+                Text("商談すると成否に関係なく営業枠を1回使い、このお客様は帰ります。値引き・予算・希望条件・品質で成約率が変わります。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -392,6 +392,25 @@ private struct ManualSalesPanel: View {
             message = "価格条件が合わず、お客様は購入を見送りました。在庫は残っています。"
         }
     }
+
+    private func fittingInventoryCount(for lead: BuyerLead) -> Int {
+        store.inventory.filter { batch in
+            guard batch.count > 0 else { return false }
+            switch lead.preference {
+            case .category(let category):
+                return batch.category == category
+            case .budgetFirst:
+                return (game.manualSaleQuote(storeID: store.id, inventoryID: batch.id)?.price ?? Int.max) <= lead.budget
+            }
+        }.reduce(0) { $0 + $1.count }
+    }
+
+    private func noMatchingInventoryMessage(for lead: BuyerLead) -> String {
+        switch lead.preference {
+        case .category: "希望車種なし・代替提案は成約率が大幅に下がります"
+        case .budgetFirst: "予算内の在庫なし・値引きか仕入れ構成の見直しが必要です"
+        }
+    }
 }
 
 private struct VehicleProposalSheet: View {
@@ -406,9 +425,12 @@ private struct VehicleProposalSheet: View {
     private var inventory: [InventoryBatch] {
         guard let store else { return [] }
         return store.inventory.filter { $0.count > 0 }.sorted {
-            let leftMatches = $0.category == lead.desiredCategory
-            let rightMatches = $1.category == lead.desiredCategory
+            let leftMatches = proposalFits($0)
+            let rightMatches = proposalFits($1)
             if leftMatches != rightMatches { return leftMatches }
+            if lead.preference == .budgetFirst {
+                return proposalPrice($0) < proposalPrice($1)
+            }
             if $0.quality != $1.quality { return $0.quality > $1.quality }
             return $0.averageCost < $1.averageCost
         }
@@ -421,7 +443,7 @@ private struct VehicleProposalSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         SectionTitle(title: "提案する在庫車を選ぶ", subtitle: "車を選んだ後に値引き条件と提示価格が表示されます")
                         HStack {
-                            MetricView(title: "希望タイプ", value: lead.desiredCategory.name, tint: GameTheme.teal)
+                            MetricView(title: "希望条件", value: lead.preference.name, tint: GameTheme.teal)
                             MetricView(title: "予算", value: lead.budget.currency)
                             MetricView(title: "希望品質", value: "\(Int(lead.minimumQuality * 100))以上")
                         }
@@ -433,9 +455,9 @@ private struct VehicleProposalSheet: View {
                             HStack(spacing: 11) {
                                 Image(systemName: batch.category.icon)
                                     .font(.title3)
-                                    .foregroundStyle(batch.category == lead.desiredCategory ? GameTheme.teal : GameTheme.orange)
+                                    .foregroundStyle(proposalTint(batch))
                                     .frame(width: 42, height: 42)
-                                    .background((batch.category == lead.desiredCategory ? GameTheme.teal : GameTheme.orange).opacity(0.11))
+                                    .background(proposalTint(batch).opacity(0.11))
                                     .clipShape(Circle())
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(batch.vehicleName).font(.headline)
@@ -443,8 +465,8 @@ private struct VehicleProposalSheet: View {
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                if batch.category == lead.desiredCategory {
-                                    Text("希望一致").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(GameTheme.teal).clipShape(Capsule())
+                                if proposalFits(batch) {
+                                    Text(lead.preference == .budgetFirst ? "予算内" : "希望一致").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(GameTheme.teal).clipShape(Capsule())
                                 }
                             }
 
@@ -488,7 +510,7 @@ private struct VehicleProposalSheet: View {
                                 }
                                 .font(.caption.bold())
                                 .buttonStyle(.borderedProminent)
-                                .tint(batch.category == lead.desiredCategory ? GameTheme.teal : GameTheme.orange)
+                                .tint(proposalTint(batch))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                         }
@@ -506,6 +528,21 @@ private struct VehicleProposalSheet: View {
 
     private func qualityLabel(_ quality: Double) -> String {
         quality >= 0.85 ? "高品質" : quality >= 0.72 ? "標準" : "要注意"
+    }
+
+    private func proposalPrice(_ batch: InventoryBatch) -> Int {
+        game.manualSaleQuote(storeID: storeID, inventoryID: batch.id)?.price ?? Int.max
+    }
+
+    private func proposalFits(_ batch: InventoryBatch) -> Bool {
+        switch lead.preference {
+        case .category(let category): batch.category == category
+        case .budgetFirst: proposalPrice(batch) <= lead.budget
+        }
+    }
+
+    private func proposalTint(_ batch: InventoryBatch) -> Color {
+        proposalFits(batch) ? GameTheme.teal : GameTheme.orange
     }
 }
 

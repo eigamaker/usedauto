@@ -460,7 +460,7 @@ final class GameEngineTests: XCTestCase {
 
         game.buyerLeads = (0..<7).map { offset in
             BuyerLead(
-                id: UUID(), storeID: storeID, desiredCategory: .kei,
+                id: UUID(), storeID: storeID, preference: .category(.kei),
                 budget: 200 + offset, minimumQuality: 0.5,
                 priceSensitivity: 1, generatedTurn: game.turn
             )
@@ -497,7 +497,7 @@ final class GameEngineTests: XCTestCase {
         game.buyerLeads = [
             BuyerLead(
                 id: UUID(), storeID: storeID,
-                desiredCategory: game.stores[0].inventory[0].category,
+                preference: .category(game.stores[0].inventory[0].category),
                 budget: 300, minimumQuality: 0.5,
                 priceSensitivity: 1, generatedTurn: game.turn
             )
@@ -622,6 +622,45 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertGreaterThan(downtown, industrial)
         XCTAssertGreaterThan(game.catalogWholesalePrice(for: model, in: .downtown), 0)
+    }
+
+    func testVehicleCategoriesSeparateBodyAndMarketSegmentsFromBudget() {
+        XCTAssertFalse(VehicleCategory.allCases.map(\.name).contains("低価格車"))
+        XCTAssertEqual(VehicleCategory.imported.name, "輸入車")
+        XCTAssertEqual(VehicleCategory.pickup.name, "ピックアップトラック")
+        XCTAssertTrue(VehicleCatalog.all.contains { $0.category == .imported })
+        XCTAssertTrue(VehicleCatalog.all.contains { $0.category == .pickup })
+        for category in VehicleCategory.allCases {
+            XCTAssertTrue(VehicleCatalog.available(through: 0).contains { $0.category == category })
+        }
+    }
+
+    func testBudgetFirstCustomerCanConsiderDifferentVehicleCategories() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .discount)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        XCTAssertTrue(game.buyInventory(category: .kei, count: 1, storeID: storeID))
+        XCTAssertTrue(game.buyInventory(category: .compact, count: 1, storeID: storeID))
+        let candidates = game.stores[0].inventory.filter { [.kei, .compact].contains($0.category) }
+        XCTAssertGreaterThanOrEqual(candidates.count, 2)
+
+        let lead = BuyerLead(
+            id: UUID(), storeID: storeID, preference: .budgetFirst,
+            budget: 1_000, minimumQuality: 0.5,
+            priceSensitivity: 1.2, generatedTurn: game.turn
+        )
+        game.buyerLeads = [lead]
+
+        for inventory in candidates.prefix(2) {
+            XCTAssertNotNil(game.saleNegotiationPreview(
+                storeID: storeID,
+                buyerLeadID: lead.id,
+                inventoryID: inventory.id,
+                strategy: .smallDiscount
+            ))
+        }
     }
 
     func testVehicleSellerCanRejectDealerLowballOffer() {

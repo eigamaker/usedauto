@@ -28,14 +28,46 @@ struct CityMapView: View {
                     )
                         .frame(width: proxy.size.width, height: proxy.size.height)
                     VStack(spacing: 0) {
-                        MapStatusStrip(layer: layer, demandCategory: demandCategory)
-                            .padding(.horizontal, 10)
-                            .padding(.top, 8)
+                        HStack {
+                            Button { showNationalMap = true } label: {
+                                MapTopControlLabel(title: "全国", icon: "globe.asia.australia.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(game.isTutorialActive)
+                            Spacer()
+                            Menu {
+                                ForEach(MapLayer.allCases) { item in
+                                    if item == .vehicleDemand {
+                                        Menu {
+                                            ForEach(VehicleCategory.allCases) { category in
+                                                Button {
+                                                    demandCategory = category
+                                                    withAnimation(.easeInOut(duration: 0.25)) { layer = .vehicleDemand }
+                                                } label: { Label(category.name, systemImage: category.icon) }
+                                            }
+                                        } label: {
+                                            Label(item.name, systemImage: item.icon)
+                                        }
+                                    } else {
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.25)) { layer = item }
+                                        } label: {
+                                            Label(item.name, systemImage: item.icon)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                MapTopControlLabel(title: layer.name, icon: "square.3.layers.3d.top.filled")
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.top, 8)
                         Spacer()
                         MapBottomHUD(layer: layer, demandCategory: demandCategory)
-                            .padding(12)
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 8)
+                            .allowsHitTesting(false)
                     }
-                    .allowsHitTesting(false)
                     VStack {
                         Spacer()
                         MapHomeControls(
@@ -53,52 +85,14 @@ struct CityMapView: View {
                                 action: tutorialAction(for: step)
                             )
                             .padding(.horizontal, 12)
-                            .padding(.top, 42)
+                            .padding(.top, 102)
                             Spacer()
                         }
                     }
                 }
             }
             .background(Color(red: 0.71, green: 0.83, blue: 0.91))
-            .navigationTitle("翠浜市 事業マップ")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(isExpanded ? .hidden : .visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showNationalMap = true } label: {
-                        Label("全国", systemImage: "globe.asia.australia.fill")
-                            .font(.caption.bold())
-                    }
-                    .disabled(game.isTutorialActive)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        ForEach(MapLayer.allCases) { item in
-                            if item == .vehicleDemand {
-                                Menu {
-                                    ForEach(VehicleCategory.allCases) { category in
-                                        Button {
-                                            demandCategory = category
-                                            withAnimation(.easeInOut(duration: 0.25)) { layer = .vehicleDemand }
-                                        } label: { Label(category.name, systemImage: category.icon) }
-                                    }
-                                } label: {
-                                    Label(item.name, systemImage: item.icon)
-                                }
-                            } else {
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.25)) { layer = item }
-                                } label: {
-                                    Label(item.name, systemImage: item.icon)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label(layer.name, systemImage: "square.3.layers.3d.top.filled")
-                            .font(.caption.bold())
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selectedPlot) { plot in
                 PlotDetailView(plotID: plot.id).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
@@ -171,6 +165,22 @@ struct CityMapView: View {
     }
 }
 
+private struct MapTopControlLabel: View {
+    let title: String
+    let icon: String
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 38)
+            .background(GameTheme.navy.opacity(0.88))
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+    }
+}
+
 private struct MapBottomHUD: View {
     @EnvironmentObject private var game: GameEngine
     let layer: MapLayer
@@ -194,31 +204,6 @@ private struct MapBottomHUD: View {
         .background(.ultraThinMaterial.opacity(0.94))
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
-    }
-}
-
-private struct MapStatusStrip: View {
-    @EnvironmentObject private var game: GameEngine
-    let layer: MapLayer
-    let demandCategory: VehicleCategory
-
-    var body: some View {
-        HStack(spacing: 8) {
-            CapsuleLabel(text: "経営ホーム", color: GameTheme.teal, icon: "building.2.fill")
-            if layer == .normal, let event = game.cityEvents.first {
-                CapsuleLabel(text: event.title, color: event.isPositive ? GameTheme.teal : GameTheme.orange, icon: event.kind.icon)
-            } else if layer == .vehicleDemand {
-                CapsuleLabel(text: "\(demandCategory.name)需要", color: .blue, icon: demandCategory.icon)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .overlay(alignment: .trailing) {
-            if layer == .demand {
-                Label("人の流れ表示中", systemImage: "figure.walk.motion")
-                    .font(.caption2.bold()).foregroundStyle(.blue).padding(.trailing, 12)
-            }
-        }
     }
 }
 
