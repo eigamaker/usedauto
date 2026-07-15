@@ -16,6 +16,8 @@
 		8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */; };
 		8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */; };
 		9040838EF619B02856AC5667 /* CityMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E28EC484C7566BDF62A0D40 /* CityMapView.swift */; };
+		B20000000000000000000001 /* CityMapBlueprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* CityMapBlueprint.swift */; };
+		B20000000000000000000002 /* MapAssetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* MapAssetLibrary.swift */; };
 		AA385308489176468FE026E8 /* PlotDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */; };
 		C12475F7972B43622615DBCE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1FAE8B5F6C57CDB708261A /* Theme.swift */; };
 		D6A336DCFEE02987CA024ACC /* GameEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC247994254299B87FD5B /* GameEngineTests.swift */; };
@@ -53,6 +55,8 @@
 		7E1FAE8B5F6C57CDB708261A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		9818ABA4195147A46D2CA15C /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsometricMapView.swift; sourceTree = "<group>"; };
+		B10000000000000000000001 /* CityMapBlueprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMapBlueprint.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* MapAssetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapAssetLibrary.swift; sourceTree = "<group>"; };
 		D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityViews.swift; sourceTree = "<group>"; };
 		F8B963E2680F1614B9C82085 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		FE73B5C41E1720C59FD0FACB /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -90,11 +94,13 @@
 			children = (
 				7E05CB3F0B106E864CD5E80A /* Assets.xcassets */,
 				1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */,
+				B10000000000000000000001 /* CityMapBlueprint.swift */,
 				4E28EC484C7566BDF62A0D40 /* CityMapView.swift */,
 				D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */,
 				5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */,
 				2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */,
 				9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */,
+				B10000000000000000000002 /* MapAssetLibrary.swift */,
 				04B96C4CD1B6B808F7892797 /* ManagementViews.swift */,
 				FE73B5C41E1720C59FD0FACB /* Models.swift */,
 				F8B963E2680F1614B9C82085 /* OnboardingView.swift */,
@@ -206,11 +212,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */,
+				B20000000000000000000001 /* CityMapBlueprint.swift in Sources */,
 				9040838EF619B02856AC5667 /* CityMapView.swift in Sources */,
 				8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */,
 				DEBF92653182B2B29EB44F42 /* FinanceViews.swift in Sources */,
 				8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */,
 				182561B56C4534E151B12769 /* IsometricMapView.swift in Sources */,
+				B20000000000000000000002 /* MapAssetLibrary.swift in Sources */,
 				1E54382B49F8B1DFC56E3C01 /* ManagementViews.swift in Sources */,
 				DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */,
 				29DFFEE10959B681CCD3EEB6 /* OnboardingView.swift in Sources */,

@@ -8,22 +8,22 @@ enum DistrictKind: String, Codable, CaseIterable, Identifiable {
     var name: String {
         switch self {
         case .downtown: "都心商業"
-        case .suburb: "郊外住宅"
+        case .suburb: "一般住宅街"
         case .station: "駅周辺"
         case .industrial: "工業地区"
-        case .emerging: "新興住宅"
-        case .highway: "地方幹線"
+        case .emerging: "高級住宅街"
+        case .highway: "幹線・IC周辺"
         }
     }
 
     var shortName: String {
         switch self {
         case .downtown: "都心"
-        case .suburb: "郊外"
+        case .suburb: "一般住宅"
         case .station: "駅前"
         case .industrial: "工業"
-        case .emerging: "新興"
-        case .highway: "幹線"
+        case .emerging: "高級住宅"
+        case .highway: "幹線IC"
         }
     }
 
@@ -479,6 +479,16 @@ enum StoreType: String, Codable, CaseIterable, Identifiable {
         case .service: 102
         }
     }
+
+    var requiredGridCells: Int {
+        switch self {
+        case .small, .premium: 1
+        case .standard, .service: 2
+        case .roadside: 3
+        }
+    }
+
+    var footprintName: String { "\(requiredGridCells)セル" }
 }
 
 enum AcquisitionMode: String, Codable, CaseIterable, Identifiable {
@@ -618,6 +628,55 @@ enum PlotOccupant: Codable, Hashable {
     case unavailable
 }
 
+enum ParcelStructure: String, Codable, CaseIterable, Hashable {
+    case commercial
+    case office
+    case apartment
+    case home
+    case villa
+    case factory
+    case warehouse
+    case roadside
+    case vacant
+
+    var name: String {
+        switch self {
+        case .commercial: "商業ビル"
+        case .office: "オフィスビル"
+        case .apartment: "集合住宅"
+        case .home: "一般住宅"
+        case .villa: "高級住宅"
+        case .factory: "工場"
+        case .warehouse: "物流倉庫"
+        case .roadside: "ロードサイド店舗"
+        case .vacant: "更地"
+        }
+    }
+
+    var demolitionCost: Int {
+        switch self {
+        case .home: 40
+        case .villa: 60
+        case .commercial, .office, .apartment: 90
+        case .warehouse, .roadside: 120
+        case .factory: 160
+        case .vacant: 0
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .commercial, .roadside: "storefront.fill"
+        case .office: "building.2.fill"
+        case .apartment: "building.fill"
+        case .home, .villa: "house.fill"
+        case .factory: "gearshape.2.fill"
+        case .warehouse: "shippingbox.fill"
+        case .vacant: "square.dashed"
+        }
+    }
+}
+
 struct LandPlot: Identifiable, Codable, Hashable {
     let id: Int
     let district: DistrictKind
@@ -632,6 +691,7 @@ struct LandPlot: Identifiable, Codable, Hashable {
     var occupant: PlotOccupant
     var isForLease: Bool
     var isForSale: Bool
+    var structure: ParcelStructure
     var lastPriceChange: Double = 0
     var development: DevelopmentProject? = nil
 }
@@ -685,6 +745,7 @@ enum AuctionVenue: String, Codable, CaseIterable, Identifiable {
 struct AuctionListing: Identifiable, Codable, Hashable {
     let id: UUID
     let venue: AuctionVenue
+    let modelID: String
     let category: VehicleCategory
     let modelYear: Int
     let mileage: Int
@@ -692,13 +753,52 @@ struct AuctionListing: Identifiable, Codable, Hashable {
     let reservePrice: Int
     let marketPrice: Int
     let seller: String
+
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 struct BidReservation: Identifiable, Codable, Hashable {
     let id: UUID
     let listingID: UUID
-    let storeID: UUID
+    var storeID: UUID
     var maxPrice: Int
+    let resultTurn: Int
+}
+
+enum AuctionBidResultStatus: String, Codable, Hashable {
+    case won
+    case exceededLimit
+    case insufficientFunds
+
+    var name: String {
+        switch self {
+        case .won: "落札"
+        case .exceededLimit: "不落札"
+        case .insufficientFunds: "資金不足"
+        }
+    }
+}
+
+struct AuctionBidResult: Identifiable, Codable, Hashable {
+    let id: UUID
+    let listingID: UUID
+    let storeID: UUID
+    let venue: AuctionVenue
+    let modelID: String
+    let category: VehicleCategory
+    let modelYear: Int
+    let mileage: Int
+    let maxPrice: Int
+    let hammerPrice: Int
+    let totalCost: Int
+    let status: AuctionBidResultStatus
+    let resolvedTurn: Int
+
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 enum ProcurementSource: String, Codable, Hashable {
@@ -712,27 +812,40 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     let id: UUID
     let storeID: UUID
     let source: ProcurementSource
+    let modelID: String?
     let category: VehicleCategory
     let count: Int
     let unitCost: Int
     let quality: Double
     var monthsRemaining: Int
+
+    var vehicleName: String {
+        guard let modelID else { return category.name }
+        return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 struct AuctionConsignment: Identifiable, Codable, Hashable {
     let id: UUID
     let storeID: UUID
     let venue: AuctionVenue
+    let modelID: String?
     let category: VehicleCategory
     let count: Int
     let expectedUnitPrice: Int
     var monthsRemaining: Int
+
+    var vehicleName: String {
+        guard let modelID else { return category.name }
+        return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 struct Store: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     let plotID: Int
+    var plotIDs: [Int]
     var type: StoreType
     var acquisition: AcquisitionMode
     var focus: CustomerFocus
@@ -764,10 +877,11 @@ struct Store: Identifiable, Codable, Hashable {
     var weeklyBuyerArrivals: Int
     var weeklySellerArrivals: Int
 
-    init(name: String, plotID: Int, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 1, openingMonthsRemaining: Int? = nil) {
+    init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], staff: Int = 1, openingMonthsRemaining: Int? = nil) {
         id = UUID()
         self.name = name
         self.plotID = plotID
+        self.plotIDs = plotIDs ?? [plotID]
         self.type = type
         self.acquisition = acquisition
         self.focus = focus

@@ -29,7 +29,7 @@ struct PlotDetailView: View {
                                 DevelopmentDetailCard(project: development, plot: plot)
                             } else if game.canPlanStore(on: plot) {
                                 Button { showBuild = true } label: {
-                                    Label(game.stores.isEmpty ? "この土地を創業地に決める" : "この土地で出店計画を作る", systemImage: "hammer.fill")
+                                    Label(game.stores.isEmpty ? "この建物を取得して創業する" : "購入・解体・建設プランへ", systemImage: "hammer.fill")
                                         .font(.headline).frame(maxWidth: .infinity).padding(16)
                                         .foregroundStyle(.white).background(GameTheme.teal).clipShape(RoundedRectangle(cornerRadius: 15))
                                 }
@@ -66,7 +66,7 @@ private struct PlotHero: View {
                 Image(systemName: plot.district.symbol).font(.title2).foregroundStyle(plot.district.color)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(plot.district.name) \(plot.localNumber)番区画").font(.title3.bold())
-                    Text("\(plot.area)㎡・幹線道路沿い").font(.caption).foregroundStyle(.secondary)
+                    Text("共通グリッド1セル・\(plot.area)㎡・\(plot.structure.name)").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 status
@@ -84,7 +84,7 @@ private struct PlotHero: View {
         switch plot.occupant {
         case .available:
             if plot.development != nil { CapsuleLabel(text: "開発予定", color: .orange, icon: "hammer.fill") }
-            else { CapsuleLabel(text: "募集中", color: GameTheme.teal, icon: "mappin") }
+            else { CapsuleLabel(text: "取得・建替え可", color: GameTheme.teal, icon: "building.2.crop.circle") }
         case .player: CapsuleLabel(text: "自店舗", color: GameTheme.teal, icon: "star.fill")
         case .competitor: CapsuleLabel(text: "競合", color: GameTheme.orange, icon: "flag.fill")
         case .unavailable: CapsuleLabel(text: "対象外", color: .gray, icon: "xmark")
@@ -112,9 +112,13 @@ private struct LandOpportunityCard: View {
     var body: some View {
         let sales = game.estimatedSales(for: plot)
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "この土地でできること", subtitle: "市場調査に基づく標準店の予測")
+            SectionTitle(title: "物件取得と建替え", subtitle: "街の建物はすべて同じグリッド上で管理されます")
             HStack {
-                MetricView(title: "売出価格", value: plot.price.currency)
+                MetricView(title: "既存建物", value: plot.structure.name)
+                MetricView(title: "解体費", value: plot.structure.demolitionCost.currency, tint: GameTheme.orange)
+            }
+            HStack {
+                MetricView(title: "土地・建物価格", value: plot.price.currency)
                 MetricView(title: "月額賃料", value: plot.monthlyRent.currency, detail: "地価前週比 \(String(format: "%+.1f", plot.lastPriceChange * 100))%")
             }
             Divider()

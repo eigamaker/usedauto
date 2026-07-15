@@ -12,6 +12,7 @@ struct CityMapView: View {
     @State private var showSearch = false
     @State private var showNotifications = false
     @State private var showNationalMap = false
+    @State private var showCompanyDashboard = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,10 @@ struct CityMapView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(game.isTutorialActive)
+                            Button { showCompanyDashboard = true } label: {
+                                MapTopControlLabel(title: "経営", icon: "chart.bar.xaxis")
+                            }
+                            .buttonStyle(.plain)
                             Spacer()
                             Menu {
                                 ForEach(MapLayer.allCases) { item in
@@ -125,6 +130,11 @@ struct CityMapView: View {
                 })
                     .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showCompanyDashboard) {
+                CompanyDashboardView()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
             .fullScreenCover(isPresented: $showNationalMap) {
                 NationalExpansionView()
             }
@@ -193,6 +203,12 @@ private struct MapBottomHUD: View {
                     .font(.subheadline.bold())
                 Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : layer == .competition ? "固定需要を自社と競合の商圏で奪い合います" : "6地域をドラッグで移動・ピンチで拡大")
                     .font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 9) {
+                    MapLegendItem(title: "自社中古車店", color: GameTheme.teal)
+                    MapLegendItem(title: "競合", color: GameTheme.orange)
+                    MapLegendItem(title: "建物をタップ", color: .gray)
+                }
+                .padding(.top, 2)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
@@ -204,6 +220,19 @@ private struct MapBottomHUD: View {
         .background(.ultraThinMaterial.opacity(0.94))
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
+    }
+}
+
+private struct MapLegendItem: View {
+    let title: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(title).font(.system(size: 9, weight: .bold))
+        }
+        .foregroundStyle(GameTheme.ink.opacity(0.78))
     }
 }
 
@@ -652,82 +681,6 @@ private struct CityPulseCard: View {
             }
         }
         .gameCard()
-    }
-}
-
-struct MapLandmark: Identifiable {
-    let id: String
-    let title: String
-    let subtitle: String?
-    let icon: String
-    let x: CGFloat
-    let y: CGFloat
-    let tint: Color
-}
-
-enum CityMapLayout {
-    static let columnCount = 12
-    static let rowCount = 12
-    static let columnSpacing: CGFloat = 0.0745
-    static let rowSpacing: CGFloat = 0.075
-
-    /// Every placeable plot uses one of these grid cells. Roads run between the
-    /// cells, so a newly built store never floats over a street or district edge.
-    private static let plotGrid: [(column: Int, row: Int)] = [
-        (0, 0), (2, 0), (4, 0), (0, 2), (2, 2), (4, 2),
-        (5, 0), (7, 0), (8, 0), (5, 2), (7, 2), (8, 2),
-        (9, 0), (11, 0), (9, 1), (11, 1), (9, 2), (11, 2),
-        (0, 5), (2, 5), (4, 5), (0, 7), (2, 7), (4, 7),
-        (6, 5), (8, 5), (10, 5), (6, 7), (8, 7), (10, 7),
-        (0, 10), (2, 10), (4, 10), (6, 10), (8, 10), (10, 10)
-    ]
-
-    static let plotPositions: [CGPoint] = plotGrid.map { gridPoint(column: $0.column, row: $0.row) }
-
-    static let landmarks: [MapLandmark] = [
-        MapLandmark(id: "boutique", title: "ブティック通り", subtitle: "高所得・高級車", icon: "bag.fill", x: 0.19, y: 0.035, tint: .purple),
-        MapLandmark(id: "station", title: "翠浜駅", subtitle: "通勤・若年層", icon: "tram.fill", x: 0.59, y: 0.035, tint: .blue),
-        MapLandmark(id: "newtown", title: "ひかりニュータウン", subtitle: "人口増加", icon: "house.and.flag.fill", x: 0.87, y: 0.035, tint: .green),
-        MapLandmark(id: "residential", title: "さくら住宅街", subtitle: "軽・ファミリー", icon: "house.fill", x: 0.21, y: 0.345, tint: GameTheme.teal),
-        MapLandmark(id: "factory", title: "臨海工業団地", subtitle: "改造・商用車", icon: "gearshape.2.fill", x: 0.73, y: 0.395, tint: .gray),
-        MapLandmark(id: "roadside", title: "国道8号ロードサイド", subtitle: "通過交通", icon: "road.lanes", x: 0.29, y: 0.91, tint: GameTheme.orange)
-    ]
-
-    static func position(for plotID: Int) -> CGPoint {
-        plotPositions.indices.contains(plotID) ? plotPositions[plotID] : .init(x: 0.5, y: 0.5)
-    }
-
-    static func gridPoint(column: Int, row: Int) -> CGPoint {
-        CGPoint(
-            x: 0.09 + CGFloat(column) * columnSpacing,
-            y: 0.08 + CGFloat(row) * rowSpacing
-        )
-    }
-
-    static func gridCellRect(column: Int, row: Int) -> CGRect {
-        let center = gridPoint(column: column, row: row)
-        return CGRect(
-            x: center.x - columnSpacing * 0.46,
-            y: center.y - rowSpacing * 0.43,
-            width: columnSpacing * 0.92,
-            height: rowSpacing * 0.86
-        )
-    }
-
-    static func lotRect(for plotID: Int) -> CGRect {
-        let center = position(for: plotID)
-        return CGRect(x: center.x - 0.031, y: center.y - 0.026, width: 0.062, height: 0.052)
-    }
-
-    static func trafficBadgePosition(for kind: DistrictKind) -> CGPoint {
-        switch kind {
-        case .downtown: .init(x: 0.38, y: 0.06)
-        case .station: .init(x: 0.69, y: 0.06)
-        case .emerging: .init(x: 0.94, y: 0.06)
-        case .suburb: .init(x: 0.42, y: 0.37)
-        case .industrial: .init(x: 0.91, y: 0.42)
-        case .highway: .init(x: 0.76, y: 0.91)
-        }
     }
 }
 

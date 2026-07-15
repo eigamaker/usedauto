@@ -1,12 +1,11 @@
 import SwiftUI
 
 enum MapFacility: String, CaseIterable, Identifiable {
-    case headquarters, auction, bank, realEstate, workshop, advertising, recruiting, cityHall
+    case auction, bank, realEstate, workshop, advertising, recruiting, cityHall
     var id: String { rawValue }
 
     var name: String {
         switch self {
-        case .headquarters: "本社"
         case .auction: "東部オートオークション"
         case .bank: "翠浜銀行"
         case .realEstate: "まち不動産"
@@ -19,14 +18,13 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     var shortName: String {
         switch self {
-        case .headquarters: "本社"; case .auction: "AA会場"; case .bank: "銀行"; case .realEstate: "不動産"
+        case .auction: "AA会場"; case .bank: "銀行"; case .realEstate: "不動産"
         case .workshop: "整備"; case .advertising: "広告"; case .recruiting: "人材"; case .cityHall: "行政"
         }
     }
 
     var icon: String {
         switch self {
-        case .headquarters: "building.2.fill"
         case .auction: "car.2.fill"
         case .bank: "building.columns.fill"
         case .realEstate: "house.fill"
@@ -39,7 +37,6 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .headquarters: GameTheme.teal
         case .auction: .indigo
         case .bank: .blue
         case .realEstate: .green
@@ -52,23 +49,21 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     var worldPoint: CGPoint {
         switch self {
-        case .headquarters: CityMapLayout.gridPoint(column: 7, row: 11)
-        case .auction: CityMapLayout.gridPoint(column: 3, row: 11)
-        case .bank: CityMapLayout.gridPoint(column: 1, row: 1)
-        case .realEstate: CityMapLayout.gridPoint(column: 6, row: 3)
-        case .workshop: CityMapLayout.gridPoint(column: 7, row: 6)
-        case .advertising: CityMapLayout.gridPoint(column: 3, row: 1)
-        case .recruiting: CityMapLayout.gridPoint(column: 6, row: 1)
-        case .cityHall: CityMapLayout.gridPoint(column: 10, row: 6)
+        case .auction: CityMapLayout.gridPoint(column: 2, row: 17)
+        case .bank: CityMapLayout.gridPoint(column: 0, row: 5)
+        case .realEstate: CityMapLayout.gridPoint(column: 6, row: 6)
+        case .workshop: CityMapLayout.gridPoint(column: 18, row: 11)
+        case .advertising: CityMapLayout.gridPoint(column: 9, row: 6)
+        case .recruiting: CityMapLayout.gridPoint(column: 14, row: 5)
+        case .cityHall: CityMapLayout.gridPoint(column: 18, row: 5)
         }
     }
 
-    var isPrimary: Bool { [.headquarters, .auction, .bank, .realEstate, .workshop].contains(self) }
+    var isPrimary: Bool { self == .auction }
 
     @MainActor func status(game: GameEngine) -> String {
         switch self {
-        case .headquarters: "企業価値 \(game.companyValue.currency)"
-        case .auction: "3会場・出品\(game.auctionListings.count)台・予約\(game.bidReservations.count)件"
+        case .auction: "3会場・出品\(game.auctionListings.count)台・予約\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
         case .bank: "借入 \(game.debt.currency)"
         case .realEstate: "売地 \(game.plots.filter { if case .available = $0.occupant { true } else { false } }.count)件"
         case .workshop: "整備提携受付中"
@@ -96,7 +91,6 @@ struct FacilityHubSheet: View {
                 VStack(spacing: 15) {
                     FacilityHeader(facility: facility)
                     switch facility {
-                    case .headquarters: HeadquartersContent()
                     case .auction: AuctionContent()
                     case .bank: BankContent()
                     case .realEstate: RealEstateContent { plot in dismiss(); focusPlot(plot) }
@@ -109,6 +103,42 @@ struct FacilityHubSheet: View {
             }
             .background(GameTheme.cream)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
+        }
+    }
+}
+
+struct CompanyDashboardView: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 15) {
+                    HStack(spacing: 13) {
+                        Image(systemName: "chart.bar.xaxis")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                            .frame(width: 52, height: 52)
+                            .background(GameTheme.teal)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("経営ダッシュボード").font(.title3.bold())
+                            Text("店舗を拠点に会社全体を管理").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .gameCard()
+                    CompanyDashboardContent()
+                }
+                .padding(15)
+            }
+            .background(GameTheme.cream)
+            .navigationTitle("経営")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } }
+            }
         }
     }
 }
@@ -128,7 +158,7 @@ private struct FacilityHeader: View {
     }
 }
 
-private struct HeadquartersContent: View {
+private struct CompanyDashboardContent: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(spacing: 14) {
@@ -204,6 +234,11 @@ private struct AuctionContent: View {
     private var listings: [AuctionListing] {
         game.auctionListings.filter { $0.venue == venue }.sorted { $0.reservePrice < $1.reservePrice }
     }
+    private var bidResults: [AuctionBidResult] {
+        game.auctionBidResults.filter { result in
+            result.venue == venue && (selectedStore == nil || result.storeID == selectedStore?.id)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -225,7 +260,7 @@ private struct AuctionContent: View {
                 MetricView(title: "入庫", value: "\(venue.shippingMonths)週間後", tint: venue.tint)
             }.gameCard()
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "出品車両・上限入札", subtitle: "次の週間処理で競合と入札し、上限内なら落札")
+                SectionTitle(title: "出品車両・上限入札", subtitle: "今週は上限額を予約し、落札結果は翌週に確定します")
                 if let store = selectedStore {
                     ForEach(listings.prefix(7)) { listing in
                         AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
@@ -233,6 +268,15 @@ private struct AuctionContent: View {
                     }
                 }
             }.gameCard()
+            if !bidResults.isEmpty {
+                VStack(alignment: .leading, spacing: 9) {
+                    SectionTitle(title: "入札結果", subtitle: "落札・不落札と確定価格を車種ごとに確認できます")
+                    ForEach(Array(bidResults.prefix(8))) { result in
+                        AuctionBidResultRow(result: result, currentTurn: game.turn)
+                        if result.id != bidResults.prefix(8).last?.id { Divider() }
+                    }
+                }.gameCard()
+            }
             if let store = selectedStore {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionTitle(title: "他の仕入れ経路", subtitle: "価格・数量・納期の違いを使い分けます")
@@ -269,10 +313,10 @@ private struct AuctionContent: View {
                 VStack(alignment: .leading, spacing: 9) {
                     SectionTitle(title: "進行中", subtitle: "入庫と出品成約は週間処理で進みます")
                     ForEach(game.inboundShipments) { shipment in
-                        FacilityRow("\(shipment.source.name)・\(shipment.category.name) \(shipment.count)台", "あと\(shipment.monthsRemaining)週間", tint: .blue)
+                        FacilityRow("\(shipment.source.name)・\(shipment.vehicleName) \(shipment.count)台", "あと\(shipment.monthsRemaining)週間", tint: .blue)
                     }
                     ForEach(game.auctionConsignments) { order in
-                        FacilityRow("出品中・\(order.category.name) \(order.count)台", "成約まで\(order.monthsRemaining)週間", tint: venue.tint)
+                        FacilityRow("出品中・\(order.vehicleName) \(order.count)台", "成約まで\(order.monthsRemaining)週間", tint: venue.tint)
                     }
                 }.gameCard()
             }
@@ -296,15 +340,16 @@ private struct AuctionBidRow: View {
         _maxPrice = State(initialValue: max(listing.reservePrice, listing.marketPrice))
     }
 
-    private var reserved: Bool { game.bidReservations.contains { $0.listingID == listing.id } }
+    private var reservation: BidReservation? { game.bidReservations.first { $0.listingID == listing.id } }
+    private var reserved: Bool { reservation != nil }
 
     var body: some View {
         VStack(spacing: 7) {
             HStack(spacing: 9) {
                 Image(systemName: listing.category.icon).foregroundStyle(listing.venue.tint).frame(width: 30, height: 30).background(listing.venue.tint.opacity(0.1)).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(listing.category.name)・\(String(listing.modelYear))年").font(.subheadline.bold())
-                    Text("\(listing.mileage.formatted())km・評価\(Int(listing.quality * 100))・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
+                    Text(listing.vehicleName).font(.subheadline.bold())
+                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・評価\(Int(listing.quality * 100))・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
@@ -315,16 +360,58 @@ private struct AuctionBidRow: View {
             HStack {
                 Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...max(listing.reservePrice + 10, listing.marketPrice * 13 / 10), step: 5)
                     .font(.caption.bold())
-                Button(reserved ? "取消" : "予約") {
-                    if reserved {
+                Button(reserved ? "更新" : "予約") {
+                    result(game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice) ? "上限\(maxPrice.currency)で入札を予約しました。結果は翌週に確定します" : "入庫枠を確保できません")
+                }.buttonStyle(.borderedProminent).tint(listing.venue.tint)
+                if reserved {
+                    Button("取消") {
                         game.cancelBid(listingID: listing.id)
                         result("入札予約を取り消しました")
-                    } else {
-                        result(game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice) ? "上限\(maxPrice.currency)で入札予約しました" : "入庫枠を確保できません")
-                    }
-                }.buttonStyle(.borderedProminent).tint(reserved ? .gray : listing.venue.tint)
+                    }.buttonStyle(.bordered).tint(.gray)
+                }
             }
-        }.padding(.vertical, 3)
+        }
+        .padding(.vertical, 3)
+        .onAppear {
+            if let reservation { maxPrice = reservation.maxPrice }
+        }
+    }
+}
+
+private struct AuctionBidResultRow: View {
+    let result: AuctionBidResult
+    let currentTurn: Int
+
+    private var tint: Color {
+        switch result.status {
+        case .won: .green
+        case .exceededLimit: .secondary
+        case .insufficientFunds: .orange
+        }
+    }
+
+    private var icon: String {
+        switch result.status {
+        case .won: "checkmark.circle.fill"
+        case .exceededLimit: "xmark.circle.fill"
+        case .insufficientFunds: "exclamationmark.triangle.fill"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: icon).foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.vehicleName).font(.subheadline.bold())
+                Text("\(result.category.name)・\(result.modelYear)年・上限\(result.maxPrice.currency)・\(result.resolvedTurn == currentTurn ? "今週判明" : "\(max(1, currentTurn - result.resolvedTurn))週間前")")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(result.status.name).font(.caption.bold()).foregroundStyle(tint)
+                Text("確定 \(result.hammerPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

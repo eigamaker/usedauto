@@ -23,23 +23,95 @@ final class GameEngineTests: XCTestCase {
         game.tutorialMessage = nil
     }
 
-    func testNewGameCreatesSixDistrictsAndThirtySixPlots() {
+    func testNewGameCreatesSixExpandedDistrictsAndSeventyTwoPlots() {
         let game = GameEngine()
         game.resetGame()
         XCTAssertEqual(game.districts.count, 6)
-        XCTAssertEqual(game.plots.count, 36)
+        XCTAssertEqual(game.plots.count, 72)
+        for district in DistrictKind.allCases {
+            XCTAssertEqual(game.plots.filter { $0.district == district }.count, CityMapLayout.plotsPerDistrict)
+        }
     }
 
     func testAllCityPlotsAreUniqueGridAlignedCells() {
-        XCTAssertEqual(Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" }).count, 36)
+        XCTAssertEqual(Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" }).count, 72)
         for point in CityMapLayout.plotPositions {
-            let column = (point.x - 0.09) / CityMapLayout.columnSpacing
-            let row = (point.y - 0.08) / CityMapLayout.rowSpacing
+            let column = (point.x - CityMapLayout.gridOrigin.x) / CityMapLayout.columnSpacing
+            let row = (point.y - CityMapLayout.gridOrigin.y) / CityMapLayout.rowSpacing
             XCTAssertEqual(column, column.rounded(), accuracy: 0.0001)
             XCTAssertEqual(row, row.rounded(), accuracy: 0.0001)
             XCTAssertTrue((0...1).contains(point.x))
             XCTAssertTrue((0...1).contains(point.y))
         }
+    }
+
+    func testCityBlueprintKeepsReusablePlacementsInsideWorldBounds() {
+        let blueprint = CityMapLayout.blueprint
+        XCTAssertEqual(blueprint.grid.columnCount, 20)
+        XCTAssertEqual(blueprint.grid.rowCount, 20)
+        XCTAssertEqual(blueprint.districts.reduce(0) { $0 + $1.columns * $1.rows }, 72)
+        XCTAssertTrue(blueprint.majorRoads.allSatisfy { (0...1).contains($0.position) })
+        XCTAssertTrue(blueprint.trees.allSatisfy { (0...1).contains($0.point.x) && (0...1).contains($0.point.y) })
+    }
+
+    func testEveryParcelStructureUsesAReusableAssetThatFitsItsGridCell() {
+        let game = GameEngine()
+        game.resetGame()
+
+        for plot in game.plots where plot.structure != .vacant {
+            let lot = CityMapLayout.lotRect(for: plot).insetBy(dx: 0.007, dy: 0.006)
+            let asset = MapAssetLibrary.parcelBuilding(for: plot, in: lot)
+            XCTAssertNotNil(asset)
+            XCTAssertTrue(lot.contains(asset!.rect))
+        }
+
+        let combinedLot = CityMapLayout.combinedLotRect(for: [0, 1, 2]).insetBy(dx: 0.004, dy: 0.004)
+        let dealership = MapAssetLibrary.dealership(in: combinedLot, type: .roadside, color: .orange)
+        XCTAssertTrue(combinedLot.contains(dealership.rect))
+    }
+
+    func testEveryCityCellStartsWithAPurchasableGridBuilding() {
+        let game = GameEngine()
+        game.resetGame()
+
+        XCTAssertEqual(game.plots.count, 72)
+        XCTAssertTrue(game.plots.allSatisfy { $0.structure != .vacant })
+        XCTAssertTrue(game.plots.allSatisfy { $0.isForSale && $0.isForLease })
+    }
+
+    func testStandardStoreCombinesTwoCellsAndDemolishesBothBuildings() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        let plot = game.recommendedFoundingPlot!
+        let footprint = game.footprintPlots(startingAt: plot, type: .standard)
+
+        XCTAssertEqual(footprint.count, 2)
+        XCTAssertTrue(footprint.allSatisfy { $0.structure != .vacant })
+        game.selectFoundingPlot(plot.id)
+        XCTAssertTrue(game.buildStore(on: plot, type: .standard, mode: .lease, focus: .family, concept: .family, loanAmount: 0))
+
+        let store = game.stores[0]
+        XCTAssertEqual(store.plotIDs.count, 2)
+        XCTAssertEqual(Set(store.plotIDs), Set(footprint.map(\.id)))
+        XCTAssertTrue(store.plotIDs.allSatisfy { game.plot(id: $0)?.structure == .vacant })
+    }
+
+    func testRoadsideStoreUsesThreeContiguousGridCells() {
+        let game = GameEngine()
+        game.resetGame()
+        game.cash = 100_000
+        let plot = game.plots.first(where: {
+            if case .available = $0.occupant {
+                return game.footprintPlots(startingAt: $0, type: .roadside).count == 3
+            }
+            return false
+        })!
+
+        XCTAssertTrue(game.buildStore(on: plot, type: .roadside, mode: .purchase, focus: .business, concept: .business, loanAmount: 0))
+        XCTAssertEqual(game.stores[0].plotIDs.count, 3)
+        let coordinates = game.stores[0].plotIDs.compactMap(CityMapLayout.gridCoordinate(for:))
+        XCTAssertTrue(Set(coordinates.map { $0.row }).count == 1 || Set(coordinates.map { $0.column }).count == 1)
     }
 
     func testFacilitiesUseGridCellsSeparateFromStorePlots() {
@@ -48,8 +120,8 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(Set(facilityPoints.map { "\($0.x),\($0.y)" }).count, MapFacility.allCases.count)
         for point in facilityPoints {
             XCTAssertFalse(plotPoints.contains("\(point.x),\(point.y)"))
-            let column = (point.x - 0.09) / CityMapLayout.columnSpacing
-            let row = (point.y - 0.08) / CityMapLayout.rowSpacing
+            let column = (point.x - CityMapLayout.gridOrigin.x) / CityMapLayout.columnSpacing
+            let row = (point.y - CityMapLayout.gridOrigin.y) / CityMapLayout.rowSpacing
             XCTAssertEqual(column, column.rounded(), accuracy: 0.0001)
             XCTAssertEqual(row, row.rounded(), accuracy: 0.0001)
         }
@@ -155,16 +227,17 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         startPlayableGame(game)
         let population = game.districts.first(where: { $0.kind == .emerging })!.population
-        XCTAssertNotNil(game.plots[14].development)
+        let developmentPlotID = game.plots.first(where: { $0.development != nil })!.id
+        XCTAssertNotNil(game.plot(id: developmentPlotID)?.development)
 
         for _ in 0..<5 { game.advanceWeek() }
 
-        XCTAssertNil(game.plots[14].development)
+        XCTAssertNil(game.plot(id: developmentPlotID)?.development)
         XCTAssertGreaterThan(game.districts.first(where: { $0.kind == .emerging })!.population, population)
-        XCTAssertTrue(game.cityEvents.contains { $0.kind == .development && $0.plotID == 14 && $0.title.contains("完成") })
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .development && $0.plotID == developmentPlotID && $0.title.contains("完成") })
     }
 
-    func testAuctionBidCreatesInboundShipmentAtWeekEnd() {
+    func testAuctionBidResultIsKnownNextWeekAndKeepsExactVehicleModel() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -172,12 +245,44 @@ final class GameEngineTests: XCTestCase {
         let store = game.stores[0]
         let cash = game.cash
 
+        XCTAssertTrue(game.auctionListings.allSatisfy {
+            VehicleCatalog.entry(id: $0.modelID)?.category == $0.category
+        })
+        XCTAssertEqual(VehicleCatalog.entry(id: listing.modelID)?.category, listing.category)
         XCTAssertTrue(game.reserveBid(listingID: listing.id, storeID: store.id, maxPrice: listing.marketPrice * 2))
+        XCTAssertEqual(game.bidReservations.first(where: { $0.listingID == listing.id })?.resultTurn, game.turn + 1)
+        XCTAssertFalse(game.auctionBidResults.contains { $0.listingID == listing.id })
+
         game.advanceWeek()
 
         XCTAssertFalse(game.bidReservations.contains { $0.listingID == listing.id })
-        XCTAssertTrue(game.inboundShipments.contains { $0.source == .auction && $0.category == listing.category })
+        let result = game.auctionBidResults.first(where: { $0.listingID == listing.id })
+        XCTAssertEqual(result?.status, .won)
+        XCTAssertEqual(result?.resolvedTurn, game.turn)
+        XCTAssertEqual(result?.modelID, listing.modelID)
+        XCTAssertTrue(game.inboundShipments.contains { $0.source == .auction && $0.modelID == listing.modelID })
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains(listing.vehicleName) } == true)
         XCTAssertLessThan(game.cash, cash)
+
+        game.advanceWeek()
+
+        XCTAssertTrue(game.stores[0].inventory.contains { $0.modelID == listing.modelID })
+    }
+
+    func testAuctionBidReportsInsufficientFundsNextWeek() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let listing = game.auctionListings.first!
+        let store = game.stores[0]
+
+        XCTAssertTrue(game.reserveBid(listingID: listing.id, storeID: store.id, maxPrice: listing.marketPrice * 2))
+        game.cash = 0
+        game.advanceWeek()
+
+        XCTAssertEqual(game.auctionBidResults.first(where: { $0.listingID == listing.id })?.status, .insufficientFunds)
+        XCTAssertFalse(game.inboundShipments.contains { $0.modelID == listing.modelID })
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains(listing.vehicleName) && $0.contains("資金") } == true)
     }
 
     func testDealerTradeArrivesAfterOneWeek() {

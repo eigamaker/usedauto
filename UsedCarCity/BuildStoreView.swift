@@ -11,8 +11,11 @@ struct BuildStoreView: View {
     @State private var completed = false
     @State private var foundingBuildCompleted = false
 
-    private var landCost: Int { mode == .purchase ? plot.price : plot.monthlyRent * 6 }
-    private var total: Int { landCost + type.buildCost }
+    private var footprint: [LandPlot] { game.footprintPlots(startingAt: plot, type: type) }
+    private var availableTypes: [StoreType] { StoreType.allCases.filter { game.footprintPlots(startingAt: plot, type: $0).count == $0.requiredGridCells } }
+    private var landCost: Int { game.landAcquisitionCost(for: footprint, mode: mode) }
+    private var demolitionCost: Int { game.demolitionCost(for: footprint) }
+    private var total: Int { game.totalBuildCost(for: footprint, type: type, mode: mode) }
     private var neededLoan: Int { max(0, total - game.cash) }
 
     var body: some View {
@@ -40,7 +43,7 @@ struct BuildStoreView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(GameTheme.teal)
                     .frame(maxWidth: .infinity)
-                    .disabled(step == 2 && game.cash + loan < total)
+                    .disabled(step == 2 && (game.cash + loan < total || footprint.count != type.requiredGridCells))
                 }
                 .padding()
                 .background(.white)
@@ -53,20 +56,34 @@ struct BuildStoreView: View {
                 Button("マップへ戻る") { dismiss() }
             } message: {
                 if foundingBuildCompleted {
-                    Text("\(plot.district.shortName)地区の居抜き物件に\(type.name)を開業しました。在庫はまだ0台です。次は店舗画面から販売車を仕入れましょう。")
+                    Text("既存建物を解体し、\(type.requiredGridCells)セルを連結した敷地に\(type.name)を開業しました。在庫はまだ0台です。")
                 } else {
-                    Text("\(plot.district.shortName)地区で\(type.name)を着工しました。完成まで\(type.constructionMonths)週間です。マップ上で工事の進行を確認できます。")
+                    Text("\(type.requiredGridCells)セルの既存建物を解体し、\(type.name)を着工しました。完成まで\(type.constructionMonths)週間です。")
                 }
+            }
+            .onAppear {
+                if !availableTypes.contains(type), let first = availableTypes.first { type = first }
             }
         }
     }
 
-    private var stepTitle: String { ["土地の使い方", "店舗タイプ", "収支予測と資金"][step] }
+    private var stepTitle: String { ["物件取得と解体", "店舗と使用グリッド", "収支予測と資金"][step] }
 
     private var acquisitionStep: some View {
         VStack(spacing: 12) {
-            ChoiceCard(title: "購入", subtitle: "初期 \(plot.price.currency)・地価上昇と担保価値を得る", icon: "building.columns.fill", selected: mode == .purchase) { mode = .purchase }
-            ChoiceCard(title: "賃借", subtitle: "保証金 \((plot.monthlyRent * 6).currency)・毎月 \(plot.monthlyRent.currency)", icon: "key.fill", selected: mode == .lease) { mode = .lease }
+            HStack(spacing: 10) {
+                Image(systemName: plot.structure.icon).foregroundStyle(plot.district.color)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("現在：\(plot.structure.name)").font(.subheadline.bold())
+                    Text("選んだ店舗に必要な\(type.requiredGridCells)セルをまとめて取得し、建物を解体します").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .gameCard()
+            ChoiceCard(title: "購入", subtitle: "\(type.footprintName)合計 \(landCost.currency)・土地を資産保有", icon: "building.columns.fill", selected: mode == .purchase) { mode = .purchase }
+            ChoiceCard(title: "借地", subtitle: "\(type.footprintName)分の保証金 \(landCost.currency)・建替え可能", icon: "key.fill", selected: mode == .lease) { mode = .lease }
+            Label("解体費 \(demolitionCost.currency) は初期投資に含まれます", systemImage: "hammer.fill")
+                .font(.subheadline.bold()).foregroundStyle(GameTheme.orange)
             Text(mode == .purchase ? "多額の現金を使いますが、土地を資産として保有し融資枠を広げられます。" : "初期資金を守りながら出店でき、撤退もしやすい一方、毎月の賃料が利益を圧迫します。")
                 .font(.subheadline).foregroundStyle(.secondary).gameCard()
         }
@@ -74,9 +91,11 @@ struct BuildStoreView: View {
 
     private var storeTypeStep: some View {
         VStack(spacing: 10) {
-            ForEach(StoreType.allCases) { item in
-                ChoiceCard(title: item.name, subtitle: "展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)・固定費 \(item.monthlyFixedCost.currency)/月", icon: item.icon, selected: type == item) { type = item }
+            ForEach(availableTypes) { item in
+                ChoiceCard(title: item.name, subtitle: "\(item.footprintName)連結・展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)", icon: item.icon, selected: type == item) { type = item }
             }
+            Label("大きい店舗ほど隣接する同一サイズのセルを多く使用します", systemImage: "square.grid.3x3.fill")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -85,7 +104,7 @@ struct BuildStoreView: View {
             let sales = game.estimatedSales(for: plot, type: type, focus: .family, concept: .general)
             VStack(alignment: .leading, spacing: 14) {
                 SectionTitle(title: "標準シナリオ", subtitle: "店長採用前はオーナー直営・方針設定なしで試算")
-                HStack { MetricView(title: "初期投資", value: total.currency); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
+                HStack { MetricView(title: "初期投資", value: total.currency, detail: "土地 \(landCost.currency)＋解体 \(demolitionCost.currency)"); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
                 HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
                 Divider()
                 ScenarioRow(name: "最悪", sales: max(1, sales.lowerBound - 3), profit: (sales.lowerBound - 3) * 32 - type.monthlyFixedCost - (mode == .lease ? plot.monthlyRent : 0), color: GameTheme.danger)
