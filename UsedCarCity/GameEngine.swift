@@ -849,7 +849,15 @@ final class GameEngine: ObservableObject {
     }
 
     func breakEvenSales(for plot: LandPlot, type: StoreType, mode: AcquisitionMode) -> Int {
-        let occupancy = mode == .lease ? plot.monthlyRent : max(12, plot.price / 360)
+        let footprint = footprintPlots(startingAt: plot, type: type)
+        let cells = footprint.count == type.requiredGridCells ? footprint : [plot]
+        let occupancy: Int
+        switch mode {
+        case .lease:
+            occupancy = cells.reduce(0) { $0 + $1.monthlyRent }
+        case .purchase:
+            occupancy = max(12, cells.reduce(0) { $0 + $1.price } / 360)
+        }
         return max(3, Int(ceil(Double(type.monthlyFixedCost + occupancy + 80) / 32.0)))
     }
 

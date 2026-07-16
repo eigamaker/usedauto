@@ -70,6 +70,52 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(combinedLot.contains(dealership.rect))
     }
 
+    func testEveryVisibleParcelAndStoreTypeHasAnIsometricRasterSprite() {
+        let game = GameEngine()
+        game.resetGame()
+
+        for plot in game.plots where plot.structure != .vacant {
+            let sprite = MapAssetLibrary.parcelSprite(for: plot)
+            XCTAssertNotNil(sprite, "Missing raster sprite for \(plot.structure)")
+            XCTAssertGreaterThan(sprite!.pixelSize.width, 0)
+            XCTAssertGreaterThan(sprite!.pixelSize.height, 0)
+            XCTAssertTrue((0...1).contains(sprite!.groundAnchorY))
+        }
+
+        for type in StoreType.allCases {
+            let sprite = MapAssetLibrary.storeSprite(for: type)
+            XCTAssertFalse(sprite.imageName.isEmpty)
+            XCTAssertGreaterThan(sprite.pixelSize.width, sprite.pixelSize.height)
+            XCTAssertGreaterThan(sprite.widthScale, 0)
+        }
+    }
+
+    func testCityMapLODTransitionsAllRenderingLayersTogether() {
+        XCTAssertEqual(CityMapLevelOfDetail(cameraScale: 1.0), .overview)
+        XCTAssertEqual(CityMapLevelOfDetail(cameraScale: 1.35), .district)
+        XCTAssertEqual(CityMapLevelOfDetail(cameraScale: 2.15), .street)
+        XCTAssertFalse(CityMapLevelOfDetail.overview.usesHighResolutionTiles)
+        XCTAssertTrue(CityMapLevelOfDetail.district.usesHighResolutionTiles)
+        XCTAssertFalse(CityMapLevelOfDetail.district.showsParcelSprites)
+        XCTAssertTrue(CityMapLevelOfDetail.street.showsParcelSprites)
+        XCTAssertTrue(CityMapLevelOfDetail.street.showsMinorRoads)
+    }
+
+    func testHighResolutionCityMosaicHasTwelveGaplessTiles() {
+        XCTAssertEqual(CityMapRasterTile.all.count, 12)
+        XCTAssertEqual(Set(CityMapRasterTile.all.map(\.imageName)).count, 12)
+        XCTAssertEqual(CityMapRasterTile.mosaicPixelSize, CGSize(width: 7_240, height: 5_430))
+
+        let mapRect = CGRect(x: 20, y: 40, width: 800, height: 600)
+        let frames = CityMapRasterTile.all.map { $0.frame(in: mapRect) }
+        XCTAssertEqual(frames.map(\.width).min(), 200)
+        XCTAssertEqual(frames.map(\.height).min(), 200)
+        XCTAssertEqual(frames.map(\.minX).min(), mapRect.minX)
+        XCTAssertEqual(frames.map(\.minY).min(), mapRect.minY)
+        XCTAssertEqual(frames.map(\.maxX).max(), mapRect.maxX)
+        XCTAssertEqual(frames.map(\.maxY).max(), mapRect.maxY)
+    }
+
     func testEveryCityCellStartsWithAPurchasableGridBuilding() {
         let game = GameEngine()
         game.resetGame()
@@ -95,6 +141,23 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(store.plotIDs.count, 2)
         XCTAssertEqual(Set(store.plotIDs), Set(footprint.map(\.id)))
         XCTAssertTrue(store.plotIDs.allSatisfy { game.plot(id: $0)?.structure == .vacant })
+    }
+
+    func testMultiCellBreakEvenIncludesEveryOccupiedPlot() {
+        let game = GameEngine()
+        game.resetGame()
+        game.start(plan: .family)
+        let plot = game.recommendedFoundingPlot!
+        let footprint = game.footprintPlots(startingAt: plot, type: .standard)
+        XCTAssertEqual(footprint.count, StoreType.standard.requiredGridCells)
+
+        let rent = footprint.reduce(0) { $0 + $1.monthlyRent }
+        let expectedLease = max(3, Int(ceil(Double(StoreType.standard.monthlyFixedCost + rent + 80) / 32.0)))
+        XCTAssertEqual(game.breakEvenSales(for: plot, type: .standard, mode: .lease), expectedLease)
+
+        let landValue = footprint.reduce(0) { $0 + $1.price }
+        let expectedPurchase = max(3, Int(ceil(Double(StoreType.standard.monthlyFixedCost + max(12, landValue / 360) + 80) / 32.0)))
+        XCTAssertEqual(game.breakEvenSales(for: plot, type: .standard, mode: .purchase), expectedPurchase)
     }
 
     func testRoadsideStoreUsesThreeContiguousGridCells() {

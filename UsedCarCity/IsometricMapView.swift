@@ -2,6 +2,7 @@ import SwiftUI
 
 struct IsometricCitySurface: View {
     @EnvironmentObject private var game: GameEngine
+    @Environment(\.displayScale) private var displayScale
     let layer: MapLayer
     let demandCategory: VehicleCategory
     @Binding var selectedPlot: LandPlot?
@@ -9,8 +10,8 @@ struct IsometricCitySurface: View {
     let focusRequest: MapFocusRequest?
     let isExpanded: Bool
     let toggleExpanded: () -> Void
-    @State private var cameraScale: CGFloat = CommandLine.arguments.contains("-demo-map-zoom") ? 4.2 : 1.8
-    @State private var lastScale: CGFloat = CommandLine.arguments.contains("-demo-map-zoom") ? 4.2 : 1.8
+    @State private var cameraScale: CGFloat = CommandLine.arguments.contains("-demo-map-zoom") ? 2.2 : 1.0
+    @State private var lastScale: CGFloat = CommandLine.arguments.contains("-demo-map-zoom") ? 2.2 : 1.0
     @State private var cameraOffset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
     @State private var selectionBlockedUntil = Date.distantPast
@@ -20,6 +21,7 @@ struct IsometricCitySurface: View {
             let size = proxy.size
             ZStack {
                 ZStack {
+                    DetailedCityMapBackdrop(cameraScale: cameraScale, cameraOffset: cameraOffset)
                     IsometricCityCanvas(
                         layer: layer,
                         demandCategory: demandCategory,
@@ -32,7 +34,7 @@ struct IsometricCitySurface: View {
                     if layer == .competition {
                         IsometricCatchmentOverlay(cameraScale: cameraScale, cameraOffset: cameraOffset)
                     }
-                    if cameraScale >= 1.18 {
+                    if cameraScale >= 1.55 {
                         ForEach(CityMapLayout.landmarks) { landmark in
                             let point = IsoProjection.project(
                                 .init(x: landmark.x, y: landmark.y),
@@ -46,7 +48,7 @@ struct IsometricCitySurface: View {
                         }
                     }
                     ForEach(game.plots) { plot in
-                        let world = CityMapLayout.position(for: plot.id)
+                        let world = markerWorldPosition(for: plot)
                         let point = IsoProjection.project(world, in: size, cameraScale: cameraScale, cameraOffset: cameraOffset)
                         if let project = plot.development, cameraScale >= 2.25 {
                             DevelopmentMapMarker(project: project) { select(plot) }
@@ -92,7 +94,7 @@ struct IsometricCitySurface: View {
                     MagnificationGesture()
                         .onChanged { value in
                             blockSelection()
-                            cameraScale = min(maxCameraScale, max(minCameraScale, lastScale * value))
+                            cameraScale = min(maxCameraScale(in: size), max(minCameraScale, lastScale * value))
                             cameraOffset = constrained(cameraOffset, size: size)
                         }
                         .onEnded { _ in
@@ -122,7 +124,7 @@ struct IsometricCitySurface: View {
                 .padding(.top, 108).padding(.trailing, 10)
                 VStack {
                     HStack {
-                        Label(cameraScale < 1.25 ? "都市全景" : "地区表示 \(Int(cameraScale * 100))%", systemImage: "map.fill")
+                        Label(cameraStatusLabel, systemImage: "map.fill")
                             .font(.caption2.bold())
                             .foregroundStyle(.white)
                             .padding(.horizontal, 8).padding(.vertical, 5)
@@ -147,7 +149,7 @@ struct IsometricCitySurface: View {
 
     private func focus(on worldPoint: CGPoint, size: CGSize) {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-            cameraScale = max(cameraScale, 1.8)
+            cameraScale = min(maxCameraScale(in: size), max(cameraScale, 1.8))
             lastScale = cameraScale
             let point = IsoProjection.project(worldPoint, in: size)
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -158,14 +160,14 @@ struct IsometricCitySurface: View {
     }
 
     private func constrained(_ offset: CGSize, size: CGSize) -> CGSize {
-        let maxX = max(0, size.width * (cameraScale - 1) * 0.52 + 45)
-        let maxY = max(0, size.height * (cameraScale - 1) * 0.50 + 55)
+        let maxX = max(80, size.width * (cameraScale - 1) * 0.66 + 80)
+        let maxY = max(55, size.height * (cameraScale - 1) * 0.55 + 55)
         return CGSize(width: min(maxX, max(-maxX, offset.width)), height: min(maxY, max(-maxY, offset.height)))
     }
 
     private func zoom(by factor: CGFloat, size: CGSize) {
         withAnimation(.easeInOut(duration: 0.18)) {
-            cameraScale = min(maxCameraScale, max(minCameraScale, cameraScale * factor))
+            cameraScale = min(maxCameraScale(in: size), max(minCameraScale, cameraScale * factor))
             lastScale = cameraScale
             cameraOffset = constrained(cameraOffset, size: size)
             lastOffset = cameraOffset
@@ -174,8 +176,8 @@ struct IsometricCitySurface: View {
 
     private func resetCamera() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-            cameraScale = 1.8
-            lastScale = 1.8
+            cameraScale = 1.0
+            lastScale = 1.0
             cameraOffset = .zero
             lastOffset = .zero
         }
@@ -239,8 +241,31 @@ struct IsometricCitySurface: View {
         return baseLift
     }
 
-    private var minCameraScale: CGFloat { 0.72 }
-    private var maxCameraScale: CGFloat { 6.0 }
+    private func markerWorldPosition(for plot: LandPlot) -> CGPoint {
+        guard case .player = plot.occupant,
+              let store = game.store(at: plot.id), store.plotID == plot.id else {
+            return CityMapLayout.position(for: plot.id)
+        }
+        let footprint = CityMapLayout.combinedLotRect(for: store.plotIDs)
+        return CGPoint(x: footprint.midX, y: footprint.midY)
+    }
+
+    private var minCameraScale: CGFloat { 0.68 }
+
+    /// Caps zoom before a source pixel would need to cover more than one device
+    /// pixel. This keeps the 7,240 x 5,430 tile mosaic crisp on phones and iPads.
+    private func maxCameraScale(in size: CGSize) -> CGFloat {
+        let base = IsoProjection.baseMapRect(in: size)
+        let source = CityMapRasterTile.mosaicPixelSize
+        let widthLimit = source.width / max(1, base.width * displayScale)
+        let heightLimit = source.height / max(1, base.height * displayScale)
+        return max(1, min(4.5, min(widthLimit, heightLimit) * 0.96))
+    }
+
+    private var cameraStatusLabel: String {
+        let level = CityMapLevelOfDetail(cameraScale: cameraScale)
+        return level == .overview ? level.label : "\(level.label) \(Int(cameraScale * 100))%"
+    }
 
     private func competitorStoreType(for plotID: Int) -> StoreType {
         switch plotID % 3 {
@@ -494,9 +519,35 @@ private struct CameraButton: View {
 }
 
 enum IsoProjection {
-    /// Keep the two ground axes on one fixed projection. Deriving one axis from
-    /// width and the other from height made the city stretch on tall devices.
-    private static let verticalRatio: CGFloat = 0.68
+    static let mapAspectRatio: CGFloat = 1448.0 / 1086.0
+
+    /// The generated city is the world. Logical grid coordinates are converted
+    /// to normalized positions on its fixed 2:1 dimetric road/parcel axes.
+    static func baseMapRect(in size: CGSize) -> CGRect {
+        let width = size.width * 1.32
+        let height = width / mapAspectRatio
+        let center = CGPoint(x: size.width / 2, y: size.height * 0.42)
+        return CGRect(x: center.x - width / 2, y: center.y - height / 2, width: width, height: height)
+    }
+
+    static func displayedMapRect(
+        in size: CGSize,
+        cameraScale: CGFloat,
+        cameraOffset: CGSize
+    ) -> CGRect {
+        let base = baseMapRect(in: size)
+        let viewportCenter = CGPoint(x: size.width / 2, y: size.height / 2)
+        let center = CGPoint(
+            x: viewportCenter.x + (base.midX - viewportCenter.x) * cameraScale + cameraOffset.width,
+            y: viewportCenter.y + (base.midY - viewportCenter.y) * cameraScale + cameraOffset.height
+        )
+        return CGRect(
+            x: center.x - base.width * cameraScale / 2,
+            y: center.y - base.height * cameraScale / 2,
+            width: base.width * cameraScale,
+            height: base.height * cameraScale
+        )
+    }
 
     static func project(
         _ world: CGPoint,
@@ -504,17 +555,14 @@ enum IsoProjection {
         cameraScale: CGFloat = 1,
         cameraOffset: CGSize = .zero
     ) -> CGPoint {
-        let horizontalReach = min(size.width * 0.47, size.height * 0.46)
-        let verticalReach = horizontalReach * verticalRatio
-        let origin = CGPoint(
-            x: size.width * 0.50,
-            y: max(size.height * 0.23, 86)
+        let map = baseMapRect(in: size)
+        let normalized = CGPoint(
+            x: 0.50 + (world.x - world.y) * 0.46,
+            y: 0.075 + (world.x + world.y) * 0.39
         )
-        let xAxis = CGVector(dx: horizontalReach, dy: verticalReach)
-        let yAxis = CGVector(dx: -horizontalReach, dy: verticalReach)
         let base = CGPoint(
-            x: origin.x + world.x * xAxis.dx + world.y * yAxis.dx,
-            y: origin.y + world.x * xAxis.dy + world.y * yAxis.dy
+            x: map.minX + normalized.x * map.width,
+            y: map.minY + normalized.y * map.height
         )
         let viewportCenter = CGPoint(x: size.width / 2, y: size.height / 2)
         return CGPoint(
@@ -524,9 +572,93 @@ enum IsoProjection {
     }
 
     static func heightScale(in size: CGSize, cameraScale: CGFloat = 1) -> CGFloat {
-        let horizontalReach = min(size.width * 0.47, size.height * 0.46)
-        return min(1.22, max(0.78, horizontalReach / 185)) * cameraScale
+        let horizontalReach = baseMapRect(in: size).width * 0.46
+        return min(1.26, max(0.72, horizontalReach / 185)) * cameraScale
     }
+}
+
+private struct DetailedCityMapBackdrop: View {
+    let cameraScale: CGFloat
+    let cameraOffset: CGSize
+
+    var body: some View {
+        GeometryReader { proxy in
+            let rect = IsoProjection.displayedMapRect(
+                in: proxy.size,
+                cameraScale: cameraScale,
+                cameraOffset: cameraOffset
+            )
+            let level = CityMapLevelOfDetail(cameraScale: cameraScale)
+            let detailedOpacity = min(1, max(0, (cameraScale - 1.25) / 0.28))
+            ZStack {
+                Image("CitySimulationMap")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .saturation(0.72)
+                    .brightness(-0.08)
+                    .blur(radius: 7)
+                    .scaleEffect(1.08)
+                    .opacity(0.88)
+                    .clipped()
+                Color(red: 0.04, green: 0.13, blue: 0.16).opacity(0.16)
+                ZStack {
+                    Image("CitySimulationMap")
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+
+                    if level.usesHighResolutionTiles {
+                        ForEach(visibleTiles(in: rect, viewportSize: proxy.size)) { tile in
+                            let tileRect = tile.frame(in: rect, overlap: 0.5)
+                            Image(tile.imageName)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: tileRect.width, height: tileRect.height)
+                                .position(x: tileRect.midX, y: tileRect.midY)
+                        }
+                        .opacity(detailedOpacity)
+                    }
+                }
+                .compositingGroup()
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black, location: 0.035),
+                                .init(color: .black, location: 0.965),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                    }
+                    .shadow(color: .black.opacity(0.32), radius: 18, y: 10)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// Loading only intersecting tiles bounds decoded texture memory while the
+    /// camera is zoomed into a district. A small prefetch margin avoids flashes
+    /// during a drag without pulling the whole 12-tile mosaic into memory.
+    private func visibleTiles(in mapRect: CGRect, viewportSize: CGSize) -> [CityMapRasterTile] {
+        let viewport = CGRect(origin: .zero, size: viewportSize).insetBy(dx: -24, dy: -24)
+        return CityMapRasterTile.all.filter { tile in
+            tile.frame(in: mapRect, overlap: 1).intersects(viewport)
+        }
+    }
+}
+
+private struct IsoMapSpriteRenderItem: Identifiable {
+    let id: String
+    let asset: IsoMapSpriteAsset
+    let footprint: CGRect
+    let depth: CGFloat
+    let opacity: Double
 }
 
 private struct IsometricCityCanvas: View {
@@ -538,20 +670,95 @@ private struct IsometricCityCanvas: View {
 
     var body: some View {
         Canvas { context, size in
-            drawBackdrop(context: &context, size: size)
-            drawTerrain(context: &context, size: size)
-            drawZones(context: &context, size: size)
-            drawWaterAndParks(context: &context, size: size)
-            if layer != .normal { drawGrid(context: &context, size: size) }
-            drawStreets(context: &context, size: size)
-            drawRailAndStationPlaza(context: &context, size: size)
-            drawHighway(context: &context, size: size)
+            drawRoadVectors(context: &context, size: size)
+            if layer != .normal { drawZones(context: &context, size: size) }
+            if layer != .normal || cameraScale >= 1.28 { drawGrid(context: &context, size: size) }
             drawLots(context: &context, size: size)
-            drawStreetLife(context: &context, size: size)
-            drawFacilityLots(context: &context, size: size)
-            drawTrees(context: &context, size: size)
+            drawStoreFootprints(context: &context, size: size)
             drawParcelBuildings(context: &context, size: size)
         }
+    }
+
+    /// Roads are projected as vector quadrilateral meshes over the terrain
+    /// tiles. Major roads appear at district LOD; local streets appear only at
+    /// street LOD so the overview remains legible.
+    private func drawRoadVectors(context: inout GraphicsContext, size: CGSize) {
+        let detail = CityMapLevelOfDetail(cameraScale: cameraScale)
+        guard detail != .overview else { return }
+
+        for road in CityMapLayout.blueprint.majorRoads {
+            drawRoadVector(
+                axis: road.axis,
+                position: road.position,
+                range: road.range,
+                width: road.width,
+                major: true,
+                context: &context,
+                size: size
+            )
+        }
+
+        guard detail.showsMinorRoads else { return }
+        for origin in CityMapLayout.districtGridOrigins {
+            let first = CityMapLayout.gridPoint(column: origin.column, row: origin.row)
+            let last = CityMapLayout.gridPoint(
+                column: origin.column + CityMapLayout.districtColumnCount - 1,
+                row: origin.row + CityMapLayout.districtRowCount - 1
+            )
+            let xRange = max(0.01, first.x - 0.025)...min(0.98, last.x + 0.025)
+            let yRange = max(0.01, first.y - 0.025)...min(0.94, last.y + 0.025)
+
+            for row in 0..<(CityMapLayout.districtRowCount - 1) {
+                let upper = CityMapLayout.gridPoint(column: origin.column, row: origin.row + row).y
+                let lower = CityMapLayout.gridPoint(column: origin.column, row: origin.row + row + 1).y
+                drawRoadVector(axis: .horizontal, position: (upper + lower) / 2, range: xRange, width: 0.007, major: false, context: &context, size: size)
+            }
+            for column in 0..<(CityMapLayout.districtColumnCount - 1) {
+                let left = CityMapLayout.gridPoint(column: origin.column + column, row: origin.row).x
+                let right = CityMapLayout.gridPoint(column: origin.column + column + 1, row: origin.row).x
+                drawRoadVector(axis: .vertical, position: (left + right) / 2, range: yRange, width: 0.007, major: false, context: &context, size: size)
+            }
+        }
+    }
+
+    private func drawRoadVector(
+        axis: GridRoadAxis,
+        position: CGFloat,
+        range: ClosedRange<CGFloat>,
+        width: CGFloat,
+        major: Bool,
+        context: inout GraphicsContext,
+        size: CGSize
+    ) {
+        let rect: CGRect
+        let start: CGPoint
+        let end: CGPoint
+        switch axis {
+        case .horizontal:
+            rect = CGRect(x: range.lowerBound, y: position - width / 2, width: range.upperBound - range.lowerBound, height: width)
+            start = CGPoint(x: range.lowerBound, y: position)
+            end = CGPoint(x: range.upperBound, y: position)
+        case .vertical:
+            rect = CGRect(x: position - width / 2, y: range.lowerBound, width: width, height: range.upperBound - range.lowerBound)
+            start = CGPoint(x: position, y: range.lowerBound)
+            end = CGPoint(x: position, y: range.upperBound)
+        }
+
+        let mesh = worldRect(rect, size)
+        context.fill(mesh, with: .color(GameTheme.road.opacity(major ? 0.18 : 0.12)))
+        context.stroke(mesh, with: .color(Color.white.opacity(major ? 0.20 : 0.15)), lineWidth: major ? 0.9 : 0.6)
+
+        var centerLine = Path()
+        centerLine.move(to: iso(start, size))
+        centerLine.addLine(to: iso(end, size))
+        context.stroke(
+            centerLine,
+            with: .color(Color.white.opacity(major ? 0.48 : 0.34)),
+            style: StrokeStyle(
+                lineWidth: major ? 0.95 : 0.65,
+                dash: major ? [7 * cameraScale, 6 * cameraScale] : [3 * cameraScale, 4 * cameraScale]
+            )
+        )
     }
 
     private func drawBackdrop(context: inout GraphicsContext, size: CGSize) {
@@ -593,13 +800,15 @@ private struct IsometricCityCanvas: View {
     }
 
     private func drawGrid(context: inout GraphicsContext, size: CGSize) {
+        let lineOpacity = layer == .normal ? 0.09 : 0.18
+        let checkerOpacity = layer == .normal ? 0.018 : 0.035
         for row in 0..<CityMapLayout.rowCount {
             for column in 0..<CityMapLayout.columnCount {
                 let cell = worldRect(CityMapLayout.gridCellRect(column: column, row: row), size)
                 if (row + column).isMultiple(of: 2) {
-                    context.fill(cell, with: .color(Color.white.opacity(0.025)))
+                    context.fill(cell, with: .color(Color.white.opacity(checkerOpacity)))
                 }
-                context.stroke(cell, with: .color(GameTheme.navy.opacity(0.13)), lineWidth: 0.65)
+                context.stroke(cell, with: .color(GameTheme.navy.opacity(lineOpacity)), lineWidth: 0.65)
             }
         }
     }
@@ -706,53 +915,38 @@ private struct IsometricCityCanvas: View {
 
     private func drawLots(context: inout GraphicsContext, size: CGSize) {
         for plot in game.plots {
+            let isOwnedOrRival: Bool
+            switch plot.occupant {
+            case .player, .competitor: isOwnedOrRival = true
+            case .available, .unavailable: isOwnedOrRival = false
+            }
+            guard isOwnedOrRival || cameraScale >= 1.38 || layer != .normal else { continue }
+
             let lotRect = CityMapLayout.lotRect(for: plot)
             let path = worldRect(lotRect, size)
             let fill: Color
             let border: Color
             switch plot.occupant {
             case .player:
-                fill = Color(red: 0.34, green: 0.38, blue: 0.38)
+                fill = Color.black.opacity(0.24)
                 border = GameTheme.teal
             case .competitor:
-                fill = Color(red: 0.35, green: 0.37, blue: 0.37)
+                fill = GameTheme.orange.opacity(0.16)
                 border = GameTheme.orange
             case .available:
-                switch plot.structure {
-                case .home, .villa:
-                    fill = Color(red: 0.56, green: 0.72, blue: 0.43)
-                case .factory, .warehouse:
-                    fill = Color(red: 0.58, green: 0.60, blue: 0.58)
-                case .roadside:
-                    fill = Color(red: 0.39, green: 0.41, blue: 0.40)
-                case .vacant:
-                    fill = Color(red: 0.54, green: 0.68, blue: 0.41)
-                default:
-                    fill = Color(red: 0.72, green: 0.73, blue: 0.68)
-                }
-                border = layer == .normal ? GameTheme.ink.opacity(0.22) : plot.district.color.opacity(0.85)
+                fill = plot.district.color.opacity(layer == .normal ? 0.035 : 0.14)
+                border = layer == .normal ? Color.white.opacity(0.20) : plot.district.color.opacity(0.88)
             case .unavailable:
-                fill = Color.gray.opacity(0.38)
-                border = Color.gray.opacity(0.58)
+                fill = Color.gray.opacity(0.06)
+                border = Color.white.opacity(0.20)
             }
             context.fill(path, with: .color(fill))
-            context.stroke(path, with: .color(.white.opacity(0.52)), lineWidth: 0.8)
             let emphasizedBorder: Bool
             switch plot.occupant {
             case .player, .competitor: emphasizedBorder = true
             case .available, .unavailable: emphasizedBorder = false
             }
-            context.stroke(path, with: .color(border), lineWidth: emphasizedBorder ? 2.0 : 0.7)
-
-            if plot.structure == .vacant {
-                drawVacantLotTexture(in: lotRect, context: &context, size: size, color: border)
-            } else if plot.structure == .home || plot.structure == .villa {
-                let drive = CGRect(x: lotRect.maxX - lotRect.width * 0.24, y: lotRect.minY, width: lotRect.width * 0.18, height: lotRect.height * 0.50)
-                context.fill(worldRect(drive, size), with: .color(Color(red: 0.72, green: 0.70, blue: 0.64)))
-            } else if plot.structure == .commercial || plot.structure == .office || plot.structure == .apartment {
-                let paving = CGRect(x: lotRect.minX + 0.003, y: lotRect.maxY - lotRect.height * 0.18, width: lotRect.width - 0.006, height: lotRect.height * 0.12)
-                context.fill(worldRect(paving, size), with: .color(Color.white.opacity(0.26)))
-            }
+            context.stroke(path, with: .color(border), lineWidth: emphasizedBorder ? 2.0 : 0.65)
         }
     }
 
@@ -763,39 +957,118 @@ private struct IsometricCityCanvas: View {
         context.stroke(worldRect(inner, size), with: .color(color.opacity(0.34)), style: StrokeStyle(lineWidth: 0.8, dash: [2, 2]))
     }
 
-    private func drawParcelBuildings(context: inout GraphicsContext, size: CGSize) {
-        let backgroundPlots = game.plots.filter {
-            if case .player = $0.occupant { return false }
-            return true
-        }.sorted {
-            let lhs = CityMapLayout.position(for: $0.id)
-            let rhs = CityMapLayout.position(for: $1.id)
-            return lhs.x + lhs.y < rhs.x + rhs.y
-        }
+    private func drawStoreFootprints(context: inout GraphicsContext, size: CGSize) {
+        for store in game.stores {
+            let footprint = CityMapLayout.combinedLotRect(for: store.plotIDs)
+            guard !footprint.isEmpty else { continue }
+            let tint = store.isOperational ? GameTheme.teal : GameTheme.orange
+            let outline = worldRect(footprint, size)
+            context.fill(outline, with: .color(Color.black.opacity(0.30)))
+            context.stroke(outline, with: .color(tint.opacity(0.96)), lineWidth: 2.4)
 
-        for plot in backgroundPlots {
-            let rect = CityMapLayout.lotRect(for: plot).insetBy(dx: 0.007, dy: 0.006)
+            for plotID in store.plotIDs {
+                let cell = worldRect(CityMapLayout.lotRect(for: plotID).insetBy(dx: 0.0015, dy: 0.0015), size)
+                context.stroke(cell, with: .color(.white.opacity(0.25)), lineWidth: 0.65)
+            }
+
+            if store.plotIDs.count > 1, cameraScale >= 2.0 {
+                let front = iso(CGPoint(x: footprint.maxX, y: footprint.maxY), size)
+                context.draw(
+                    Text("\(store.plotIDs.count)区画").font(.system(size: 7, weight: .black)).foregroundStyle(.white),
+                    at: CGPoint(x: front.x, y: front.y + 7 * cameraScale)
+                )
+            }
+        }
+    }
+
+    private func drawParcelBuildings(context: inout GraphicsContext, size: CGSize) {
+        for item in mapSpriteItems() {
+            drawMapSprite(item, context: &context, size: size)
+        }
+    }
+
+    private func mapSpriteItems() -> [IsoMapSpriteRenderItem] {
+        var items: [IsoMapSpriteRenderItem] = []
+        let detail = CityMapLevelOfDetail(cameraScale: cameraScale)
+        for plot in game.plots {
+            let footprint = CityMapLayout.lotRect(for: plot)
             switch plot.occupant {
-            case .competitor:
-                drawDealership(in: rect, color: GameTheme.orange, label: "競合", type: competitorType(for: plot.id), context: &context, size: size)
-            case .available, .unavailable:
-                if let building = MapAssetLibrary.parcelBuilding(for: plot, in: rect) {
-                    drawPrism(building, context: &context, size: size)
-                }
             case .player:
-                break
+                continue
+            case .competitor:
+                let asset = MapAssetLibrary.competitorSprite(for: plot.id)
+                items.append(IsoMapSpriteRenderItem(
+                    id: "plot-\(plot.id)",
+                    asset: asset,
+                    footprint: footprint,
+                    depth: footprint.maxX + footprint.maxY,
+                    opacity: 1
+                ))
+            case .available, .unavailable:
+                guard detail.showsParcelSprites,
+                      let asset = MapAssetLibrary.parcelSprite(for: plot) else { continue }
+                let opacity: Double
+                if case .unavailable = plot.occupant { opacity = 0.72 }
+                else { opacity = 0.96 }
+                items.append(IsoMapSpriteRenderItem(
+                    id: "plot-\(plot.id)",
+                    asset: asset,
+                    footprint: footprint,
+                    depth: footprint.maxX + footprint.maxY,
+                    opacity: opacity
+                ))
             }
         }
 
-        for store in game.stores.sorted(by: {
-            let lhs = CityMapLayout.position(for: $0.plotID)
-            let rhs = CityMapLayout.position(for: $1.plotID)
-            return lhs.x + lhs.y < rhs.x + rhs.y
-        }) {
-            let footprint = CityMapLayout.combinedLotRect(for: store.plotIDs).insetBy(dx: 0.004, dy: 0.004)
-            let color = store.isOperational ? GameTheme.teal : GameTheme.orange
-            drawDealership(in: footprint, color: color, label: store.isOperational ? "自社" : "工事中", type: store.pendingType ?? store.type, context: &context, size: size)
+        for store in game.stores {
+            let footprint = CityMapLayout.combinedLotRect(for: store.plotIDs)
+            guard !footprint.isEmpty else { continue }
+            let type = store.pendingType ?? store.type
+            items.append(IsoMapSpriteRenderItem(
+                id: "store-\(store.id.uuidString)",
+                asset: MapAssetLibrary.storeSprite(for: type),
+                footprint: footprint,
+                depth: footprint.maxX + footprint.maxY + 0.0001,
+                opacity: store.isOperational && !store.isRenovating ? 1 : 0.58
+            ))
         }
+
+        return items.sorted {
+            if $0.depth == $1.depth { return $0.id < $1.id }
+            return $0.depth < $1.depth
+        }
+    }
+
+    private func drawMapSprite(_ item: IsoMapSpriteRenderItem, context: inout GraphicsContext, size: CGSize) {
+        let projected = projectedBounds(for: item.footprint, size: size)
+        let width = projected.width * item.asset.widthScale
+        let height = width * item.asset.pixelSize.height / item.asset.pixelSize.width
+        let ground = iso(CGPoint(x: item.footprint.midX, y: item.footprint.midY), size)
+        let target = CGRect(
+            x: ground.x - width / 2,
+            y: ground.y - height * item.asset.groundAnchorY,
+            width: width,
+            height: height
+        )
+        let image = context.resolve(Image(item.asset.imageName))
+        context.drawLayer { layerContext in
+            layerContext.opacity = item.opacity
+            layerContext.draw(image, in: target)
+        }
+    }
+
+    private func projectedBounds(for rect: CGRect, size: CGSize) -> CGRect {
+        let points = [
+            iso(CGPoint(x: rect.minX, y: rect.minY), size),
+            iso(CGPoint(x: rect.maxX, y: rect.minY), size),
+            iso(CGPoint(x: rect.maxX, y: rect.maxY), size),
+            iso(CGPoint(x: rect.minX, y: rect.maxY), size)
+        ]
+        let minX = points.map(\.x).min() ?? 0
+        let maxX = points.map(\.x).max() ?? 0
+        let minY = points.map(\.y).min() ?? 0
+        let maxY = points.map(\.y).max() ?? 0
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     private func drawDealership(in lot: CGRect, color: Color, label: String, type: StoreType, context: inout GraphicsContext, size: CGSize) {
@@ -903,7 +1176,7 @@ private struct IsometricCityCanvas: View {
     private func drawTrees(context: inout GraphicsContext, size: CGSize) {
         for tree in CityMapLayout.blueprint.trees {
             let p = iso(tree.point, size)
-            let scale = IsoProjection.heightScale(in: size, cameraScale: cameraScale)
+            let scale = IsoProjection.heightScale(in: size, cameraScale: cameraScale) * 0.62
             context.fill(Path(ellipseIn: CGRect(x: p.x - 7 * scale, y: p.y - 2 * scale, width: 14 * scale, height: 5 * scale)), with: .color(.black.opacity(0.18)))
             var trunk = Path(); trunk.move(to: p); trunk.addLine(to: CGPoint(x: p.x, y: p.y - 12 * scale))
             context.stroke(trunk, with: .color(.brown.opacity(0.92)), lineWidth: 2.4 * scale)
@@ -920,17 +1193,17 @@ private struct IsometricCityCanvas: View {
             let start = iso(.init(x: -0.04, y: y), size)
             let end = iso(.init(x: 1.04, y: y), size)
             var shadow = Path(); shadow.move(to: CGPoint(x: start.x, y: start.y + 10 * cameraScale)); shadow.addLine(to: CGPoint(x: end.x, y: end.y + 10 * cameraScale))
-            context.stroke(shadow, with: .color(GameTheme.ink.opacity(0.32)), style: StrokeStyle(lineWidth: 11 * cameraScale, lineCap: .square))
+            context.stroke(shadow, with: .color(GameTheme.ink.opacity(0.28)), style: StrokeStyle(lineWidth: 7 * cameraScale, lineCap: .square))
             var path = Path(); path.move(to: CGPoint(x: start.x, y: start.y - 4 * cameraScale)); path.addLine(to: CGPoint(x: end.x, y: end.y - 4 * cameraScale))
-            context.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 12 * cameraScale, lineCap: .square))
-            context.stroke(path, with: .color(Color(red: 0.20, green: 0.23, blue: 0.24)), style: StrokeStyle(lineWidth: 9 * cameraScale, lineCap: .square))
-            context.stroke(path, with: .color(Color.yellow.opacity(0.78)), style: StrokeStyle(lineWidth: 1.5 * cameraScale, dash: [8 * cameraScale, 7 * cameraScale]))
+            context.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 8 * cameraScale, lineCap: .square))
+            context.stroke(path, with: .color(Color(red: 0.20, green: 0.23, blue: 0.24)), style: StrokeStyle(lineWidth: 6 * cameraScale, lineCap: .square))
+            context.stroke(path, with: .color(Color.yellow.opacity(0.78)), style: StrokeStyle(lineWidth: 1.1 * cameraScale, dash: [8 * cameraScale, 7 * cameraScale]))
         }
         let rampStart = iso(highway.rampStart, size)
         let rampEnd = iso(highway.rampEnd, size)
         var ramp = Path(); ramp.move(to: CGPoint(x: rampStart.x, y: rampStart.y - 4 * cameraScale)); ramp.addCurve(to: rampEnd, control1: CGPoint(x: rampStart.x + 25 * cameraScale, y: rampStart.y - 25 * cameraScale), control2: CGPoint(x: rampEnd.x + 22 * cameraScale, y: rampEnd.y + 18 * cameraScale))
-        context.stroke(ramp, with: .color(.white), style: StrokeStyle(lineWidth: 9 * cameraScale, lineCap: .round))
-        context.stroke(ramp, with: .color(GameTheme.road), style: StrokeStyle(lineWidth: 6 * cameraScale, lineCap: .round))
+        context.stroke(ramp, with: .color(.white), style: StrokeStyle(lineWidth: 6.5 * cameraScale, lineCap: .round))
+        context.stroke(ramp, with: .color(GameTheme.road), style: StrokeStyle(lineWidth: 4.5 * cameraScale, lineCap: .round))
         let label = iso(highway.labelPoint, size)
         context.draw(Text("翠浜高速 E8").font(.caption2.bold()).foregroundStyle(.white), at: CGPoint(x: label.x, y: label.y - 7 * cameraScale))
     }
