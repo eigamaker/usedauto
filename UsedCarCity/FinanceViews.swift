@@ -58,9 +58,14 @@ private struct ProfitLossCard: View {
             FinanceRow(title: "売上原価", value: -game.finance.costOfSales, negative: true)
             FinanceRow(title: "売上総利益", value: game.finance.revenue - game.finance.costOfSales, total: true)
             FinanceRow(title: "人件費", value: -game.finance.personnel, negative: true)
+            Text("店員と店長の月額給与を週ごとに按分し、4週間で全額を人件費として計上しています。")
+                .font(.caption2).foregroundStyle(.secondary)
             FinanceRow(title: "賃料", value: -game.finance.rent, negative: true)
             FinanceRow(title: "広告費", value: -game.finance.advertising, negative: true)
             FinanceRow(title: "減価償却", value: -game.finance.depreciation, negative: true)
+            if game.finance.customerClaims > 0 {
+                FinanceRow(title: "販売後補償・クレーム", value: -game.finance.customerClaims, negative: true)
+            }
             FinanceRow(title: "営業利益", value: game.finance.operatingProfit, total: true, negative: game.finance.operatingProfit < 0)
         }
         .gameCard()
@@ -131,4 +136,3 @@ private struct StorePLComparison: View {
         .gameCard()
     }
 }
-

@@ -702,6 +702,7 @@ struct NationalExpansionView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     nationalSummary
+                    nationalExpansionQuest
                     NationalNetworkMap(cities: game.nationalCities, operations: game.regionalOperations, selection: $selectedCityID)
                     cityDetail(selectedCity)
                     if selectedCity.id != "suihama", game.regionalOperation(for: selectedCity.id) != nil {
@@ -739,6 +740,28 @@ struct NationalExpansionView: View {
                 MetricView(title: "域外店舗", value: "\(game.regionalOperations.reduce(0) { $0 + $1.networkStores })店")
                 MetricView(title: "全国認知", value: "\(Int(game.nationalBrandStrength * 100))")
             }
+        }
+        .gameCard()
+    }
+
+    private var nationalExpansionQuest: some View {
+        let status = game.milestoneStatuses.first(where: { $0.id == .nationalExpansion })
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: game.canExpandNationally ? "checkmark.seal.fill" : "lock.fill")
+                    .foregroundStyle(game.canExpandNationally ? GameTheme.teal : GameTheme.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(game.canExpandNationally ? "全国展開クエスト達成" : "全国展開クエスト")
+                        .font(.subheadline.bold())
+                    Text("企業価値4.5億円へ成長すると地域本社を開設できます")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(status?.progressText ?? "")
+                    .font(.caption.bold().monospacedDigit())
+            }
+            ProgressView(value: status?.progress ?? 0)
+                .tint(game.canExpandNationally ? GameTheme.teal : GameTheme.orange)
         }
         .gameCard()
     }
@@ -786,7 +809,7 @@ struct NationalExpansionView: View {
                 Button {
                     message = game.establishRegionalOffice(in: city.id)
                         ? "\(city.name)に地域本社を開設しました"
-                        : (game.canExpandNationally ? "開設資金が不足しています" : "2店舗以上、または企業価値4.5億円以上で解放されます")
+                        : (game.canExpandNationally ? "開設資金が不足しています" : "企業価値4.5億円以上で全国展開が解放されます")
                 } label: {
                     HStack {
                         Image(systemName: "building.2.fill")

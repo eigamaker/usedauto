@@ -103,7 +103,7 @@ struct BuildStoreView: View {
         VStack(spacing: 14) {
             let sales = game.estimatedSales(for: plot, type: type, focus: .family, concept: .general)
             VStack(alignment: .leading, spacing: 14) {
-                SectionTitle(title: "標準シナリオ", subtitle: "店長採用前はオーナー直営・方針設定なしで試算")
+                SectionTitle(title: "標準シナリオ", subtitle: "開店後はオーナーが価格・広告方針を直接設定")
                 HStack { MetricView(title: "初期投資", value: total.currency, detail: "土地 \(landCost.currency)＋解体 \(demolitionCost.currency)"); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
                 HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
                 Divider()

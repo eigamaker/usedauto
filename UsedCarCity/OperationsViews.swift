@@ -25,13 +25,12 @@ struct InventoryView: View {
                             }
                         }
                         .gameCard()
-                        PurchaseMarket(store: store)
                     }
                 }
                 .padding(14)
             }
             .background(GameTheme.cream)
-            .navigationTitle("在庫・仕入")
+            .navigationTitle("在庫管理")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { if selectedStoreID == nil { selectedStoreID = game.stores.first?.id } }
         }
@@ -48,12 +47,13 @@ struct InventoryView: View {
 }
 
 private struct InventorySummary: View {
+    @EnvironmentObject private var game: GameEngine
     let store: Store
     var body: some View {
         HStack {
             MetricView(title: "展示在庫", value: "\(store.inventoryCount)台", detail: "上限 \(store.type.capacity)台")
             MetricView(title: "空きスペース", value: "\(max(0, store.type.capacity - store.inventoryCount))台")
-            MetricView(title: "在庫回転", value: store.lastSales > 0 ? "\(max(1, store.inventoryCount * 30 / store.lastSales))日" : "—")
+            MetricView(title: "平均在庫", value: String(format: "%.1f週", game.averageInventoryWeeks(storeID: store.id)))
         }
         .gameCard()
     }
@@ -68,18 +68,33 @@ private struct InventoryRow: View {
         HStack(spacing: 11) {
             Image(systemName: batch.category.icon).foregroundStyle(GameTheme.teal).frame(width: 36, height: 36).background(GameTheme.teal.opacity(0.1)).clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
-                Text(batch.vehicleName).font(.subheadline.bold())
-                Text("\(batch.category.name)・品質 \(Int(batch.quality * 100))/100・仕入れ値 \(batch.averageCost.currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    Text(batch.vehicleName).font(.subheadline.bold())
+                    if batch.isRareClassic { Text("希少旧車").font(.caption2.bold()).foregroundStyle(GameTheme.orange) }
+                    if batch.productState != .stock { Text(batch.productState.name).font(.caption2.bold()).foregroundStyle(.purple) }
+                    if let issue = batch.disclosedIssue { Text("告知：\(issue.name)").font(.caption2.bold()).foregroundStyle(GameTheme.danger) }
+                }
+                Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・品質 \(Int((batch.quality * 100).rounded()))/100").font(.caption).foregroundStyle(.secondary)
+                if let project = batch.workshopProject {
+                    Text("\(project.kind.name)・あと\(project.remainingWeeks)週・簿価 \(batch.averageCost.currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption2).foregroundStyle(.purple)
+                } else {
+                    Text("仕入れ値 \(batch.averageCost.currency)・販売目安 \((game.manualSaleQuote(storeID: store.id, inventoryID: batch.id)?.price ?? 0).currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            Text("1台").font(.headline.monospacedDigit())
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("1台").font(.headline.monospacedDigit())
+                Text(game.inventoryAgeLabel(for: batch))
+                    .font(.caption2.bold())
+                    .foregroundStyle(ageTint)
+            }
             if game.stores.count > 1 {
                 Menu {
                     ForEach(game.stores.filter { $0.id != store.id }) { destination in
                         Button(destination.name) {
                             _ = game.transferInventory(inventoryID: batch.id, from: store.id, to: destination.id)
                         }
-                        .disabled(destination.inventoryCount >= destination.type.capacity)
+                        .disabled(destination.inventoryCount >= destination.type.capacity || batch.isInWorkshop)
                     }
                 } label: {
                     Image(systemName: "arrow.left.arrow.right.circle.fill")
@@ -89,42 +104,10 @@ private struct InventoryRow: View {
         }
         .padding(.vertical, 3)
     }
-}
 
-private struct PurchaseMarket: View {
-    @EnvironmentObject private var game: GameEngine
-    let store: Store
-    @State private var purchased: VehicleCategory?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                SectionTitle(title: "業者オークション", subtitle: "3台を個別の在庫車として仕入れ")
-                Text("現金 \(game.cash.currency)").font(.caption.bold()).foregroundStyle(.secondary)
-            }
-            ForEach(VehicleCategory.allCases) { category in
-                HStack(spacing: 11) {
-                    Image(systemName: category.icon).frame(width: 28).foregroundStyle(GameTheme.navy)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(category.name).font(.subheadline.bold())
-                        Text("相場 \(category.purchaseCost.currency)/台").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("3台・\((category.purchaseCost * 3).currency)") {
-                        if game.buyInventory(category: category, count: 3, storeID: store.id) { purchased = category }
-                    }
-                    .font(.caption.bold())
-                    .buttonStyle(.bordered)
-                    .tint(GameTheme.teal)
-                    .disabled(game.cash < category.purchaseCost * 3 || store.inventoryCount + 3 > store.type.capacity)
-                }
-                .padding(.vertical, 3)
-            }
-        }
-        .gameCard()
-        .alert("仕入が完了しました", isPresented: Binding(get: { purchased != nil }, set: { if !$0 { purchased = nil } })) {
-            Button("OK") { purchased = nil }
-        } message: { Text("\(purchased?.name ?? "車両")3台を、販売・移動を1台ずつ行う個別在庫として登録しました。") }
+    private var ageTint: Color {
+        let weeks = game.inventoryAgeWeeks(for: batch)
+        return weeks <= 2 ? GameTheme.teal : weeks <= 12 ? GameTheme.navy : weeks <= 25 ? GameTheme.orange : GameTheme.danger
     }
 }
 
@@ -160,7 +143,7 @@ private struct StoreOperatingCard: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.name).font(.headline).foregroundStyle(GameTheme.ink)
-                    Text(store.hasManager ? "\(store.concept.name)・\(store.focus.name)狙い" : "オーナー直営・方針設定なし")
+                    Text(store.hasManager ? "\(store.concept.name)・\(store.focus.name)狙い・店長あり" : "\(store.concept.name)・オーナー直営")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -174,7 +157,7 @@ private struct StoreOperatingCard: View {
             HStack(spacing: 10) {
                 Label("在庫 \(store.inventoryCount)/\(store.type.capacity)", systemImage: "car.2.fill")
                 Label("満足度 \(store.satisfaction)", systemImage: "hand.thumbsup.fill")
-                Label("スタッフ \(store.staff)", systemImage: "person.2.fill")
+                Label("店員 \(store.staff)", systemImage: "person.2.fill")
             }
             .font(.caption.bold()).foregroundStyle(.secondary)
             if let strongest = store.causes.max(by: { abs($0.effect) < abs($1.effect) }) {
@@ -224,26 +207,20 @@ struct StoreSettingsView: View {
                                 .background(GameTheme.orange.opacity(0.16))
                                 .clipShape(RoundedRectangle(cornerRadius: 13))
                         }
-                        if store.wrappedValue.hasManager {
-                            VStack(alignment: .leading, spacing: 13) {
-                                SectionTitle(title: "店長の販売方針", subtitle: "委任した業務の判断基準")
-                                Text("価格水準  \(Int(store.wrappedValue.priceIndex * 100))").font(.subheadline.bold())
-                                Slider(value: store.priceIndex, in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
-                                HStack { Text("割安・販売量↑").font(.caption).foregroundStyle(.secondary); Spacer(); Text("高値・粗利↑").font(.caption).foregroundStyle(.secondary) }
-                                Picker("狙う客層", selection: store.focus) { ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
-                                Picker("店舗コンセプト", selection: store.concept) { ForEach(StoreConcept.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
-                                Text(store.wrappedValue.concept.summary).font(.caption).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 13) {
+                            SectionTitle(title: "オーナーの販売方針", subtitle: "店長がいなくても直接設定できます")
+                            Text("価格水準  \(Int(store.wrappedValue.priceIndex * 100))").font(.subheadline.bold())
+                            Slider(value: store.priceIndex, in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
+                            HStack { Text("割安・販売量↑").font(.caption).foregroundStyle(.secondary); Spacer(); Text("高値・粗利↑").font(.caption).foregroundStyle(.secondary) }
+                            Picker("狙う客層", selection: store.focus) { ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
+                            Picker("店舗コンセプト", selection: store.concept) { ForEach(StoreConcept.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
+                            Text(store.wrappedValue.concept.summary).font(.caption).foregroundStyle(.secondary)
+                            if store.wrappedValue.hasManager && store.wrappedValue.delegatePricing {
+                                Label("仕入と価格設定は店長へ委任中です。週間処理で再調整されます。", systemImage: "person.crop.circle.badge.checkmark")
+                                    .font(.caption).foregroundStyle(GameTheme.teal)
                             }
-                            .gameCard()
-                        } else {
-                            VStack(alignment: .leading, spacing: 10) {
-                                SectionTitle(title: "オーナー直営", subtitle: "仕入れと商談は1台ずつ自分で判断")
-                                Label("店長を採用するまでは、販売方針や自動広告の設定はありません。", systemImage: "person.fill")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .gameCard()
                         }
+                        .gameCard()
                         if game.stores.count > 1 {
                             Button(role: .destructive) { confirmClose = true } label: {
                                 Label("この店舗を撤退・売却する", systemImage: "rectangle.portrait.and.arrow.right")
@@ -251,20 +228,23 @@ struct StoreSettingsView: View {
                             }
                             .buttonStyle(.bordered)
                         }
-                        if store.wrappedValue.hasManager {
-                            VStack(alignment: .leading, spacing: 13) {
-                                SectionTitle(title: "広告と整備", subtitle: "店長が継続管理する投資配分")
-                                Text("広告予算  \(store.wrappedValue.advertising.currency)/月").font(.subheadline.bold())
-                                Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...400, step: 20).tint(GameTheme.orange)
-                                Text("整備スペース配分  \(Int(store.wrappedValue.serviceAllocation * 100))%").font(.subheadline.bold())
-                                Slider(value: store.serviceAllocation, in: 0.2...0.65, step: 0.05).tint(GameTheme.teal)
-                            }
-                            .gameCard()
-                        }
                         VStack(alignment: .leading, spacing: 13) {
-                            SectionTitle(title: "人員配置", subtitle: "1名あたり人件費34万円/月")
-                            Stepper("稼働人数  \(store.wrappedValue.staff)名", value: store.staff, in: 1...15)
-                            Text("1人につき販売・店頭買取を合計7回/週まで対応できます。AA・業者仕入れは営業枠を使いません。過剰配置は人件費を増やします。").font(.caption).foregroundStyle(.secondary)
+                            SectionTitle(title: "広告と整備", subtitle: "オーナーが直接決める投資配分")
+                            Text("広告予算  \(store.wrappedValue.advertising.currency)/月").font(.subheadline.bold())
+                            Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...500, step: 20).tint(GameTheme.orange)
+                            Text("整備スペース配分  \(Int(store.wrappedValue.serviceAllocation * 100))%").font(.subheadline.bold())
+                            Slider(value: store.serviceAllocation, in: 0.2...0.65, step: 0.05).tint(GameTheme.teal)
+                        }
+                        .gameCard()
+                        VStack(alignment: .leading, spacing: 13) {
+                            SectionTitle(title: "店員配置", subtitle: "個人ごとの能力と給与で運営")
+                            HStack {
+                                MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
+                                MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
+                                MetricView(title: "営業枠", value: "週\((store.wrappedValue.staff + 1) * 7)回")
+                            }
+                            Text("採用・解雇・研修・昇給は店舗画面の「店員」で行います。店員は自分では判断せず、オーナーの操作または店長への委任が必要です。")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()
                         let upgrades = store.wrappedValue.isOperational && !store.wrappedValue.isRenovating
@@ -298,7 +278,7 @@ struct StoreSettingsView: View {
                 }
             }
             .background(GameTheme.cream)
-            .navigationTitle(draft?.hasManager == true ? "店長の運営方針" : "店舗・設備")
+            .navigationTitle("店舗・運営方針")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("キャンセル") { dismiss() } }

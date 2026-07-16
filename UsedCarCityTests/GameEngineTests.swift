@@ -266,7 +266,9 @@ final class GameEngineTests: XCTestCase {
 
         game.advanceWeek()
 
-        XCTAssertTrue(game.stores[0].inventory.contains { $0.modelID == listing.modelID })
+        XCTAssertTrue(game.stores[0].inventory.contains {
+            $0.modelID == listing.modelID && $0.modelYear == listing.modelYear && $0.mileage == listing.mileage
+        })
     }
 
     func testAuctionBidReportsInsufficientFundsNextWeek() {
@@ -334,6 +336,191 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("店長") }) == true)
         XCTAssertTrue(game.stores[0].advertising != advertising || game.stores[0].serviceAllocation != service)
+    }
+
+    func testStaffCanBeHiredAndFiredWithoutManager() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+
+        XCTAssertFalse(game.stores[0].hasManager)
+        XCTAssertEqual(game.stores[0].staff, 0)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 7)
+
+        XCTAssertTrue(game.hireStaff(for: storeID))
+        XCTAssertEqual(game.stores[0].staff, 1)
+        XCTAssertFalse(game.stores[0].employees[0].name.isEmpty)
+        XCTAssertGreaterThan(game.stores[0].employees[0].monthlySalary, 0)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 14)
+
+        XCTAssertTrue(game.fireStaff(for: storeID))
+        XCTAssertEqual(game.stores[0].staff, 0)
+        XCTAssertFalse(game.fireStaff(for: storeID))
+    }
+
+    func testNamedEmployeeCandidateHasIndividualSkillsAndPayroll() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let candidates = game.employeeCandidates(for: storeID)
+
+        XCTAssertEqual(candidates.count, 3)
+        XCTAssertEqual(Set(candidates.map(\.id)).count, candidates.count)
+        let candidate = candidates[1]
+        XCTAssertTrue(game.hireEmployee(candidate.id, for: storeID))
+
+        XCTAssertEqual(game.stores[0].employees, [candidate])
+        XCTAssertEqual(game.stores[0].employeeMonthlyPayroll, candidate.monthlySalary)
+        XCTAssertEqual(game.monthlyPersonnelCost(for: game.stores[0]), candidate.monthlySalary)
+        XCTAssertFalse(game.employeeCandidates(for: storeID).contains { $0.id == candidate.id })
+    }
+
+    func testEmployeeSkillsImproveSalesAndAppraisalAccuracy() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+
+        XCTAssertEqual(game.employeeSalesCloseAdjustment(for: storeID), 0)
+        XCTAssertEqual(game.employeeAppraisalAccuracyBonus(for: storeID), 0)
+
+        game.stores[0].employees = [StoreEmployee(name: "技能テスト", salesSkill: 90, appraisalSkill: 86, monthlySalary: 50)]
+
+        XCTAssertGreaterThan(game.employeeSalesCloseAdjustment(for: storeID), 0.05)
+        XCTAssertGreaterThanOrEqual(game.employeeAppraisalAccuracyBonus(for: storeID), 10)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 14)
+    }
+
+    func testEmployeeTrainingCostsCashRaisesSkillAndSalaryOnlyOncePerWeek() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 10_000
+        let storeID = game.stores[0].id
+        XCTAssertTrue(game.hireStaff(for: storeID))
+        let employee = game.stores[0].employees[0]
+        let beforeCash = game.cash
+
+        XCTAssertTrue(game.trainEmployee(employee.id, at: storeID, focus: .appraisal))
+        XCTAssertEqual(game.cash, beforeCash - game.employeeTrainingCost)
+        XCTAssertEqual(game.stores[0].employees[0].appraisalSkill, employee.appraisalSkill + 3)
+        XCTAssertEqual(game.stores[0].employees[0].monthlySalary, employee.monthlySalary + 1)
+        XCTAssertFalse(game.trainEmployee(employee.id, at: storeID, focus: .sales))
+
+        game.turn += 1
+        XCTAssertTrue(game.trainEmployee(employee.id, at: storeID, focus: .sales))
+    }
+
+    func testEmployeesGainExperienceFromOwnerDirectedSalesAndAppraisals() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        XCTAssertTrue(game.hireStaff(for: storeID))
+        let employeeID = game.stores[0].employees[0].id
+        let lead = game.buyerLeads[0]
+        let inventory = game.stores[0].inventory[0]
+
+        XCTAssertNotNil(game.negotiateManualSale(
+            storeID: storeID,
+            buyerLeadID: lead.id,
+            inventoryID: inventory.id,
+            strategy: .smallDiscount
+        ))
+        XCTAssertGreaterThan(game.stores[0].employees.first(where: { $0.id == employeeID })?.salesExperience ?? 0, 0)
+
+        let purchase = game.purchaseCases[0]
+        if case .unavailable = game.negotiatePurchaseCase(purchase.id, offerPercent: 100) {
+            XCTFail("Employee should be able to assist the appraisal")
+        }
+        XCTAssertGreaterThan(game.stores[0].employees.first(where: { $0.id == employeeID })?.appraisalExperience ?? 0, 0)
+    }
+
+    func testExperiencedUnderpaidEmployeeCanBePoachedByCompetitor() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let employee = StoreEmployee(name: "引抜 太郎", salesSkill: 95, appraisalSkill: 95, monthlySalary: 10, tenureWeeks: 12)
+        game.stores[0].employees = [employee]
+        XCTAssertEqual(game.employeePoachingRisk(employee), 0.12, accuracy: 0.0001)
+
+        let plotID = game.stores[0].plotID
+        let nameSeed = employee.name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        let selectedTurn = (0..<200).first { candidate in
+            let seed = (candidate + 1) * 307 + plotID * 41 + nameSeed
+            let raw = abs((seed &* 1_664_525 &+ 1_013_904_223) % 10_000)
+            return Double(raw) / 10_000.0 < 0.12
+        }!
+        game.turn = selectedTurn
+
+        game.advanceWeek()
+
+        XCTAssertTrue(game.stores[0].employees.isEmpty)
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains("引き抜き") && $0.contains(employee.name) } == true)
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .staffPoaching && !$0.isPositive })
+    }
+
+    func testManagerCanBeFiredAndDelegationIsCleared() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let candidate = game.managerCandidate(for: storeID)
+
+        XCTAssertNotNil(candidate)
+        XCTAssertTrue(game.hireManager(for: storeID))
+        XCTAssertEqual(game.stores[0].manager, candidate)
+
+        var store = game.stores[0]
+        store.delegateStaff = true
+        store.delegatePricing = true
+        store.delegateMarketing = true
+        store.delegateService = true
+        game.updateStore(store)
+
+        XCTAssertTrue(game.fireManager(for: storeID))
+        XCTAssertFalse(game.stores[0].hasManager)
+        XCTAssertNil(game.stores[0].manager)
+        XCTAssertFalse(game.stores[0].delegateStaff)
+        XCTAssertFalse(game.stores[0].delegatePricing)
+        XCTAssertFalse(game.stores[0].delegateMarketing)
+        XCTAssertFalse(game.stores[0].delegateService)
+    }
+
+    func testOwnerCanIncreaseAdvertisingWithoutManager() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let advertising = game.stores[0].advertising
+
+        XCTAssertFalse(game.stores[0].hasManager)
+        XCTAssertTrue(game.increaseAdvertisingBudget(for: storeID, by: 40))
+        XCTAssertEqual(game.stores[0].advertising, advertising + 40)
+    }
+
+    func testStaffAndManagerSalaryAreFullyRecordedAcrossFourWeeks() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+
+        XCTAssertTrue(game.hireStaff(for: storeID))
+        XCTAssertTrue(game.hireManager(for: storeID))
+        let monthlyPersonnel = game.monthlyPersonnelCost(for: game.stores[0])
+        var recordedPersonnel = 0
+
+        for _ in 0..<4 {
+            game.advanceWeek()
+            recordedPersonnel += game.finance.personnel
+        }
+
+        XCTAssertEqual(recordedPersonnel, monthlyPersonnel)
     }
 
     func testStoreCanBeRenovated() {
@@ -414,6 +601,202 @@ final class GameEngineTests: XCTestCase {
         let operation = game.regionalOperation(for: "shinonome")
         XCTAssertEqual(operation?.networkStores, 2)
         XCTAssertGreaterThan(game.nationalBrandStrength, 0.48)
+    }
+
+    func testUnansweredPriceWarLowersCloseChanceAndCounterSaleTradesMarginForRecovery() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 10_000
+        let store = game.stores[0]
+        let inventory = store.inventory[0]
+        let district = game.plot(id: store.plotID)!.district
+        let lead = BuyerLead(
+            id: UUID(), storeID: store.id, preference: .category(inventory.category),
+            budget: 10_000, minimumQuality: 0.4,
+            priceSensitivity: 1.0, generatedTurn: game.turn
+        )
+        game.buyerLeads = [lead]
+        let baselineQuote = game.manualSaleQuote(storeID: store.id, inventoryID: inventory.id)!
+        let baseline = game.saleNegotiationPreview(storeID: store.id, buyerLeadID: lead.id, inventoryID: inventory.id, strategy: .holdPrice)!
+        let challenge = PriceWarChallenge(
+            competitorID: game.competitors[0].id, district: district,
+            startedTurn: game.turn, expiresTurn: game.turn + 4, intensity: 1.0
+        )
+        game.priceWarChallenges = [challenge]
+
+        let unanswered = game.saleNegotiationPreview(storeID: store.id, buyerLeadID: lead.id, inventoryID: inventory.id, strategy: .holdPrice)!
+        XCTAssertLessThan(unanswered.closeChance, baseline.closeChance)
+        XCTAssertEqual(game.manualSaleQuote(storeID: store.id, inventoryID: inventory.id)?.price, baselineQuote.price)
+
+        XCTAssertTrue(game.respondToPriceWar(challenge.id, with: .counterSale))
+        let countered = game.saleNegotiationPreview(storeID: store.id, buyerLeadID: lead.id, inventoryID: inventory.id, strategy: .holdPrice)!
+        XCTAssertGreaterThan(countered.closeChance, unanswered.closeChance)
+        XCTAssertLessThan(game.manualSaleQuote(storeID: store.id, inventoryID: inventory.id)!.price, baselineQuote.price)
+        XCTAssertEqual(game.priceWarChallenges[0].response, .counterSale)
+    }
+
+    func testBrandDefensePreservesPriceAndRaisesStoreReputation() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 10_000
+        let store = game.stores[0]
+        let inventory = store.inventory[0]
+        let district = game.plot(id: store.plotID)!.district
+        let priceBefore = game.manualSaleQuote(storeID: store.id, inventoryID: inventory.id)!.price
+        let reputationBefore = store.reputation
+        let challenge = PriceWarChallenge(
+            competitorID: game.competitors[0].id, district: district,
+            startedTurn: game.turn, expiresTurn: game.turn + 4, intensity: 1.0
+        )
+        game.priceWarChallenges = [challenge]
+
+        XCTAssertTrue(game.respondToPriceWar(challenge.id, with: .brandDefense))
+
+        XCTAssertEqual(game.manualSaleQuote(storeID: store.id, inventoryID: inventory.id)?.price, priceBefore)
+        XCTAssertEqual(game.stores[0].reputation, reputationBefore + 0.04, accuracy: 0.0001)
+        XCTAssertEqual(game.priceWarChallenges[0].response, .brandDefense)
+    }
+
+    func testPlayerCanPoachSkilledEmployeeFromCompetitor() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 10_000
+        let storeID = game.stores[0].id
+        let offer = game.rivalTalentOffers[0]
+        let strengthBefore = game.competitors.first(where: { $0.id == offer.competitorID })!.strength
+        let cashBefore = game.cash
+
+        XCTAssertTrue(game.poachRivalTalent(offer.employee.id, from: offer.competitorID, to: storeID))
+
+        XCTAssertEqual(game.cash, cashBefore - offer.signingCost)
+        XCTAssertEqual(game.stores[0].employees.first?.name, offer.employee.name)
+        XCTAssertEqual(game.stores[0].employees.first?.monthlySalary, offer.employee.monthlySalary + 5)
+        XCTAssertLessThan(game.competitors.first(where: { $0.id == offer.competitorID })!.strength, strengthBefore)
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .staffPoaching && $0.isPositive })
+    }
+
+    func testWeakCompetitorStoreCanBeAcquiredWithInventoryAndCustomers() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        game.competitors[0].strength = 0.90
+        let offer = game.competitorAcquisitionOffers.first(where: { $0.competitorID == game.competitors[0].id })!
+        let rivalPlotsBefore = game.competitors[0].plotIDs.count
+
+        XCTAssertTrue(game.acquireCompetitorStore(competitorID: offer.competitorID, plotID: offer.plotID))
+
+        XCTAssertEqual(game.stores.count, 2)
+        XCTAssertEqual(game.stores.last?.inventoryCount, 3)
+        XCTAssertEqual(game.competitors[0].plotIDs.count, rivalPlotsBefore - 1)
+        XCTAssertTrue(game.stores.last?.plotIDs.contains(offer.plotID) == true)
+        if case .player(let storeID) = game.plot(id: offer.plotID)?.occupant {
+            XCTAssertEqual(storeID, game.stores.last?.id)
+        } else {
+            XCTFail("Acquired competitor plot should belong to the new player store")
+        }
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .competitorAcquisition && $0.plotID == offer.plotID })
+    }
+
+    func testCompetitorStartsActionablePriceWarInSharedDistrict() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeDistrict = game.plot(id: game.stores[0].plotID)!.district
+        XCTAssertTrue(game.competitors.contains { competitor in
+            competitor.plotIDs.contains { game.plot(id: $0)?.district == storeDistrict }
+        })
+        game.turn = 24
+
+        game.advanceWeek()
+
+        XCTAssertEqual(game.turn, 25)
+        XCTAssertTrue(game.activePriceWars.contains { $0.district == storeDistrict && $0.response == nil })
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .priceWar && !$0.isPositive })
+    }
+
+    func testWeeklyResultsAccumulateCareerStatistics() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let reportYear = game.year
+        game.stores[0].pendingManualSales = 3
+        game.stores[0].pendingManualRevenue = 600
+        game.stores[0].pendingManualCOGS = 300
+
+        game.advanceWeek()
+
+        XCTAssertEqual(game.careerStatistics.totalSales, 3)
+        XCTAssertEqual(game.careerStatistics.totalRevenue, game.lastReport?.revenue)
+        XCTAssertEqual(game.careerStatistics.totalOperatingProfit, game.lastReport?.operatingProfit)
+        XCTAssertEqual(game.careerStatistics.bestWeeklySales, 3)
+        XCTAssertEqual(game.careerStatistics.salesByYear[reportYear], 3)
+    }
+
+    func testSalesFoundationMilestonePaysRewardAndCreatesNews() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.careerStatistics.totalSales = 24
+        game.careerStatistics.salesByYear[game.year] = 24
+        game.stores[0].pendingManualSales = 1
+        let cashBefore = game.cash
+
+        game.advanceWeek()
+
+        XCTAssertTrue(game.careerStatistics.completedMilestones.contains(.salesFoundation))
+        XCTAssertEqual(game.lastReport?.cashChange, game.cash - cashBefore)
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains("累計販売25台") && $0.contains("報奨金250万円") } == true)
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .milestone && $0.title.contains("累計販売25台") })
+    }
+
+    func testAnnualSalesMilestoneRaisesBorrowingLimit() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.careerStatistics.completedMilestones.insert(.salesFoundation)
+        game.careerStatistics.totalSales = 99
+        game.careerStatistics.salesByYear[game.year] = 99
+        game.stores[0].pendingManualSales = 1
+        let borrowingLimitBefore = game.borrowingLimit
+
+        game.advanceWeek()
+
+        XCTAssertTrue(game.careerStatistics.completedMilestones.contains(.annualSales100))
+        XCTAssertEqual(game.borrowingLimit, borrowingLimitBefore + 10_000)
+        XCTAssertEqual(game.milestoneCreditBonus, 10_000)
+    }
+
+    func testNationalExpansionQuestUsesExplicitCompanyValueTarget() {
+        let game = GameEngine()
+        game.resetGame()
+        game.companyValue = 44_999
+        XCTAssertFalse(game.canExpandNationally)
+
+        game.companyValue = 45_000
+        XCTAssertTrue(game.canExpandNationally)
+        XCTAssertEqual(game.milestoneStatuses.first(where: { $0.id == .nationalExpansion })?.progress, 1)
+    }
+
+    func testEndingEvaluationCombinesAssetsBrandAndSales() {
+        let game = GameEngine()
+        game.resetGame()
+        XCTAssertEqual(game.endingEvaluation.rank, .d)
+
+        startPlayableGame(game)
+        game.companyValue = 100_000
+        game.nationalBrandStrength = 1.45
+        game.stores[0].reputation = 1.25
+        game.careerStatistics.totalSales = 500
+
+        XCTAssertEqual(game.endingEvaluation.rank, .s)
+        XCTAssertEqual(game.endingEvaluation.totalScore, 100)
+        XCTAssertEqual(game.endingEvaluation.assetScore, 45)
+        XCTAssertEqual(game.endingEvaluation.brandScore, 30)
+        XCTAssertEqual(game.endingEvaluation.salesScore, 25)
     }
 
     func testIntercityShipmentArrivesAtRegionalOffice() {
@@ -571,13 +954,13 @@ final class GameEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(districtSales, availableBuyers)
     }
 
-    func testOneWorkerHasSevenSharedBuyAndSellOpportunities() {
+    func testOwnerHasSevenSharedBuyAndSellOpportunitiesWithoutStaff() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, plan: .discount)
         game.cash = 100_000
         let storeID = game.stores[0].id
-        XCTAssertEqual(game.stores[0].staff, 1)
+        XCTAssertEqual(game.stores[0].staff, 0)
         XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 7)
         XCTAssertTrue(game.buyInventory(category: .kei, count: 6, storeID: storeID))
 
@@ -623,7 +1006,7 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         startPlayableGame(game, plan: .discount)
         let storeID = game.stores[0].id
-        game.stores[0].staff = 3
+        for _ in 0..<3 { XCTAssertTrue(game.hireStaff(for: storeID)) }
         game.buyerLeads = [
             BuyerLead(
                 id: UUID(), storeID: storeID,
@@ -641,8 +1024,8 @@ final class GameEngineTests: XCTestCase {
             inventoryID: inventory.id,
             strategy: .smallDiscount
         ))
-        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 21)
-        XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 20)
+        XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 28)
+        XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 27)
         XCTAssertFalse(game.canSellManually(storeID: storeID))
     }
 
@@ -726,19 +1109,77 @@ final class GameEngineTests: XCTestCase {
         }
     }
 
-    func testVehicleCatalogAddsNewModelsAsWeeksAdvance() {
+    func testNewModelLaunchPrecedesItsUsedMarketArrival() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
         game.cash = 100_000
         let initialCount = game.availableVehicleCatalog.count
+        let model = try! XCTUnwrap(VehicleCatalog.entry(id: "aoba-basicneo"))
         XCTAssertFalse(game.availableVehicleCatalog.contains { $0.id == "aoba-basicneo" })
 
-        for _ in 0..<8 { game.advanceWeek() }
+        for _ in 0..<model.launchTurn { game.advanceWeek() }
+
+        XCTAssertTrue(VehicleCatalog.releasedNewCars(through: game.turn).contains { $0.id == model.id })
+        XCTAssertFalse(game.availableVehicleCatalog.contains { $0.id == model.id })
+        XCTAssertTrue(game.newCarsAwaitingUsedMarket.contains { $0.id == model.id })
+        XCTAssertTrue(game.cityEvents.contains { $0.title == "新型車が発売" && $0.detail.contains("BASIC NEO") })
+
+        for _ in game.turn..<model.usedMarketTurn { game.advanceWeek() }
 
         XCTAssertGreaterThan(game.availableVehicleCatalog.count, initialCount)
-        XCTAssertTrue(game.availableVehicleCatalog.contains { $0.id == "aoba-basicneo" })
-        XCTAssertTrue(game.cityEvents.contains { $0.title == "新型車が発売" && $0.detail.contains("BASIC NEO") })
+        XCTAssertTrue(game.availableVehicleCatalog.contains { $0.id == model.id })
+        XCTAssertTrue(game.cityEvents.contains { $0.title == "新型車の中古流通が開始" && $0.detail.contains("BASIC NEO") })
+    }
+
+    func testEveryManufacturerReleasesOneAnnualModelEachGameYear() {
+        let annualModels = VehicleCatalog.all.filter { $0.id.hasPrefix("annual-") }
+        let expectedMakers: Set<String> = ["アオバ", "ホシノ", "コーヨー", "セイカ", "ヒノデ", "ホクト", "ミカド", "ヤマト", "ノルド", "ヴォルトラ", "ロッサ"]
+
+        XCTAssertEqual(annualModels.count, 110)
+        for yearIndex in 0..<10 {
+            let releases = annualModels.filter { ($0.launchTurn / 48) == yearIndex }
+            XCTAssertEqual(releases.count, expectedMakers.count)
+            XCTAssertEqual(Set(releases.map(\.maker)), expectedMakers)
+        }
+    }
+
+    func testAnnualModelsWaitBeforeAppearingInUsedMarketAndStartWithLowSupply() {
+        let model = try! XCTUnwrap(VehicleCatalog.entry(id: "annual-aoba-2030"))
+        let game = GameEngine()
+        game.resetGame()
+
+        XCTAssertTrue(VehicleCatalog.releasedNewCars(through: model.launchTurn).contains { $0.id == model.id })
+        XCTAssertFalse(VehicleCatalog.available(through: model.usedMarketTurn - 1).contains { $0.id == model.id })
+        XCTAssertTrue(VehicleCatalog.available(through: model.usedMarketTurn).contains { $0.id == model.id })
+
+        game.turn = model.usedMarketTurn
+        XCTAssertEqual(game.usedMarketSupplyFactor(for: model), 0.12, accuracy: 0.001)
+        game.turn = model.usedMarketTurn + 28
+        XCTAssertEqual(game.usedMarketSupplyFactor(for: model), 0.62, accuracy: 0.001)
+        game.turn = model.usedMarketTurn + 56
+        XCTAssertEqual(game.usedMarketSupplyFactor(for: model), 1.0, accuracy: 0.001)
+    }
+
+    func testFuelPriceAndTimeShiftDemandFromGasolineTowardEVs() {
+        let game = GameEngine()
+        game.resetGame()
+        let ev = try! XCTUnwrap(VehicleCatalog.entry(id: "voltra-aurex"))
+        let gasoline = try! XCTUnwrap(VehicleCatalog.entry(id: "aoba-pico"))
+
+        game.turn = 0
+        game.fuelPriceIndex = 0.82
+        let earlyEV = game.powertrainDemandFactor(for: ev, in: .emerging)
+        let earlyGasoline = game.powertrainDemandFactor(for: gasoline, in: .emerging)
+
+        game.turn = 400
+        game.fuelPriceIndex = 1.38
+        let lateEV = game.powertrainDemandFactor(for: ev, in: .emerging)
+        let lateGasoline = game.powertrainDemandFactor(for: gasoline, in: .emerging)
+
+        XCTAssertGreaterThan(lateEV, earlyEV)
+        XCTAssertLessThan(lateGasoline, earlyGasoline)
+        XCTAssertGreaterThan(lateEV, lateGasoline)
     }
 
     func testCatalogMarketInformationChangesReferencePricesByRegion() {
@@ -793,6 +1234,64 @@ final class GameEngineTests: XCTestCase {
         }
     }
 
+    func testTradeInSaleUsesNetCashAndAddsCustomerVehicleToInventory() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let soldBatch = game.stores[0].inventory[0]
+        let tradeModel = VehicleCatalog.all.first(where: { $0.id == "aoba-pico" })!
+        let tradeIn = TradeInVehicle(
+            modelID: tradeModel.id,
+            category: tradeModel.category,
+            modelYear: 2027,
+            mileage: 28_000,
+            quality: 0.72,
+            appraisedValue: 40,
+            repairCost: 6
+        )
+        let lead = BuyerLead(
+            id: UUID(), storeID: storeID, preference: .category(soldBatch.category),
+            budget: 10_000, minimumQuality: 0.4,
+            priceSensitivity: 1.0, generatedTurn: game.turn,
+            tradeInVehicle: tradeIn
+        )
+        game.buyerLeads = [lead]
+
+        var selectedTurn = 0
+        for candidate in 0..<100 {
+            game.turn = candidate
+            let closeChance = game.tradeInSalePreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: soldBatch.id, strategy: .closeDeal)!.closeChance
+            let categoryIndex = VehicleCategory.allCases.firstIndex(of: soldBatch.category)!
+            let seed = candidate * 97 + game.stores[0].plotID * 19 + categoryIndex * 31 + 2 * 11 + 71
+            let raw = abs((seed &* 1_664_525 &+ 1_013_904_223) % 10_000)
+            if Double(raw) / 10_000.0 < closeChance {
+                selectedTurn = candidate
+                break
+            }
+        }
+        game.turn = selectedTurn
+        let regular = game.saleNegotiationPreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: soldBatch.id, strategy: .closeDeal)!
+        let tradePreview = game.tradeInSalePreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: soldBatch.id, strategy: .closeDeal)!
+        let beforeCash = game.cash
+        let beforeCount = game.stores[0].inventoryCount
+
+        let result = game.negotiateManualSale(storeID: storeID, buyerLeadID: lead.id, inventoryID: soldBatch.id, strategy: .closeDeal, acceptTradeIn: true)!
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertTrue(result.tradeInAcquired)
+        XCTAssertGreaterThan(tradePreview.closeChance, regular.closeChance)
+        XCTAssertEqual(game.cash - beforeCash, tradePreview.cashImpact)
+        XCTAssertEqual(game.stores[0].inventoryCount, beforeCount)
+        XCTAssertFalse(game.stores[0].inventory.contains { $0.id == soldBatch.id })
+        let acquired = game.stores[0].inventory.first(where: { $0.modelID == tradeIn.modelID && $0.modelYear == tradeIn.modelYear && $0.mileage == tradeIn.mileage })
+        XCTAssertEqual(acquired?.averageCost, tradeIn.appraisedValue + tradeIn.repairCost)
+        XCTAssertEqual(acquired?.quality, tradeIn.qualityAfterRepair)
+        XCTAssertEqual(acquired?.acquiredTurn, selectedTurn)
+        XCTAssertEqual(result.customerCashSettlement, result.salePrice - tradeIn.appraisedValue)
+    }
+
     func testVehicleSellerCanRejectDealerLowballOffer() {
         let game = GameEngine()
         game.resetGame()
@@ -804,6 +1303,321 @@ final class GameEngineTests: XCTestCase {
         XCTAssertGreaterThan(fullOffer?.closeChance ?? 0, lowOffer?.closeChance ?? 1)
         XCTAssertLessThan(fullOffer?.closeChance ?? 1, 1)
         XCTAssertLessThan(lowOffer?.price ?? 0, fullOffer?.price ?? 0)
+    }
+
+    func testVehicleValueRespondsToYearMileageAndQuality() {
+        let game = GameEngine()
+        game.resetGame()
+        let model = VehicleCatalog.all.first(where: { $0.category == .compact })!
+
+        let baseline = game.vehicleRetailValue(modelID: model.id, category: model.category, modelYear: 2028, mileage: 30_000, quality: 0.82, in: .station)
+        let older = game.vehicleRetailValue(modelID: model.id, category: model.category, modelYear: 2020, mileage: 30_000, quality: 0.82, in: .station)
+        let higherMileage = game.vehicleRetailValue(modelID: model.id, category: model.category, modelYear: 2028, mileage: 120_000, quality: 0.82, in: .station)
+        let lowerQuality = game.vehicleRetailValue(modelID: model.id, category: model.category, modelYear: 2028, mileage: 30_000, quality: 0.58, in: .station)
+
+        XCTAssertGreaterThan(baseline, older)
+        XCTAssertGreaterThan(baseline, higherMileage)
+        XCTAssertGreaterThan(baseline, lowerQuality)
+    }
+
+    func testGeneratedVehiclesKeepMileagePlausibleForModelYear() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let profiles = game.auctionListings.map { ($0.modelYear, $0.mileage) }
+            + game.purchaseCases.map { ($0.modelYear, $0.mileage) }
+
+        XCTAssertFalse(profiles.isEmpty)
+        for (modelYear, mileage) in profiles {
+            XCTAssertLessThanOrEqual(modelYear, game.year)
+            XCTAssertGreaterThan(mileage, 0)
+            if modelYear == game.year {
+                XCTAssertLessThanOrEqual(mileage, 12_500)
+            }
+        }
+    }
+
+    func testInventoryServiceChargesCashAndRaisesQualityByThreeOrFour() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let batch = game.stores[0].inventory.first { game.servicePreview(storeID: storeID, inventoryID: $0.id) != nil }!
+        let preview = game.servicePreview(storeID: storeID, inventoryID: batch.id)!
+        let beforeCash = game.cash
+
+        XCTAssertTrue(game.serviceInventory(storeID: storeID, inventoryID: batch.id))
+        let serviced = game.stores[0].inventory.first(where: { $0.id == batch.id })!
+        XCTAssertEqual(beforeCash - game.cash, preview.cost)
+        XCTAssertEqual(serviced.averageCost, batch.averageCost + preview.cost)
+        XCTAssertEqual(Int((serviced.quality * 100).rounded()) - Int((batch.quality * 100).rounded()), preview.qualityGain)
+        XCTAssertTrue([3, 4].contains(preview.qualityGain))
+        XCTAssertLessThanOrEqual(serviced.quality, 0.94)
+        XCTAssertEqual(serviced.acquiredTurn, batch.acquiredTurn)
+    }
+
+    func testRareClassicAuctionCarsUse1970sOr1980sYearsAndCollectorPrices() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+
+        let classics = game.auctionListings.filter { VehicleCatalog.entry(id: $0.modelID)?.isRareClassic == true }
+        XCTAssertEqual(VehicleCatalog.rareClassics.count, 4)
+        XCTAssertEqual(classics.count, 1, "希少旧車は通常18台の出品枠に常時並ばない")
+        let listing = try! XCTUnwrap(classics.first)
+        let model = try! XCTUnwrap(VehicleCatalog.entry(id: listing.modelID))
+        XCTAssertTrue(model.classicProductionYears?.contains(listing.modelYear) == true)
+        XCTAssertTrue((1970...1989).contains(listing.modelYear))
+        XCTAssertGreaterThan(listing.marketPrice, listing.category.purchaseCost * 2)
+        XCTAssertLessThan(listing.quality, 0.73)
+        XCTAssertTrue(listing.seller.contains("現状渡し"))
+        XCTAssertFalse(game.stores.flatMap(\.inventory).contains(where: \.isRareClassic))
+    }
+
+    func testClassicRestorationAndCustomizationAreMuchMoreExpensive() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let normal = InventoryBatch(modelID: "hokuto-ridge", category: .suv, count: 1, averageCost: 180, quality: 0.62, modelYear: 2024, mileage: 72_000, acquiredTurn: game.turn)
+        let classic = InventoryBatch(modelID: "hokuto-trailclassic", category: .pickup, count: 1, averageCost: 500, quality: 0.50, modelYear: 1985, mileage: 128_000, acquiredTurn: game.turn)
+        game.stores[0].inventory.append(contentsOf: [normal, classic])
+
+        let normalCustom = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: normal.id, kind: .customization))
+        let classicCustom = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: classic.id, kind: .customization))
+        let normalRestoration = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: normal.id, kind: .restoration))
+        let classicRestoration = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: classic.id, kind: .restoration))
+
+        XCTAssertGreaterThan(classicCustom.cost, normalCustom.cost * 2)
+        XCTAssertGreaterThan(classicRestoration.cost, normalRestoration.cost * 2)
+        XCTAssertGreaterThan(classicCustom.weeks, normalCustom.weeks)
+        XCTAssertGreaterThanOrEqual(classicRestoration.weeks, 5)
+        XCTAssertLessThanOrEqual(classicRestoration.resultingQuality, 90)
+    }
+
+    func testCustomProjectChargesCashBlocksSaleAndCompletesAfterSeveralWeeks() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let batch = InventoryBatch(modelID: "hokuto-ridge", category: .suv, count: 1, averageCost: 180, quality: 0.68, modelYear: 2025, mileage: 58_000, acquiredTurn: game.turn)
+        game.stores[0].inventory.append(batch)
+        let stockQuote = try! XCTUnwrap(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id))
+        let preview = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: batch.id, kind: .customization))
+        let beforeCash = game.cash
+
+        XCTAssertGreaterThanOrEqual(preview.weeks, 3)
+        XCTAssertTrue(game.startWorkshopProject(storeID: storeID, inventoryID: batch.id, kind: .customization))
+        XCTAssertEqual(beforeCash - game.cash, preview.cost)
+        XCTAssertNil(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id))
+        XCTAssertNil(game.servicePreview(storeID: storeID, inventoryID: batch.id))
+
+        for _ in 0..<preview.weeks { game.advanceWeek() }
+
+        let completed = try! XCTUnwrap(game.stores[0].inventory.first(where: { $0.id == batch.id }))
+        XCTAssertNil(completed.workshopProject)
+        XCTAssertEqual(completed.productState, .custom)
+        XCTAssertEqual(Int((completed.quality * 100).rounded()), preview.resultingQuality)
+        XCTAssertEqual(completed.averageCost, batch.averageCost + preview.cost)
+        XCTAssertGreaterThan(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id)?.price ?? 0, stockQuote.price)
+    }
+
+    func testCustomAndClassicDemandIsConcentratedInSpecificDistricts() {
+        let game = GameEngine()
+        game.resetGame()
+        let custom = InventoryBatch(modelID: "hokuto-ridge", category: .suv, count: 1, averageCost: 300, quality: 0.80, modelYear: 2025, mileage: 48_000, acquiredTurn: 0, productState: .custom)
+        let classic = InventoryBatch(modelID: "rossa-stellagt", category: .imported, count: 1, averageCost: 1_200, quality: 0.70, modelYear: 1978, mileage: 94_000, acquiredTurn: 0, productState: .restored)
+
+        XCTAssertGreaterThan(game.specialtyCloseAdjustment(for: custom, in: .industrial), game.specialtyCloseAdjustment(for: custom, in: .station))
+        XCTAssertGreaterThan(game.specialtyMarketFactor(for: custom, in: .highway), game.specialtyMarketFactor(for: custom, in: .suburb))
+        XCTAssertGreaterThan(game.specialtyCloseAdjustment(for: classic, in: .emerging), game.specialtyCloseAdjustment(for: classic, in: .station))
+        XCTAssertGreaterThan(game.specialtyMarketFactor(for: classic, in: .downtown), game.specialtyMarketFactor(for: classic, in: .station))
+    }
+
+    func testInventoryAgingLowersPriceAndCloseChanceAfterFreshnessBoost() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.turn = 30
+        let storeID = game.stores[0].id
+        let inventoryID = game.stores[0].inventory[0].id
+        let category = game.stores[0].inventory[0].category
+        game.buyerLeads = [BuyerLead(
+            id: UUID(), storeID: storeID, preference: .category(category),
+            budget: 10_000, minimumQuality: 0.4,
+            priceSensitivity: 1.0, generatedTurn: game.turn
+        )]
+
+        game.stores[0].inventory[0].acquiredTurn = game.turn
+        let freshBatch = game.stores[0].inventory[0]
+        let freshQuote = game.manualSaleQuote(storeID: storeID, inventoryID: inventoryID)!
+        let freshPreview = game.saleNegotiationPreview(storeID: storeID, inventoryID: inventoryID, strategy: .smallDiscount)!
+
+        game.stores[0].inventory[0].acquiredTurn = 0
+        let agedBatch = game.stores[0].inventory[0]
+        let agedQuote = game.manualSaleQuote(storeID: storeID, inventoryID: inventoryID)!
+        let agedPreview = game.saleNegotiationPreview(storeID: storeID, inventoryID: inventoryID, strategy: .smallDiscount)!
+
+        XCTAssertEqual(game.inventoryAgeLabel(for: freshBatch), "新入荷")
+        XCTAssertEqual(game.inventoryAgeWeeks(for: agedBatch), 30)
+        XCTAssertLessThan(game.inventoryAgingValueFactor(for: agedBatch), 1)
+        XCTAssertLessThan(game.inventoryFreshnessCloseAdjustment(for: agedBatch), 0)
+        XCTAssertLessThan(agedQuote.price, freshQuote.price)
+        XCTAssertLessThan(agedPreview.closeChance, freshPreview.closeChance)
+    }
+
+    func testWeeklyReportRecordsAverageInventoryWeeksAndAgingWarning() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        game.turn = 20
+
+        game.advanceWeek()
+
+        XCTAssertEqual(game.lastReport?.averageInventoryWeeks ?? 0, 21, accuracy: 0.001)
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains("12週超") && $0.contains("滞留在庫") } == true)
+    }
+
+    func testStorePurchaseChanceIsHigherThanNormalAuctionBidChance() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let purchase = game.purchaseCases[0]
+        let listing = game.auctionListings[0]
+        let storeChance = game.purchaseNegotiationPreview(purchase.id, offerPercent: 94)!.closeChance
+        let auctionChance = game.auctionBidWinChance(for: listing, maxPrice: listing.marketPrice)
+
+        XCTAssertGreaterThan(storeChance, auctionChance)
+        XCTAssertGreaterThan(game.auctionListings.count, game.purchaseCases.filter { $0.storeID == game.stores[0].id }.count)
+    }
+
+    func testCatalogModelsDepreciateAndContinueLaunchingAcrossGame() {
+        let game = GameEngine()
+        game.resetGame()
+        let original = VehicleCatalog.all.first(where: { $0.id == "mikado-celest" })!
+        let initialPrice = game.catalogRetailPrice(for: original, in: .downtown)
+
+        game.turn = 240
+        game.year = 2035
+        let agedPrice = game.catalogRetailPrice(for: original, in: .downtown)
+
+        XCTAssertLessThan(agedPrice, initialPrice)
+        XCTAssertTrue(VehicleCatalog.available(through: 240).contains { $0.launchTurn > 32 })
+        XCTAssertTrue(VehicleCatalog.all.contains { $0.launchTurn > 400 })
+    }
+
+    func testDetailedInspectionRevealsHiddenIssueAndRecalculatesExpectedValue() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 10_000
+        let storeID = game.stores[0].id
+        let model = VehicleCatalog.all.first(where: { $0.id == "aoba-pico" })!
+        let modelYear = 2024
+        let categoryIndex = VehicleCategory.allCases.firstIndex(of: model.category)!
+        let mileage = stride(from: 20_000, through: 80_000, by: 500).first { candidate in
+            let seed = modelYear * 43 + candidate / 500 + categoryIndex * 71
+            let raw = abs((seed &* 1_664_525 &+ 1_013_904_223) % 10_000)
+            return Double(raw) / 10_000.0 < 0.96
+        }!
+        let purchase = PurchaseCase(
+            id: UUID(), storeID: storeID, modelID: model.id, category: model.category,
+            modelYear: modelYear, mileage: mileage,
+            exterior: 72, interior: 74, mechanical: 68,
+            askingPrice: 80, appraisedPrice: 96, repairCost: 12,
+            expectedSalePrice: 150, expectedDays: 18, demand: 1.0,
+            appraisalAccuracy: 62, negotiationAttempts: 0,
+            hiddenIssue: .repairedHistory, issueRevealed: false
+        )
+        game.purchaseCases = [purchase]
+        let beforeCash = game.cash
+
+        let result = game.inspectPurchaseCase(purchase.id)
+
+        XCTAssertEqual(result, .issueFound(.repairedHistory))
+        XCTAssertEqual(game.cash, beforeCash - 10)
+        XCTAssertEqual(game.purchaseCases[0].appraisalAccuracy, 96)
+        XCTAssertEqual(game.purchaseCases[0].revealedIssue, .repairedHistory)
+        XCTAssertEqual(game.purchaseCases[0].expectedSaleAfterAppraisal, Int(Double(purchase.expectedSalePrice) * VehicleIssueKind.repairedHistory.disclosedValueFactor))
+        XCTAssertLessThan(game.purchaseCases[0].expectedGrossProfit, purchase.expectedGrossProfit)
+    }
+
+    func testDisclosedVehicleIssueLowersSaleQuote() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let clean = game.stores[0].inventory[0]
+        let disclosed = InventoryBatch(
+            modelID: clean.modelID, category: clean.category, count: 1,
+            averageCost: clean.averageCost, quality: clean.quality,
+            modelYear: clean.modelYear, mileage: clean.mileage,
+            acquiredTurn: clean.acquiredTurn, productState: clean.productState,
+            vehicleIssue: VehicleIssueRecord(kind: .odometerRollback, status: .disclosed)
+        )
+        game.stores[0].inventory.append(disclosed)
+
+        let cleanQuote = game.manualSaleQuote(storeID: storeID, inventoryID: clean.id)!
+        let disclosedQuote = game.manualSaleQuote(storeID: storeID, inventoryID: disclosed.id)!
+
+        XCTAssertLessThan(disclosedQuote.price, cleanQuote.price)
+        XCTAssertEqual(game.stores[0].inventory.last?.disclosedIssue, .odometerRollback)
+    }
+
+    func testUndisclosedIssueTriggersDelayedClaimCostAndReputationLossAfterSale() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        game.stores[0].inventory[0].vehicleIssue = VehicleIssueRecord(kind: .odometerRollback, status: .hidden)
+        let inventoryID = game.stores[0].inventory[0].id
+        let category = game.stores[0].inventory[0].category
+        let lead = BuyerLead(
+            id: UUID(), storeID: storeID, preference: .category(category),
+            budget: 10_000, minimumQuality: 0.4,
+            priceSensitivity: 1.0, generatedTurn: game.turn
+        )
+        game.buyerLeads = [lead]
+
+        var selectedTurn = 0
+        for candidate in 0..<100 {
+            game.turn = candidate
+            game.stores[0].inventory[0].acquiredTurn = candidate
+            let closeChance = game.saleNegotiationPreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: inventoryID, strategy: .closeDeal)!.closeChance
+            let categoryIndex = VehicleCategory.allCases.firstIndex(of: category)!
+            let seed = candidate * 97 + game.stores[0].plotID * 19 + categoryIndex * 31 + 2 * 11
+            let raw = abs((seed &* 1_664_525 &+ 1_013_904_223) % 10_000)
+            if Double(raw) / 10_000.0 < closeChance {
+                selectedTurn = candidate
+                break
+            }
+        }
+        game.turn = selectedTurn
+        game.stores[0].inventory[0].acquiredTurn = selectedTurn
+        let result = game.negotiateManualSale(storeID: storeID, buyerLeadID: lead.id, inventoryID: inventoryID, strategy: .closeDeal)!
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(game.pendingCustomerClaims.count, 1)
+        let claim = game.pendingCustomerClaims[0]
+        XCTAssertEqual(claim.issue, .odometerRollback)
+        XCTAssertGreaterThanOrEqual(claim.compensationCost, 30)
+        let reputationBeforeClaim = game.stores[0].reputation
+
+        var weeksAdvanced = 0
+        while !game.pendingCustomerClaims.isEmpty && weeksAdvanced < 3 {
+            game.advanceWeek()
+            weeksAdvanced += 1
+        }
+
+        XCTAssertTrue(game.pendingCustomerClaims.isEmpty)
+        XCTAssertEqual(game.finance.customerClaims, claim.compensationCost)
+        XCTAssertLessThan(game.stores[0].reputation, reputationBeforeClaim)
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains("販売後") && $0.contains("メーター改ざん") } == true)
+        XCTAssertTrue(game.cityEvents.contains { $0.kind == .customerClaim && !$0.isPositive })
     }
 
     func testNewGameUsesConstrainedStartingCapital() {
@@ -822,6 +1636,17 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         game.startNewGame()
         game.cash = 6_123
+        game.fuelPriceIndex = 1.27
+        game.careerStatistics.totalSales = 123
+        game.careerStatistics.completedMilestones.insert(.salesFoundation)
+        game.priceWarChallenges = [PriceWarChallenge(
+            competitorID: game.competitors[0].id,
+            district: .downtown,
+            startedTurn: 0,
+            expiresTurn: 4,
+            intensity: 1.0,
+            response: .brandDefense
+        )]
 
         game.returnToTitle()
         XCTAssertFalse(game.hasStarted)
@@ -831,5 +1656,9 @@ final class GameEngineTests: XCTestCase {
         game.loadGame()
         XCTAssertTrue(game.hasStarted)
         XCTAssertEqual(game.cash, 6_123)
+        XCTAssertEqual(game.fuelPriceIndex, 1.27, accuracy: 0.001)
+        XCTAssertEqual(game.careerStatistics.totalSales, 123)
+        XCTAssertTrue(game.careerStatistics.completedMilestones.contains(.salesFoundation))
+        XCTAssertEqual(game.priceWarChallenges.first?.response, .brandDefense)
     }
 }

@@ -185,6 +185,12 @@ private struct CompetitorDetailCard: View {
 
     var body: some View {
         let competitor = game.competitors.first(where: { $0.name == name })
+        let priceWar = competitor.flatMap { rival in
+            game.activePriceWars.first(where: { $0.competitorID == rival.id && $0.district == plot.district })
+        }
+        let acquisitionOffer = competitor.flatMap { rival in
+            game.competitorAcquisitionOffers.first(where: { $0.competitorID == rival.id && $0.plotID == plot.id })
+        }
         VStack(alignment: .leading, spacing: 14) {
             SectionTitle(title: name, subtitle: competitor?.strategy ?? "競合店舗")
             HStack {
@@ -193,7 +199,11 @@ private struct CompetitorDetailCard: View {
             }
             HStack {
                 MetricView(title: "ブランド力", value: competitor?.strength ?? 1 > 1.1 ? "強い" : "標準")
-                MetricView(title: "最近の動き", value: "価格維持", detail: "市場調査精度 62%")
+                MetricView(title: "最近の動き", value: priceWar == nil ? "価格維持" : "価格攻勢", detail: priceWar.map { "残り\($0.remainingWeeks(at: game.turn))週間" } ?? "市場調査精度 62%")
+            }
+            if let acquisitionOffer {
+                Label("弱体化により買収交渉が可能：\(acquisitionOffer.cost.currency)。経営本部で実行できます", systemImage: "building.2.crop.circle.fill")
+                    .font(.caption.bold()).foregroundStyle(.purple)
             }
             Label("詳しい内部数値は市場調査レベルを上げると判明します", systemImage: "binoculars.fill")
                 .font(.caption).foregroundStyle(.secondary)
@@ -215,7 +225,7 @@ private struct StoreDetailCard: View {
             HStack {
                 MetricView(title: "在庫", value: "\(store.inventoryCount) / \(store.type.capacity)台")
                 MetricView(title: "顧客満足度", value: "\(store.satisfaction)")
-                MetricView(title: "従業員", value: "\(store.staff)名")
+                MetricView(title: "店員", value: "\(store.staff)名")
             }
             if !store.causes.isEmpty {
                 Divider()
