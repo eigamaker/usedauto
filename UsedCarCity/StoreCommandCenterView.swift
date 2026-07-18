@@ -193,7 +193,7 @@ private struct PurchaseCasesPanel: View {
     @State private var message: String?
     private var cases: [PurchaseCase] { game.purchaseCases.filter { $0.storeID == storeID } }
     private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
-    private var isDelegated: Bool { store?.hasManager == true && store?.delegatePricing == true }
+    private var isDelegated: Bool { store?.hasManager == true && store?.delegateProcurement == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1611,7 +1611,8 @@ private struct ManagerPanel: View {
                 VStack(alignment: .leading, spacing: 5) {
                     SectionTitle(title: "業務委任", subtitle: "ONの業務だけを店長が週間処理で自動化します")
                     DelegationToggle(title: "採用と人員配置", icon: "person.2.fill", isOn: binding(\.delegateStaff))
-                    DelegationToggle(title: "仕入と価格設定", icon: "tag.fill", isOn: binding(\.delegatePricing))
+                    DelegationToggle(title: "販売商談と価格設定", icon: "tag.fill", isOn: binding(\.delegatePricing))
+                    DelegationToggle(title: "買取と在庫補充", icon: "car.badge.gearshape", isOn: binding(\.delegateProcurement))
                     DelegationToggle(title: "店舗マーケティング", icon: "megaphone.fill", isOn: binding(\.delegateMarketing))
                     DelegationToggle(title: "整備とトラブル対応", icon: "wrench.and.screwdriver.fill", isOn: binding(\.delegateService))
                 }.gameCard()
@@ -1681,6 +1682,7 @@ private struct MarketPanel: View {
 
     var body: some View {
         VStack(spacing: 14) {
+            ProcurementPanel(store: store, plot: plot)
             VehicleCatalogPanel(store: store, district: plot.district)
             VStack(alignment: .leading, spacing: 12) {
                 SectionTitle(
@@ -1725,6 +1727,117 @@ private struct MarketPanel: View {
                 }
             }.gameCard()
         }
+    }
+}
+
+private struct ProcurementPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    let plot: LandPlot
+    @State private var category: VehicleCategory = .commercial
+    @State private var message: String?
+
+    private var dealerQuote: ProcurementQuote? {
+        game.dealerTradeQuote(category: category, count: 3, storeID: store.id)
+    }
+
+    private var fleetQuote: ProcurementQuote? {
+        game.fleetPurchaseQuote(category: category, count: 5, storeID: store.id)
+    }
+
+    private var freeCapacity: Int {
+        max(0, store.type.capacity - store.inventoryCount - game.incomingCount(for: store.id))
+    }
+
+    private var isDelegated: Bool { store.hasManager && store.delegateProcurement }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "仕入れ網", subtitle: "安い偶発仕入れを待つか、費用と時間を払って必要車種を探します")
+            Picker("探す車種", selection: $category) {
+                ForEach(VehicleCategory.allCases) { item in Text(item.name).tag(item) }
+            }
+            .pickerStyle(.menu)
+
+            HStack {
+                ProposalMetric(title: "地域需要", value: "\(Int(game.vehicleDemand(category, in: plot.district) * 100))")
+                ProposalMetric(title: "地域供給", value: "\(Int(game.vehicleSupply(category, in: plot.district) * 100))")
+                ProposalMetric(title: "空き展示枠", value: "\(freeCapacity)台")
+            }
+
+            if let quote = dealerQuote {
+                ProcurementRouteRow(
+                    title: "業者間探索・3台",
+                    quote: quote,
+                    detail: "カテゴリ指定。希少地域では割高・納期延長",
+                    disabled: isDelegated || game.cash < quote.totalCost || freeCapacity < quote.count
+                ) {
+                    message = game.orderDealerTrade(category: category, count: quote.count, storeID: store.id)
+                        ? "\(category.name)3台を手配しました。\(quote.weeks)週間後に入庫します。"
+                        : "現金または展示枠が不足しています。"
+                }
+            }
+
+            if let quote = fleetQuote {
+                ProcurementRouteRow(
+                    title: "法人・リース入替・5台",
+                    quote: quote,
+                    detail: "対象車種限定。品質は低めだが一括仕入れで原価を抑制",
+                    disabled: isDelegated || game.cash < quote.totalCost || freeCapacity < quote.count
+                ) {
+                    message = game.orderFleetPurchase(category: category, count: quote.count, storeID: store.id)
+                        ? "法人入替車\(category.name)5台を契約しました。\(quote.weeks)週間後に入庫します。"
+                        : "現金または展示枠が不足しています。"
+                }
+            } else {
+                Label("法人一括仕入れは軽・ミニバン・商用車・ピックアップが対象です。地域供給または法人専門の取引網が必要です。", systemImage: "building.2.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+
+            if isDelegated {
+                Label("買取と在庫補充は店長へ委任中です。手動発注する場合は委任を解除してください。", systemImage: "person.crop.circle.badge.checkmark")
+                    .font(.caption).foregroundStyle(GameTheme.teal)
+            }
+        }
+        .gameCard()
+        .onAppear {
+            category = game.recommendedCategories(for: plot.district).first ?? .commercial
+        }
+        .alert("仕入れ手配", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK") { message = nil }
+        } message: { Text(message ?? "") }
+    }
+}
+
+private struct ProcurementRouteRow: View {
+    let title: String
+    let quote: ProcurementQuote
+    let detail: String
+    let disabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            let tint = quote.source == .fleetPurchase ? GameTheme.orange : GameTheme.teal
+            Image(systemName: quote.source == .fleetPurchase ? "building.2.fill" : "arrow.triangle.2.circlepath")
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.10))
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.bold())
+                Text("\(quote.availabilityLabel)・\(quote.weeks)週・総額\(quote.totalCost.currency)")
+                    .font(.caption.bold()).foregroundStyle(.secondary)
+                Text(detail).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("手配", action: action)
+                .buttonStyle(.borderedProminent).tint(GameTheme.teal)
+                .disabled(disabled)
+        }
+        .padding(10)
+        .background(GameTheme.cream)
+        .clipShape(RoundedRectangle(cornerRadius: 11))
     }
 }
 
@@ -1901,6 +2014,7 @@ private struct CampaignCard: View {
 }
 
 private struct StoreFinancePanel: View {
+    @EnvironmentObject private var game: GameEngine
     let store: Store
     let update: (Store) -> Void
 
@@ -1911,6 +2025,19 @@ private struct StoreFinancePanel: View {
                 MetricView(title: "営業利益", value: store.lastProfit.currency, tint: store.lastProfit >= 0 ? GameTheme.teal : GameTheme.danger)
                 MetricView(title: "在庫回転", value: store.lastSales > 0 ? "\(store.inventoryCount * 30 / store.lastSales)日" : "—")
             }.gameCard()
+            if let forecast = game.fourWeekForecast(for: store.id) {
+                VStack(alignment: .leading, spacing: 11) {
+                    SectionTitle(title: "4週間の店舗予測", subtitle: "現在の在庫・客足・店員体制を継続した場合")
+                    HStack {
+                        MetricView(title: "販売", value: "\(forecast.salesLow)〜\(forecast.salesHigh)台")
+                        MetricView(title: "粗利", value: "\(forecast.grossProfitLow.currency)〜\(forecast.grossProfitHigh.currency)")
+                        MetricView(title: "営業利益", value: "\(forecast.operatingProfitLow.currency)〜\(forecast.operatingProfitHigh.currency)", tint: forecast.operatingProfitHigh >= 0 ? GameTheme.teal : GameTheme.danger)
+                    }
+                    Label(forecast.bottleneck, systemImage: "arrow.triangle.branch")
+                        .font(.caption.bold()).foregroundStyle(GameTheme.orange)
+                }
+                .gameCard()
+            }
             VStack(alignment: .leading, spacing: 13) {
                 SectionTitle(title: "オーナーの経営方針", subtitle: "店長の有無にかかわらず価格と広告を指示できます")
                 Text("価格水準  \(Int(store.priceIndex * 100))").font(.subheadline.bold())

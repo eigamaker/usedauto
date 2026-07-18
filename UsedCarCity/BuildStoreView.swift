@@ -7,12 +7,18 @@ struct BuildStoreView: View {
     @State private var step = 0
     @State private var mode: AcquisitionMode = .lease
     @State private var type: StoreType = .standard
+    @State private var focus: CustomerFocus = .family
+    @State private var concept: StoreConcept = .general
     @State private var loan = 0
     @State private var completed = false
     @State private var foundingBuildCompleted = false
 
-    private var footprint: [LandPlot] { game.footprintPlots(startingAt: plot, type: type) }
-    private var availableTypes: [StoreType] { StoreType.allCases.filter { game.footprintPlots(startingAt: plot, type: $0).count == $0.requiredGridCells } }
+    private var footprint: [LandPlot] { game.footprintPlots(startingAt: plot, type: type, mode: mode) }
+    private var availableTypes: [StoreType] {
+        StoreType.allCases.filter {
+            game.footprintPlots(startingAt: plot, type: $0, mode: mode).count == $0.requiredGridCells
+        }
+    }
     private var landCost: Int { game.landAcquisitionCost(for: footprint, mode: mode) }
     private var demolitionCost: Int { game.demolitionCost(for: footprint) }
     private var total: Int { game.totalBuildCost(for: footprint, type: type, mode: mode) }
@@ -63,7 +69,15 @@ struct BuildStoreView: View {
                 }
             }
             .onAppear {
-                if !availableTypes.contains(type), let first = availableTypes.first { type = first }
+                let plannedType = game.startupPlan?.recommendedStoreType ?? type
+                type = availableTypes.contains(plannedType) ? plannedType : (availableTypes.first ?? type)
+                concept = game.startupPlan?.recommendedConcept ?? game.recommendedConcept(for: plot.district)
+                focus = game.startupPlan?.recommendedFocus ?? recommendedFocus
+            }
+            .onChange(of: mode) { _, _ in
+                if !availableTypes.contains(type), let fallback = availableTypes.first {
+                    type = fallback
+                }
             }
         }
     }
@@ -97,14 +111,31 @@ struct BuildStoreView: View {
             }
             Label("大きい店舗ほど隣接する同一サイズのセルを多く使用します", systemImage: "square.grid.3x3.fill")
                 .font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(title: "商売の方針", subtitle: "立地と仕入れ網に合う客層・専門性を選択")
+                Picker("狙う客層", selection: $focus) {
+                    ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.menu)
+                Picker("店舗コンセプト", selection: $concept) {
+                    ForEach(StoreConcept.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.menu)
+                Text(concept.summary).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    MetricView(title: "需要上位", value: game.recommendedCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・"))
+                    MetricView(title: "供給上位", value: game.recommendedSupplyCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・"))
+                }
+            }
+            .gameCard()
         }
     }
 
     private var forecastStep: some View {
         VStack(spacing: 14) {
-            let sales = game.estimatedSales(for: plot, type: type, focus: .family, concept: .general)
+            let sales = game.estimatedSales(for: plot, type: type, focus: focus, concept: concept)
             VStack(alignment: .leading, spacing: 14) {
-                SectionTitle(title: "標準シナリオ", subtitle: "開店後はオーナーが価格・広告方針を直接設定")
+                SectionTitle(title: "\(concept.name)のシナリオ", subtitle: "需要・供給と客層を含む初期計画")
                 HStack { MetricView(title: "初期投資", value: total.currency, detail: "土地 \(landCost.currency)＋解体 \(demolitionCost.currency)"); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
                 HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
                 Divider()
@@ -126,9 +157,18 @@ struct BuildStoreView: View {
 
     private func completeBuild() {
         let isFounding = game.stores.isEmpty && game.tutorialStep == .buildStore
-        if game.buildStore(on: plot, type: type, mode: mode, focus: .family, concept: .general, loanAmount: loan) {
+        if game.buildStore(on: plot, type: type, mode: mode, focus: focus, concept: concept, loanAmount: loan) {
             foundingBuildCompleted = isFounding
             completed = true
+        }
+    }
+
+    private var recommendedFocus: CustomerFocus {
+        switch plot.district {
+        case .downtown: .affluent
+        case .industrial, .highway: .business
+        case .station: .young
+        case .suburb, .emerging: .family
         }
     }
 }

@@ -870,6 +870,7 @@ struct District: Identifiable, Codable, Hashable {
     var growthRate: Double
     var competition: Double
     var demands: [VehicleCategory: Double]
+    var supplies: [VehicleCategory: Double]
     var id: DistrictKind { kind }
 }
 
@@ -1182,6 +1183,19 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     }
 }
 
+struct ProcurementQuote: Hashable {
+    let source: ProcurementSource
+    let category: VehicleCategory
+    let count: Int
+    let unitCost: Int
+    let fee: Int
+    let weeks: Int
+    let quality: Double
+    let availabilityLabel: String
+
+    var totalCost: Int { unitCost * count + fee }
+}
+
 struct AuctionConsignment: Identifiable, Codable, Hashable {
     let id: UUID
     let storeID: UUID
@@ -1270,6 +1284,7 @@ struct Store: Identifiable, Codable, Hashable {
     var serviceAllocation: Double
     var delegateStaff: Bool
     var delegatePricing: Bool
+    var delegateProcurement: Bool
     var delegateMarketing: Bool
     var delegateService: Bool
     var lastSales: Int
@@ -1306,6 +1321,7 @@ struct Store: Identifiable, Codable, Hashable {
         serviceAllocation = 0.35
         delegateStaff = false
         delegatePricing = false
+        delegateProcurement = false
         delegateMarketing = false
         delegateService = false
         lastSales = 0
@@ -1587,24 +1603,25 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
 }
 
 enum StartupPlan: String, Codable, CaseIterable, Identifiable {
-    case family, discount, quality
+    case family, discount, quality, business
     var id: String { rawValue }
     var name: String {
-        switch self { case .family: "ファミリー重視"; case .discount: "低価格・回転重視"; case .quality: "品質・ブランド重視" }
+        switch self { case .family: "ファミリー重視"; case .discount: "低価格・回転重視"; case .quality: "品質・ブランド重視"; case .business: "法人・商用車重視" }
     }
     var tagline: String {
         switch self {
         case .family: "安定した家族需要をつかむ王道プラン"
         case .discount: "低い固定費と価格競争力で勝負"
         case .quality: "目利きと高粗利でブランドを育てる"
+        case .business: "法人案件と仕入れ網で商用車を計画販売"
         }
     }
-    var icon: String { switch self { case .family: "figure.2.and.child.holdinghands"; case .discount: "tag.fill"; case .quality: "sparkles" } }
+    var icon: String { switch self { case .family: "figure.2.and.child.holdinghands"; case .discount: "tag.fill"; case .quality: "sparkles"; case .business: "truck.box.fill" } }
     var startingCash: Int { 6_500 }
-    var recommendedDistrict: DistrictKind { switch self { case .family: .suburb; case .discount: .industrial; case .quality: .downtown } }
-    var recommendedStoreType: StoreType { switch self { case .family: .standard; case .discount: .small; case .quality: .premium } }
-    var recommendedFocus: CustomerFocus { switch self { case .family: .family; case .discount: .value; case .quality: .affluent } }
-    var recommendedConcept: StoreConcept { switch self { case .family: .family; case .discount: .custom; case .quality: .premium } }
+    var recommendedDistrict: DistrictKind { switch self { case .family: .suburb; case .discount: .station; case .quality: .downtown; case .business: .industrial } }
+    var recommendedStoreType: StoreType { switch self { case .family: .standard; case .discount: .small; case .quality: .small; case .business: .small } }
+    var recommendedFocus: CustomerFocus { switch self { case .family: .family; case .discount: .value; case .quality: .affluent; case .business: .business } }
+    var recommendedConcept: StoreConcept { switch self { case .family: .family; case .discount: .keiLocal; case .quality: .premium; case .business: .business } }
 }
 
 struct FinanceSnapshot: Codable, Hashable {
@@ -1623,4 +1640,18 @@ struct FinanceSnapshot: Codable, Hashable {
     var operatingCF: Int = 0
     var investingCF: Int = 0
     var financingCF: Int = 0
+}
+
+struct FourWeekForecast: Hashable {
+    let salesLow: Int
+    let salesHigh: Int
+    let grossProfitLow: Int
+    let grossProfitHigh: Int
+    let operatingProfitLow: Int
+    let operatingProfitHigh: Int
+    let endingCashLow: Int
+    let endingCashHigh: Int
+    let inventoryCapital: Int
+    let estimatedInventoryMarketValue: Int
+    let bottleneck: String
 }

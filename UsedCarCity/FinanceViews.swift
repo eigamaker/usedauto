@@ -14,6 +14,7 @@ struct FinanceView: View {
                         MetricView(title: "借入金", value: game.debt.currency)
                     }
                     .gameCard()
+                    FourWeekForecastCard()
                     Picker("財務諸表", selection: $statement) {
                         Text("PL").tag(0); Text("BS").tag(1); Text("CF").tag(2)
                     }
@@ -30,6 +31,33 @@ struct FinanceView: View {
             .navigationTitle("財務")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+}
+
+private struct FourWeekForecastCard: View {
+    @EnvironmentObject private var game: GameEngine
+
+    var body: some View {
+        let forecast = game.companyFourWeekForecast
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "今後4週間の見通し", subtitle: "現在の在庫・入庫予定・客足・営業枠を据え置いたレンジ予測")
+            HStack {
+                MetricView(title: "販売", value: "\(forecast.salesLow)〜\(forecast.salesHigh)台")
+                MetricView(title: "売上総利益", value: "\(forecast.grossProfitLow.currency)〜\(forecast.grossProfitHigh.currency)")
+                MetricView(title: "営業利益", value: "\(forecast.operatingProfitLow.currency)〜\(forecast.operatingProfitHigh.currency)", tint: forecast.operatingProfitHigh >= 0 ? GameTheme.teal : GameTheme.danger)
+            }
+            HStack {
+                MetricView(title: "在庫投下資金", value: forecast.inventoryCapital.currency)
+                MetricView(title: "予想販売価値", value: forecast.estimatedInventoryMarketValue.currency)
+                MetricView(title: "4週後現金", value: "\(forecast.endingCashLow.currency)〜\(forecast.endingCashHigh.currency)", tint: forecast.endingCashLow >= 0 ? GameTheme.teal : GameTheme.orange)
+            }
+            Label(forecast.bottleneck, systemImage: "arrow.triangle.branch")
+                .font(.caption.bold())
+                .foregroundStyle(forecast.bottleneck.contains("均衡") || forecast.bottleneck.contains("ありません") ? GameTheme.teal : GameTheme.orange)
+            Text("在庫に一律の保管費は加算していません。現金拘束、展示枠、相場と成約率の変化を経営負担として扱います。")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .gameCard()
     }
 }
 
@@ -107,9 +135,18 @@ private struct FinancingCard: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "銀行取引", subtitle: "土地担保で融資枠が拡大")
+            SectionTitle(title: "銀行取引", subtitle: "土地担保で基礎枠が増え、赤字や資金危機で信用枠が縮小")
             HStack { MetricView(title: "借入残高", value: game.debt.currency); MetricView(title: "融資上限", value: game.borrowingLimit.currency) }
             ProgressView(value: Double(game.debt), total: Double(max(1, game.borrowingLimit))).tint(GameTheme.orange)
+            HStack {
+                Text("信用評価 \(game.creditRating)").font(.caption.bold())
+                Spacer()
+                Text("追加融資余力 \(max(0, game.borrowingLimit - game.debt).currency)").font(.caption).foregroundStyle(.secondary)
+            }
+            if let warning = game.financialDistressMessage {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.bold()).foregroundStyle(GameTheme.danger)
+            }
             HStack {
                 Button("1,000万円借入") { game.borrow(1_000) }.buttonStyle(.borderedProminent).tint(GameTheme.teal).disabled(game.debt + 1_000 > game.borrowingLimit)
                 Button("1,000万円返済") { game.repay(1_000) }.buttonStyle(.bordered).tint(GameTheme.navy).disabled(game.debt == 0 || game.cash < 1_000)

@@ -130,6 +130,10 @@ private struct LandOpportunityCard: View {
                 MetricView(title: "競合影響", value: competitionText, detail: "地区内の密度")
                 MetricView(title: "推奨車種", value: recommendedText)
             }
+            HStack {
+                MetricView(title: "持込・供給上位", value: supplyText)
+                MetricView(title: "供給量", value: "週\(game.weeklySellerPool(in: plot.district))台", detail: "地区全体・競合を含む")
+            }
             HStack(spacing: 10) {
                 Image(systemName: game.recommendedConcept(for: plot.district).icon)
                     .foregroundStyle(plot.district.color)
@@ -153,6 +157,7 @@ private struct LandOpportunityCard: View {
     }
 
     private var recommendedText: String { game.recommendedCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・") }
+    private var supplyText: String { game.recommendedSupplyCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・") }
     private var competitionText: String {
         let value = game.district(for: plot).competition
         return value > 1.2 ? "強い" : value > 0.85 ? "中程度" : "弱い"

@@ -195,8 +195,8 @@ private struct StoreNetworkContent: View {
                             Text("在庫\(store.inventoryCount)/\(store.type.capacity)台・入庫予定\(game.incomingCount(for: store.id))台").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateMarketing, store.delegateService].filter { $0 }.count
-                        CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/4委任", color: delegated == 4 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
+                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateProcurement, store.delegateMarketing, store.delegateService].filter { $0 }.count
+                        CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/5委任", color: delegated == 5 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
                     }
                     if game.stores.count > 1 {
                         ForEach(store.inventory.filter { $0.count > 0 && !$0.isInWorkshop }) { batch in
@@ -412,12 +412,15 @@ private struct BankContent: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(spacing: 14) {
-            HStack { MetricView(title: "信用評価", value: game.debt < game.borrowingLimit / 2 ? "A" : "B", tint: GameTheme.teal); MetricView(title: "融資上限", value: game.borrowingLimit.currency); MetricView(title: "借入残高", value: game.debt.currency) }.gameCard()
+            HStack { MetricView(title: "信用評価", value: game.creditRating, tint: game.creditRating == "C" ? GameTheme.orange : GameTheme.teal); MetricView(title: "融資上限", value: game.borrowingLimit.currency); MetricView(title: "借入残高", value: game.debt.currency) }.gameCard()
             VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(title: "融資・返済", subtitle: "所有地は担保として融資枠へ反映")
+                SectionTitle(title: "融資・返済", subtitle: "所有地は担保に反映。赤字や資金危機は信用枠を縮小")
                 ProgressView(value: Double(game.debt), total: Double(max(1, game.borrowingLimit))).tint(.blue)
                 HStack { Button("1,000万円借入") { game.borrow(1_000) }.buttonStyle(.borderedProminent).tint(.blue).disabled(game.debt + 1_000 > game.borrowingLimit); Button("1,000万円返済") { game.repay(1_000) }.buttonStyle(.bordered).disabled(game.cash < 1_000 || game.debt == 0) }
-                Label("次回返済は月末処理時です", systemImage: "calendar.badge.clock").font(.caption).foregroundStyle(.secondary)
+                Label("借入利息は週間処理で計上されます。元本は任意返済です。", systemImage: "calendar.badge.clock").font(.caption).foregroundStyle(.secondary)
+                if let warning = game.financialDistressMessage {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill").font(.caption.bold()).foregroundStyle(GameTheme.danger)
+                }
             }.gameCard()
         }
     }

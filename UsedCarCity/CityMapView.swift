@@ -18,7 +18,7 @@ struct CityMapView: View {
         NavigationStack {
             GeometryReader { proxy in
                 ZStack {
-                    IsometricCitySurface(
+                    GridCityMapSurface(
                         layer: layer,
                         demandCategory: demandCategory,
                         selectedPlot: $selectedPlot,
@@ -201,7 +201,7 @@ private struct MapBottomHUD: View {
             VStack(alignment: .leading, spacing: 3) {
                 Label("翠浜市", systemImage: "building.2.fill")
                     .font(.subheadline.bold())
-                Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : layer == .competition ? "固定需要を自社と競合の商圏で奪い合います" : "全区画は同じ1セル・大型店は2〜3セルを連結")
+                Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : layer == .competition ? "固定需要を自社と競合の商圏で奪い合います" : "道路・区画・建物は全市共通の正方形グリッドに整列")
                     .font(.caption2).foregroundStyle(.secondary)
                 HStack(spacing: 9) {
                     MapLegendItem(title: "自社中古車店", color: GameTheme.teal)

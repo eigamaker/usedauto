@@ -436,7 +436,7 @@ struct GameEndView: View {
         .interactiveDismissDisabled()
     }
 
-    private var isBankrupt: Bool { game.cash < -2_000 }
+    private var isBankrupt: Bool { game.financialDistressWeeks >= 2 }
 
     private var finalEvaluation: some View {
         let evaluation = game.endingEvaluation

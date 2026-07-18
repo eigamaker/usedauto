@@ -215,8 +215,8 @@ struct StoreSettingsView: View {
                             Picker("狙う客層", selection: store.focus) { ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
                             Picker("店舗コンセプト", selection: store.concept) { ForEach(StoreConcept.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
                             Text(store.wrappedValue.concept.summary).font(.caption).foregroundStyle(.secondary)
-                            if store.wrappedValue.hasManager && store.wrappedValue.delegatePricing {
-                                Label("仕入と価格設定は店長へ委任中です。週間処理で再調整されます。", systemImage: "person.crop.circle.badge.checkmark")
+                            if store.wrappedValue.hasManager && (store.wrappedValue.delegatePricing || store.wrappedValue.delegateProcurement) {
+                                Label("販売価格または仕入れは店長へ委任中です。週間処理で実行されます。", systemImage: "person.crop.circle.badge.checkmark")
                                     .font(.caption).foregroundStyle(GameTheme.teal)
                             }
                         }

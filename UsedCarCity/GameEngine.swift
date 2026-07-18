@@ -42,6 +42,7 @@ final class GameEngine: ObservableObject {
     @Published var fuelPriceIndex: Double = 1.0
     @Published var careerStatistics = CareerStatistics()
     @Published var priceWarChallenges: [PriceWarChallenge] = []
+    @Published var financialDistressWeeks = 0
 
     let maxTurns = 480
 
@@ -79,6 +80,7 @@ final class GameEngine: ObservableObject {
         let tutorialStep: TutorialStep?
         let tutorialPlotID: Int?
         let startupPlan: StartupPlan?
+        let financialDistressWeeks: Int
     }
 
     private struct RegionalMonthResult {
@@ -114,7 +116,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v21"
+    private static let saveKey = "UsedCarCity.save.v22"
     private static let managerCandidates = [
         StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, marketingAbility: 84, serviceAbility: 71, monthlySalary: 56),
         StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, marketingAbility: 58, serviceAbility: 75, monthlySalary: 56),
@@ -372,7 +374,10 @@ final class GameEngine: ObservableObject {
 
     private func foundingPlotScore(_ plot: LandPlot) -> Double {
         let rentEfficiency = Double(estimatedVisitors(for: plot)) / Double(max(1, plot.monthlyRent))
-        return rentEfficiency * plot.visibility * plot.access * plot.traffic
+        let supplyCoverage = recommendedCategories(for: plot.district).prefix(3).reduce(0.0) {
+            $0 + vehicleSupply($1, in: plot.district)
+        } / 3.0
+        return rentEfficiency * plot.visibility * plot.access * plot.traffic * (0.82 + supplyCoverage * 0.18)
     }
 
     func startNewGame() {
@@ -429,7 +434,7 @@ final class GameEngine: ObservableObject {
         hasStarted = false
         year = 2030; month = 4; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
-        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; startupPlan = nil; tutorialMessage = nil
+        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; startupPlan = nil; tutorialMessage = nil
         unlockedFeatures = ["仕入", "価格設定"]
         placeCompetitors()
         if removeSave {
@@ -473,12 +478,21 @@ final class GameEngine: ObservableObject {
         tutorialStep = saved.tutorialStep
         tutorialPlotID = saved.tutorialPlotID
         startupPlan = saved.startupPlan
+        financialDistressWeeks = saved.financialDistressWeeks
         lastReport = reports.first
     }
 
     func district(for plot: LandPlot) -> District { districts.first(where: { $0.kind == plot.district })! }
     func plot(id: Int) -> LandPlot? { plots.first(where: { $0.id == id }) }
     func store(at plotID: Int) -> Store? { stores.first(where: { $0.plotIDs.contains(plotID) }) }
+
+    var gridOccupancyIssues: [GridStoreOccupancyIssue] {
+        GridStorePlacementAdapter.validate(
+            plots: plots,
+            stores: stores,
+            map: ValidationCityMap.shared
+        )
+    }
 
     func isFoundingCandidate(_ plot: LandPlot) -> Bool {
         foundingCandidatePlots.contains(where: { $0.id == plot.id })
@@ -514,7 +528,16 @@ final class GameEngine: ObservableObject {
 
     func weeklySellerPool(in kind: DistrictKind) -> Int {
         guard let district = districts.first(where: { $0.kind == kind }) else { return 0 }
-        let base = Double(district.population) / 13_500.0 * district.trafficIndex
+        let activity: Double
+        switch kind {
+        case .downtown: activity = 0.72
+        case .station: activity = 1.05
+        case .emerging: activity = 0.82
+        case .suburb: activity = 1.18
+        case .industrial: activity = 1.15
+        case .highway: activity = 1.25
+        }
+        let base = Double(district.population) / 13_500.0 * district.trafficIndex * activity
         let economy = max(0.72, 1.08 + (1 - economicIndex) * 0.45)
         let index = DistrictKind.allCases.firstIndex(of: kind) ?? 0
         return max(0, Int((base * economy * weeklyMarketShock(seed: turn * 173 + index * 43 + 29)).rounded()))
@@ -763,6 +786,119 @@ final class GameEngine: ObservableObject {
         return Double(weightedWeeks) / Double(units)
     }
 
+    func fourWeekForecast(for storeID: UUID) -> FourWeekForecast? {
+        guard let store = stores.first(where: { $0.id == storeID }),
+              store.isOperational,
+              let plot = plot(id: store.plotID) else { return nil }
+        let currentQuotes = store.inventory.compactMap { batch -> (price: Int, margin: Int, count: Int)? in
+            guard batch.count > 0, !batch.isInWorkshop,
+                  let quote = manualSaleQuote(storeID: storeID, inventoryID: batch.id) else { return nil }
+            return (quote.price, quote.grossProfit, batch.count)
+        }
+        let incoming = inboundShipments.filter { $0.storeID == storeID }
+        let currentUnits = currentQuotes.reduce(0) { $0 + $1.count }
+        let sellableUnits = currentUnits + incoming.reduce(0) { $0 + $1.count }
+        let weeklyDemand = max(
+            store.buyerArrivalsThisWeek,
+            Int((Double(weeklyBuyerPool(in: plot.district)) * marketShare(for: store)).rounded())
+        )
+        let fourWeekDemand = weeklyDemand * 4
+        let fourWeekCapacity = weeklyOpportunityCapacity(storeID: storeID) * 4
+        let possibleSales = min(sellableUnits, fourWeekDemand, fourWeekCapacity)
+        let skillLift = employeeSalesCloseAdjustment(for: storeID)
+        let closeLow = min(0.72, max(0.28, 0.40 + skillLift + (store.reputation - 0.65) * 0.10))
+        let closeHigh = min(0.88, closeLow + 0.18)
+        let salesLow = min(possibleSales, Int((Double(fourWeekDemand) * closeLow).rounded(.down)))
+        let salesHigh = min(possibleSales, Int((Double(fourWeekDemand) * closeHigh).rounded(.up)))
+
+        let fallbackPrice = Int(Double((recommendedCategories(for: plot.district).first ?? .compact).purchaseCost) * 1.35)
+        let fallbackMargin = max(10, fallbackPrice / 5)
+        let currentPriceTotal = currentQuotes.reduce(0) { $0 + $1.price * $1.count }
+        let currentMarginTotal = currentQuotes.reduce(0) { $0 + $1.margin * $1.count }
+        let incomingUnits = incoming.reduce(0) { $0 + $1.count }
+        let incomingPriceTotal = incoming.reduce(0) { total, shipment in
+            total + Int(Double(shipment.category.purchaseCost) * 1.35) * shipment.count
+        }
+        let incomingMarginTotal = incoming.reduce(0) { total, shipment in
+            total + max(8, Int(Double(shipment.category.purchaseCost) * 1.35) - shipment.unitCost) * shipment.count
+        }
+        let pricedUnits = currentUnits + incomingUnits
+        let averagePrice = pricedUnits > 0 ? (currentPriceTotal + incomingPriceTotal) / pricedUnits : fallbackPrice
+        let averageMargin = pricedUnits > 0 ? (currentMarginTotal + incomingMarginTotal) / pricedUnits : fallbackMargin
+        let grossProfitLow = salesLow * averageMargin
+        let grossProfitHigh = salesHigh * averageMargin
+        let monthlyRent = store.acquisition == .lease
+            ? store.plotIDs.compactMap { self.plot(id: $0)?.monthlyRent }.reduce(0, +)
+            : 0
+        let fourWeekCashExpenses = monthlyPersonnelCost(for: store) + monthlyRent + store.advertising + store.type.monthlyFixedCost
+        let fourWeekDepreciation = store.type.buildCost / 240
+        let fourWeekOperatingExpenses = fourWeekCashExpenses + fourWeekDepreciation
+        let operatingProfitLow = grossProfitLow - fourWeekOperatingExpenses
+        let operatingProfitHigh = grossProfitHigh - fourWeekOperatingExpenses
+        let endingCashLow = cash + salesLow * averagePrice - fourWeekCashExpenses
+        let endingCashHigh = cash + salesHigh * averagePrice - fourWeekCashExpenses
+        let inventoryCapital = store.inventory.reduce(0) { $0 + $1.averageCost * $1.count }
+            + incoming.reduce(0) { $0 + $1.unitCost * $1.count }
+        let estimatedInventoryMarketValue = currentPriceTotal + incomingPriceTotal
+        let bottleneck: String
+        if sellableUnits == 0 {
+            bottleneck = "販売可能な在庫がありません"
+        } else if sellableUnits < max(2, fourWeekDemand / 2) {
+            bottleneck = "需要に対して仕入れ・入庫が不足"
+        } else if fourWeekCapacity < fourWeekDemand {
+            bottleneck = "来店需要に対して営業枠が不足"
+        } else if fourWeekDemand < max(2, sellableUnits / 2) {
+            bottleneck = "在庫に対して来店需要が不足"
+        } else if cash < fourWeekCashExpenses {
+            bottleneck = "固定費に対して現金余力が不足"
+        } else {
+            bottleneck = "需要・在庫・営業枠は概ね均衡"
+        }
+        return FourWeekForecast(
+            salesLow: salesLow,
+            salesHigh: salesHigh,
+            grossProfitLow: grossProfitLow,
+            grossProfitHigh: grossProfitHigh,
+            operatingProfitLow: operatingProfitLow,
+            operatingProfitHigh: operatingProfitHigh,
+            endingCashLow: endingCashLow,
+            endingCashHigh: endingCashHigh,
+            inventoryCapital: inventoryCapital,
+            estimatedInventoryMarketValue: estimatedInventoryMarketValue,
+            bottleneck: bottleneck
+        )
+    }
+
+    var companyFourWeekForecast: FourWeekForecast {
+        let forecasts = stores.compactMap { fourWeekForecast(for: $0.id) }
+        let salesLow = forecasts.reduce(0) { $0 + $1.salesLow }
+        let salesHigh = forecasts.reduce(0) { $0 + $1.salesHigh }
+        let grossLow = forecasts.reduce(0) { $0 + $1.grossProfitLow }
+        let grossHigh = forecasts.reduce(0) { $0 + $1.grossProfitHigh }
+        let interest = debt / 9_600 * 4
+        let profitLow = forecasts.reduce(0) { $0 + $1.operatingProfitLow } - interest
+        let profitHigh = forecasts.reduce(0) { $0 + $1.operatingProfitHigh } - interest
+        let cashDeltaLow = forecasts.reduce(0) { $0 + ($1.endingCashLow - cash) } - interest
+        let cashDeltaHigh = forecasts.reduce(0) { $0 + ($1.endingCashHigh - cash) } - interest
+        let inventoryCapital = forecasts.reduce(0) { $0 + $1.inventoryCapital }
+        let marketValue = forecasts.reduce(0) { $0 + $1.estimatedInventoryMarketValue }
+        let bottleneck = forecasts.first(where: { !$0.bottleneck.contains("概ね均衡") })?.bottleneck
+            ?? (forecasts.isEmpty ? "営業中の店舗がありません" : "全店舗で大きな制約はありません")
+        return FourWeekForecast(
+            salesLow: salesLow,
+            salesHigh: salesHigh,
+            grossProfitLow: grossLow,
+            grossProfitHigh: grossHigh,
+            operatingProfitLow: profitLow,
+            operatingProfitHigh: profitHigh,
+            endingCashLow: cash + cashDeltaLow,
+            endingCashHigh: cash + cashDeltaHigh,
+            inventoryCapital: inventoryCapital,
+            estimatedInventoryMarketValue: marketValue,
+            bottleneck: bottleneck
+        )
+    }
+
     func remainingWeeklyOpportunities(storeID: UUID) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
         return max(0, weeklyOpportunityCapacity(storeID: storeID) - store.usedOpportunitiesThisWeek)
@@ -849,7 +985,7 @@ final class GameEngine: ObservableObject {
     }
 
     func breakEvenSales(for plot: LandPlot, type: StoreType, mode: AcquisitionMode) -> Int {
-        let footprint = footprintPlots(startingAt: plot, type: type)
+        let footprint = footprintPlots(startingAt: plot, type: type, mode: mode)
         let cells = footprint.count == type.requiredGridCells ? footprint : [plot]
         let occupancy: Int
         switch mode {
@@ -862,13 +998,33 @@ final class GameEngine: ObservableObject {
     }
 
     func canBuild(on plot: LandPlot, type: StoreType, mode: AcquisitionMode) -> Bool {
-        let footprint = footprintPlots(startingAt: plot, type: type)
+        let footprint = footprintPlots(startingAt: plot, type: type, mode: mode)
         guard footprint.count == type.requiredGridCells else { return false }
         return cash >= totalBuildCost(for: footprint, type: type, mode: mode)
     }
 
     func footprintPlots(startingAt plot: LandPlot, type: StoreType) -> [LandPlot] {
-        footprintPlots(startingAt: plot, type: type, occupiedBy: nil, requiredExistingIDs: [])
+        footprintPlots(
+            startingAt: plot,
+            type: type,
+            mode: nil,
+            occupiedBy: nil,
+            requiredExistingIDs: []
+        )
+    }
+
+    func footprintPlots(
+        startingAt plot: LandPlot,
+        type: StoreType,
+        mode: AcquisitionMode
+    ) -> [LandPlot] {
+        footprintPlots(
+            startingAt: plot,
+            type: type,
+            mode: mode,
+            occupiedBy: nil,
+            requiredExistingIDs: []
+        )
     }
 
     func landAcquisitionCost(for footprint: [LandPlot], mode: AcquisitionMode) -> Int {
@@ -888,7 +1044,7 @@ final class GameEngine: ObservableObject {
     @discardableResult
     func buildStore(on plot: LandPlot, type: StoreType, mode: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept, loanAmount: Int) -> Bool {
         let isFoundingStore = stores.isEmpty && tutorialStep == .buildStore && tutorialPlotID == plot.id
-        let footprint = footprintPlots(startingAt: plot, type: type)
+        let footprint = footprintPlots(startingAt: plot, type: type, mode: mode)
         guard stores.count < 5, footprint.count == type.requiredGridCells else { return false }
         let total = totalBuildCost(for: footprint, type: type, mode: mode)
         guard cash + loanAmount >= total else { return false }
@@ -919,6 +1075,7 @@ final class GameEngine: ObservableObject {
             recordCityEvent(CityEvent(turn: turn, kind: .storeGrowth, title: "創業店がオープン", detail: "既存建物を解体し、\(store.plotIDs.count)セルを使った\(store.name)が営業を開始しました", district: plot.district, plotID: plot.id))
         }
         recalculateAssets()
+        assertGridOccupancyIntegrity()
         save()
         return true
     }
@@ -941,6 +1098,7 @@ final class GameEngine: ObservableObject {
         }
         stores.remove(at: storeIndex)
         recalculateAssets()
+        assertGridOccupancyIntegrity()
         save()
     }
 
@@ -1032,28 +1190,78 @@ final class GameEngine: ObservableObject {
 
     @discardableResult
     func orderDealerTrade(category: VehicleCategory, count: Int, storeID: UUID) -> Bool {
-        guard let store = stores.first(where: { $0.id == storeID }),
+        guard let quote = dealerTradeQuote(category: category, count: count, storeID: storeID),
+              let store = stores.first(where: { $0.id == storeID }),
               store.inventoryCount + incomingCount(for: storeID) + count <= store.type.capacity else { return false }
-        let unitCost = Int(Double(category.purchaseCost) * 1.08)
-        let total = unitCost * count + 8
-        guard cash >= total else { return false }
-        cash -= total
-        inboundShipments.append(InboundShipment(id: UUID(), storeID: storeID, source: .dealerTrade, modelID: nil, category: category, count: count, unitCost: unitCost, quality: 0.80, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: 1))
+        guard cash >= quote.totalCost else { return false }
+        cash -= quote.totalCost
+        inboundShipments.append(InboundShipment(id: UUID(), storeID: storeID, source: .dealerTrade, modelID: nil, category: category, count: count, unitCost: quote.unitCost + quote.fee / count, quality: quote.quality, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: quote.weeks))
         save()
         return true
     }
 
+    func dealerTradeQuote(category: VehicleCategory, count: Int, storeID: UUID) -> ProcurementQuote? {
+        guard count > 0,
+              let store = stores.first(where: { $0.id == storeID }),
+              let plot = plot(id: store.plotID) else { return nil }
+        let networkBonus = store.concept == .business && [.commercial, .pickup].contains(category) ? 0.18 : 0
+        let availability = vehicleSupply(category, in: plot.district) + networkBonus
+        let multiplier: Double
+        let weeks: Int
+        let label: String
+        switch availability {
+        case 1.25...:
+            multiplier = 1.04; weeks = 1; label = "地域流通が豊富"
+        case 0.85...:
+            multiplier = 1.08; weeks = 1; label = "通常流通"
+        case 0.55...:
+            multiplier = 1.14; weeks = 2; label = "取り寄せ"
+        default:
+            multiplier = 1.22; weeks = 2; label = "希少・広域探索"
+        }
+        return ProcurementQuote(
+            source: .dealerTrade,
+            category: category,
+            count: count,
+            unitCost: Int((Double(category.purchaseCost) * multiplier).rounded()),
+            fee: 8 + max(0, count - 3) * 2,
+            weeks: weeks,
+            quality: availability >= 0.85 ? 0.80 : 0.77,
+            availabilityLabel: label
+        )
+    }
+
     @discardableResult
     func orderFleetPurchase(category: VehicleCategory, count: Int, storeID: UUID) -> Bool {
-        guard count >= 5, let store = stores.first(where: { $0.id == storeID }),
+        guard let quote = fleetPurchaseQuote(category: category, count: count, storeID: storeID),
+              let store = stores.first(where: { $0.id == storeID }),
               store.inventoryCount + incomingCount(for: storeID) + count <= store.type.capacity else { return false }
-        let unitCost = Int(Double(category.purchaseCost) * 0.88)
-        let total = unitCost * count + 25
-        guard cash >= total else { return false }
-        cash -= total
-        inboundShipments.append(InboundShipment(id: UUID(), storeID: storeID, source: .fleetPurchase, modelID: nil, category: category, count: count, unitCost: unitCost, quality: 0.70, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: 2))
+        guard cash >= quote.totalCost else { return false }
+        cash -= quote.totalCost
+        inboundShipments.append(InboundShipment(id: UUID(), storeID: storeID, source: .fleetPurchase, modelID: nil, category: category, count: count, unitCost: quote.unitCost + quote.fee / count, quality: quote.quality, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: quote.weeks))
         save()
         return true
+    }
+
+    func fleetPurchaseQuote(category: VehicleCategory, count: Int, storeID: UUID) -> ProcurementQuote? {
+        let fleetCategories: Set<VehicleCategory> = [.commercial, .pickup, .minivan, .kei]
+        guard count >= 5, fleetCategories.contains(category),
+              let store = stores.first(where: { $0.id == storeID }),
+              let plot = plot(id: store.plotID) else { return nil }
+        let localSupply = vehicleSupply(category, in: plot.district)
+        let hasBusinessNetwork = store.concept == .business
+        guard hasBusinessNetwork || localSupply >= 0.80 else { return nil }
+        let strongRoute = hasBusinessNetwork || localSupply >= 1.15
+        return ProcurementQuote(
+            source: .fleetPurchase,
+            category: category,
+            count: count,
+            unitCost: Int((Double(category.purchaseCost) * (strongRoute ? 0.88 : 0.94)).rounded()),
+            fee: 25,
+            weeks: strongRoute ? 2 : 3,
+            quality: 0.70,
+            availabilityLabel: hasBusinessNetwork ? "法人仕入れ網" : "地域のリース満了車"
+        )
     }
 
     @discardableResult
@@ -1099,6 +1307,7 @@ final class GameEngine: ObservableObject {
         if !changed.hasManager {
             changed.delegateStaff = false
             changed.delegatePricing = false
+            changed.delegateProcurement = false
             changed.delegateMarketing = false
             changed.delegateService = false
         }
@@ -1299,6 +1508,7 @@ final class GameEngine: ObservableObject {
             isPositive: true
         ))
         recalculateAssets()
+        assertGridOccupancyIntegrity()
         save()
         return true
     }
@@ -1384,6 +1594,7 @@ final class GameEngine: ObservableObject {
         stores[index].manager = nil
         stores[index].delegateStaff = false
         stores[index].delegatePricing = false
+        stores[index].delegateProcurement = false
         stores[index].delegateMarketing = false
         stores[index].delegateService = false
         save()
@@ -1622,6 +1833,7 @@ final class GameEngine: ObservableObject {
         let footprint = footprintPlots(
             startingAt: primary,
             type: newType,
+            mode: stores[index].acquisition,
             occupiedBy: stores[index].id,
             requiredExistingIDs: Set(stores[index].plotIDs)
         )
@@ -1643,6 +1855,7 @@ final class GameEngine: ObservableObject {
         stores[index].renovationMonthsRemaining = newType.renovationMonths(from: stores[index].type)
         recordCityEvent(CityEvent(turn: turn, kind: .storeGrowth, title: "\(stores[index].name)が改装着工", detail: "\(newType.name)へ改装中。完成まで\(stores[index].renovationMonthsRemaining ?? 1)週間です", plotID: stores[index].plotID))
         recalculateAssets()
+        assertGridOccupancyIntegrity()
         save()
         return true
     }
@@ -1808,7 +2021,7 @@ final class GameEngine: ObservableObject {
     func canNegotiatePurchaseCase(_ caseID: UUID) -> Bool {
         guard let item = purchaseCases.first(where: { $0.id == caseID }),
               let store = stores.first(where: { $0.id == item.storeID }) else { return false }
-        return !(store.hasManager && store.delegatePricing)
+        return !(store.hasManager && store.delegateProcurement)
             && remainingWeeklyOpportunities(storeID: item.storeID) > 0
     }
 
@@ -1816,7 +2029,7 @@ final class GameEngine: ObservableObject {
     func negotiatePurchaseCase(_ caseID: UUID, offerPercent: Int, tradeIn: Bool = false) -> PurchaseNegotiationOutcome {
         guard let caseIndex = purchaseCases.firstIndex(where: { $0.id == caseID }),
               let storeIndex = stores.firstIndex(where: { $0.id == purchaseCases[caseIndex].storeID }),
-              !(stores[storeIndex].hasManager && stores[storeIndex].delegatePricing),
+              !(stores[storeIndex].hasManager && stores[storeIndex].delegateProcurement),
               let preview = purchaseNegotiationPreview(caseID, offerPercent: offerPercent) else { return .unavailable }
         let item = purchaseCases[caseIndex]
         let total = preview.price + item.repairCost
@@ -2047,6 +2260,7 @@ final class GameEngine: ObservableObject {
     func borrow(_ amount: Int) {
         guard amount > 0, debt + amount <= borrowingLimit else { return }
         debt += amount; cash += amount; finance.financingCF += amount
+        if cash >= -2_000 { financialDistressWeeks = 0 }
         save()
     }
 
@@ -2057,8 +2271,31 @@ final class GameEngine: ObservableObject {
     }
 
     var borrowingLimit: Int {
+        let base = borrowingLimitBeforeCredit
+        switch creditRating {
+        case "C": return base * 3 / 4
+        case "B": return base * 9 / 10
+        default: return base
+        }
+    }
+
+    private var borrowingLimitBeforeCredit: Int {
         let collateral = finance.landAssets * 6 / 10 + finance.buildingAssets * 3 / 10
         return max(15_000, collateral + 12_000) + milestoneCreditBonus
+    }
+
+    var creditRating: String {
+        let utilization = Double(debt) / Double(max(1, borrowingLimitBeforeCredit))
+        let recent = reports.prefix(4)
+        let losses = recent.filter { $0.operatingProfit < 0 }.count
+        if financialDistressWeeks > 0 || utilization >= 0.90 || losses >= 3 { return "C" }
+        if utilization >= 0.60 || losses >= 2 { return "B" }
+        return "A"
+    }
+
+    var financialDistressMessage: String? {
+        guard financialDistressWeeks > 0 else { return nil }
+        return "資金危機 \(financialDistressWeeks)/2週：次の週間処理までに借入、在庫売却、固定費削減で現金を回復してください"
     }
 
     func advanceWeek() {
@@ -2182,8 +2419,18 @@ final class GameEngine: ObservableObject {
         let achievedMilestones = evaluateMilestones(notes: &notes)
         cashChange += cash - cashBeforeMilestones
         companyValue = max(0, cash + finance.landAssets + finance.buildingAssets + finance.inventoryAssets - debt + max(0, operatingProfit * 18))
+        if cash < -2_000 {
+            financialDistressWeeks += 1
+            notes.append("資金危機\(financialDistressWeeks)/2週。融資余力\(max(0, borrowingLimit - debt).currency)、在庫売却、店舗固定費を確認してください")
+            if financialDistressWeeks == 1 {
+                recordCityEvent(CityEvent(turn: turn, kind: .milestone, title: "資金繰り警報", detail: "支払余力が危険水準です。次週までに資金を回復できなければ経営継続が困難になります", isPositive: false))
+            }
+        } else {
+            financialDistressWeeks = 0
+        }
         let headline: String
-        if let milestone = achievedMilestones.first { headline = "目標達成：\(milestone.title)" }
+        if financialDistressWeeks > 0 { headline = "資金危機です。次週までに資金繰りを立て直してください" }
+        else if let milestone = achievedMilestones.first { headline = "目標達成：\(milestone.title)" }
         else if claimCosts > 0 { headline = "販売後クレームが発生。査定と告知体制を見直しましょう" }
         else if operatingProfit > 100 { headline = "好調な一週間。次の仕入れを考えましょう" }
         else if operatingProfit >= 0 { headline = "黒字を確保。店舗ごとの差を確認しましょう" }
@@ -2203,7 +2450,7 @@ final class GameEngine: ObservableObject {
             tutorialMessage = "創業チュートリアル完了。店員で対応枠を増やし、必要になったら店長へ業務を委任しましょう。"
         }
         showMonthlyReport = UserDefaults.standard.object(forKey: "settings.autoShowWeeklyReport") as? Bool ?? true
-        if cash < -2_000 { gameOver = true }
+        if financialDistressWeeks >= 2 { gameOver = true }
         if turn >= maxTurns { gameOver = true }
         recalculateAssets()
         save()
@@ -2219,7 +2466,7 @@ final class GameEngine: ObservableObject {
         case .downtown: .premium
         case .suburb: .keiLocal
         case .station: .keiLocal
-        case .industrial: .custom
+        case .industrial: .business
         case .emerging: .family
         case .highway: .business
         }
@@ -2232,6 +2479,15 @@ final class GameEngine: ObservableObject {
 
     func vehicleDemand(_ category: VehicleCategory, in kind: DistrictKind) -> Double {
         districts.first(where: { $0.kind == kind })?.demands[category] ?? 0.55
+    }
+
+    func vehicleSupply(_ category: VehicleCategory, in kind: DistrictKind) -> Double {
+        districts.first(where: { $0.kind == kind })?.supplies[category] ?? 0.42
+    }
+
+    func recommendedSupplyCategories(for kind: DistrictKind) -> [VehicleCategory] {
+        guard let district = districts.first(where: { $0.kind == kind }) else { return [.compact] }
+        return district.supplies.sorted { $0.value > $1.value }.map(\.key)
     }
 
     func catchmentStrength(for store: Store) -> Double {
@@ -2253,70 +2509,29 @@ final class GameEngine: ObservableObject {
         return false
     }
 
+    private func assertGridOccupancyIntegrity() {
+#if DEBUG
+        let issues = gridOccupancyIssues
+        assert(issues.isEmpty, issues.map(\.description).joined(separator: "\n"))
+#endif
+    }
+
     private func footprintPlots(
         startingAt plot: LandPlot,
         type: StoreType,
+        mode: AcquisitionMode?,
         occupiedBy storeID: UUID?,
         requiredExistingIDs: Set<Int>
     ) -> [LandPlot] {
-        guard let anchor = CityMapLayout.gridCoordinate(for: plot.id) else { return [] }
-        let patterns: [[(column: Int, row: Int)]]
-        switch type.requiredGridCells {
-        case 1:
-            patterns = [[(0, 0)]]
-        case 2:
-            patterns = [
-                [(0, 0), (1, 0)], [(0, 0), (-1, 0)],
-                [(0, 0), (0, 1)], [(0, 0), (0, -1)]
-            ]
-        default:
-            patterns = [
-                [(0, 0), (1, 0), (2, 0)],
-                [(-1, 0), (0, 0), (1, 0)],
-                [(-2, 0), (-1, 0), (0, 0)],
-                [(0, 0), (0, 1), (0, 2)],
-                [(0, -1), (0, 0), (0, 1)],
-                [(0, -2), (0, -1), (0, 0)]
-            ]
-        }
-
-        let districtPlots = plots.filter { $0.district == plot.district && $0.development == nil }
-        for pattern in patterns {
-            var candidate: [LandPlot] = []
-            for offset in pattern {
-                let column = anchor.column + offset.column
-                let row = anchor.row + offset.row
-                guard let cell = districtPlots.first(where: {
-                    guard let coordinate = CityMapLayout.gridCoordinate(for: $0.id) else { return false }
-                    return coordinate.column == column && coordinate.row == row
-                }) else {
-                    candidate.removeAll()
-                    break
-                }
-                let usable: Bool
-                switch cell.occupant {
-                case .available: usable = true
-                case .player(let occupantStoreID): usable = occupantStoreID == storeID
-                case .competitor, .unavailable: usable = false
-                }
-                guard usable else {
-                    candidate.removeAll()
-                    break
-                }
-                candidate.append(cell)
-            }
-            let candidateIDs = Set(candidate.map(\.id))
-            if candidate.count == type.requiredGridCells,
-               requiredExistingIDs.isSubset(of: candidateIDs) {
-                return candidate.sorted {
-                    guard let lhs = CityMapLayout.gridCoordinate(for: $0.id),
-                          let rhs = CityMapLayout.gridCoordinate(for: $1.id) else { return $0.id < $1.id }
-                    if lhs.row != rhs.row { return lhs.row < rhs.row }
-                    return lhs.column < rhs.column
-                }
-            }
-        }
-        return []
+        GridStorePlacementAdapter.footprintPlots(
+            startingAt: plot,
+            type: type,
+            plots: plots,
+            map: ValidationCityMap.shared,
+            acquisitionMode: mode,
+            occupiedBy: storeID,
+            requiredExistingIDs: requiredExistingIDs
+        )
     }
 
     private func competitorCount(in district: DistrictKind) -> Int {
@@ -3291,6 +3506,9 @@ final class GameEngine: ObservableObject {
                     stores[index].priceIndex += targetPrice > stores[index].priceIndex ? step : -step
                     actions.append("価格を調整")
                 }
+            }
+
+            if stores[index].delegateProcurement {
                 let customerPurchases = resolveDelegatedPurchases(for: index)
                 if customerPurchases.attempts > 0 {
                     actions.append("買取客\(customerPurchases.attempts)人に対応・\(customerPurchases.purchases)台成約")
@@ -3299,11 +3517,9 @@ final class GameEngine: ObservableObject {
                 let freeCapacity = stores[index].type.capacity - stores[index].inventoryCount - incomingCount(for: stores[index].id)
                 if currentStockRate < 0.28, freeCapacity >= 3 {
                     let category = recommendedCategories(for: plot.district).first ?? .compact
-                    let unitCost = Int(Double(category.purchaseCost) * 1.08)
-                    let total = unitCost * 3 + 8
-                    if cash >= total {
-                        cash -= total
-                        inboundShipments.append(InboundShipment(id: UUID(), storeID: stores[index].id, source: .dealerTrade, modelID: nil, category: category, count: 3, unitCost: unitCost, quality: 0.80, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: 1))
+                    if let quote = dealerTradeQuote(category: category, count: 3, storeID: stores[index].id), cash >= quote.totalCost {
+                        cash -= quote.totalCost
+                        inboundShipments.append(InboundShipment(id: UUID(), storeID: stores[index].id, source: .dealerTrade, modelID: nil, category: category, count: 3, unitCost: quote.unitCost + quote.fee / 3, quality: quote.quality, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: quote.weeks))
                         actions.append("\(category.name)3台を自動発注")
                     }
                 }
@@ -3460,7 +3676,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
-        let snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, startupPlan: startupPlan)
+        let snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, startupPlan: startupPlan, financialDistressWeeks: financialDistressWeeks)
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
             pendingSave = snapshot
@@ -3522,7 +3738,7 @@ final class GameEngine: ObservableObject {
                 guard let storeID = assignedStore(in: kind, forSeller: true, seed: seed),
                       let store = stores.first(where: { $0.id == storeID }),
                       let storePlot = plot(id: store.plotID) else { continue }
-                let category = leadCategory(in: kind, seed: seed + 31)
+                let category = sellerCategory(in: kind, seed: seed + 31)
                 purchaseCases.append(makePurchaseCase(storeID: storeID, plot: storePlot, category: category, seed: seed))
                 if let storeIndex = stores.firstIndex(where: { $0.id == storeID }) {
                     stores[storeIndex].weeklySellerArrivals = stores[storeIndex].sellerArrivalsThisWeek + 1
@@ -3600,6 +3816,20 @@ final class GameEngine: ObservableObject {
         return weighted.last?.0 ?? .compact
     }
 
+    private func sellerCategory(in kind: DistrictKind, seed: Int) -> VehicleCategory {
+        guard let district = districts.first(where: { $0.kind == kind }) else { return .compact }
+        let weighted = VehicleCategory.allCases.map { category in
+            (category, max(0.05, district.supplies[category] ?? 0.42))
+        }
+        let total = weighted.reduce(0.0) { $0 + $1.1 }
+        var cursor = transactionRoll(seed: seed) * total
+        for (category, weight) in weighted {
+            cursor -= weight
+            if cursor <= 0 { return category }
+        }
+        return weighted.last?.0 ?? .compact
+    }
+
     private func leadPreference(in kind: DistrictKind, seed: Int) -> BuyerVehiclePreference {
         let budgetFirstShare: Double
         switch kind {
@@ -3617,17 +3847,21 @@ final class GameEngine: ObservableObject {
     }
 
     private func makeBuyerLead(storeID: UUID, preference: BuyerVehiclePreference, seed: Int) -> BuyerLead {
+        let localIncome = stores.first(where: { $0.id == storeID })
+            .flatMap { plot(id: $0.plotID) }
+            .map { district(for: $0).incomeIndex } ?? 1.0
+        let incomeBudgetFactor = min(1.24, max(0.84, 1 + (localIncome - 1) * 0.46))
         let budget: Int
         let minimumQuality: Double
         let priceSensitivity: Double
         switch preference {
         case .category(let category):
             let budgetRate = 1.13 + transactionRoll(seed: seed + 3) * 0.42
-            budget = max(35, Int(Double(category.purchaseCost) * budgetRate))
+            budget = max(35, Int(Double(category.purchaseCost) * budgetRate * incomeBudgetFactor))
             minimumQuality = 0.56 + transactionRoll(seed: seed + 5) * 0.28
             priceSensitivity = 0.82 + transactionRoll(seed: seed + 7) * 0.36
         case .budgetFirst:
-            budget = 80 + Int(transactionRoll(seed: seed + 3) * 111)
+            budget = Int(Double(80 + Int(transactionRoll(seed: seed + 3) * 111)) * incomeBudgetFactor)
             minimumQuality = 0.50 + transactionRoll(seed: seed + 5) * 0.24
             priceSensitivity = 1.05 + transactionRoll(seed: seed + 7) * 0.35
         }
@@ -3650,8 +3884,7 @@ final class GameEngine: ObservableObject {
     private func makeTradeInVehicle(storeID: UUID, seed: Int) -> TradeInVehicle? {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID) else { return nil }
-        let categories = VehicleCategory.allCases
-        let category = categories[Int(transactionRoll(seed: seed + 3) * Double(categories.count)) % categories.count]
+        let category = sellerCategory(in: plot.district, seed: seed + 3)
         let model = vehicleModel(for: category, seed: seed + 5)
         let profile = usedVehicleProfile(for: model, seed: seed + 7, maximumAge: 14)
         let quality = min(0.90, max(0.50, profile.quality - transactionRoll(seed: seed + 11) * 0.06))
@@ -3717,12 +3950,12 @@ final class GameEngine: ObservableObject {
 
     static func makeDistricts() -> [District] {
         [
-            District(kind: .downtown, population: 92_000, incomeIndex: 1.42, trafficIndex: 1.35, growthRate: 1.01, competition: 1.35, demands: [.premium: 1.48, .imported: 1.38, .suv: 1.12, .compact: 1.0, .kei: 0.72]),
-            District(kind: .station, population: 76_000, incomeIndex: 1.03, trafficIndex: 1.42, growthRate: 1.015, competition: 1.28, demands: [.compact: 1.42, .kei: 1.25, .minivan: 1.08, .imported: 0.78]),
-            District(kind: .emerging, population: 58_000, incomeIndex: 1.16, trafficIndex: 1.02, growthRate: 1.065, competition: 0.72, demands: [.suv: 1.52, .minivan: 1.45, .compact: 0.95, .pickup: 0.88]),
-            District(kind: .suburb, population: 88_000, incomeIndex: 1.08, trafficIndex: 1.18, growthRate: 1.02, competition: 1.02, demands: [.minivan: 1.48, .kei: 1.30, .suv: 1.26, .compact: 1.05, .pickup: 0.82]),
-            District(kind: .industrial, population: 43_000, incomeIndex: 0.82, trafficIndex: 0.88, growthRate: 0.99, competition: 0.58, demands: [.commercial: 1.55, .pickup: 1.42, .kei: 1.15, .premium: 0.42]),
-            District(kind: .highway, population: 66_000, incomeIndex: 0.91, trafficIndex: 1.48, growthRate: 1.012, competition: 0.93, demands: [.kei: 1.42, .pickup: 1.34, .suv: 1.12, .commercial: 1.08])
+            District(kind: .downtown, population: 92_000, incomeIndex: 1.42, trafficIndex: 1.35, growthRate: 1.01, competition: 1.35, demands: [.premium: 1.48, .imported: 1.38, .suv: 1.12, .compact: 1.0, .kei: 0.72], supplies: [.compact: 0.95, .premium: 0.88, .imported: 0.72, .suv: 0.75, .kei: 0.55]),
+            District(kind: .station, population: 76_000, incomeIndex: 1.03, trafficIndex: 1.42, growthRate: 1.015, competition: 1.28, demands: [.compact: 1.42, .kei: 1.25, .minivan: 1.08, .imported: 0.78], supplies: [.compact: 1.45, .kei: 1.30, .minivan: 0.90, .imported: 0.55]),
+            District(kind: .emerging, population: 58_000, incomeIndex: 1.16, trafficIndex: 1.02, growthRate: 1.065, competition: 0.72, demands: [.suv: 1.52, .minivan: 1.45, .compact: 0.95, .pickup: 0.88], supplies: [.suv: 1.12, .minivan: 1.05, .compact: 0.82, .pickup: 0.60]),
+            District(kind: .suburb, population: 88_000, incomeIndex: 1.08, trafficIndex: 1.18, growthRate: 1.02, competition: 1.02, demands: [.minivan: 1.48, .kei: 1.30, .suv: 1.26, .compact: 1.05, .pickup: 0.82], supplies: [.minivan: 1.45, .kei: 1.35, .suv: 1.15, .compact: 1.0, .pickup: 0.65]),
+            District(kind: .industrial, population: 43_000, incomeIndex: 0.82, trafficIndex: 0.88, growthRate: 0.99, competition: 0.58, demands: [.commercial: 1.55, .pickup: 1.42, .kei: 1.15, .premium: 0.42], supplies: [.commercial: 1.75, .pickup: 1.38, .kei: 0.92, .suv: 0.80, .premium: 0.25]),
+            District(kind: .highway, population: 66_000, incomeIndex: 0.91, trafficIndex: 1.48, growthRate: 1.012, competition: 0.93, demands: [.kei: 1.42, .pickup: 1.34, .suv: 1.12, .commercial: 1.08], supplies: [.pickup: 1.25, .commercial: 1.22, .suv: 1.18, .kei: 1.05, .minivan: 0.80])
         ]
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject private var game: GameEngine
     @State private var confirmNewGame = false
+    @State private var showPlans = false
 
     var body: some View {
         ZStack {
@@ -32,7 +33,7 @@ struct OnboardingView: View {
                 VStack(spacing: 12) {
                     Button {
                         if game.hasSaveData { confirmNewGame = true }
-                        else { game.startNewGame() }
+                        else { showPlans = true }
                     } label: {
                         TitleActionLabel(title: "新しいゲーム", icon: "plus", prominent: true)
                     }
@@ -72,10 +73,61 @@ struct OnboardingView: View {
             .padding(24)
         }
         .confirmationDialog("新しいゲームを始めますか？", isPresented: $confirmNewGame, titleVisibility: .visible) {
-            Button("セーブデータを上書きして開始", role: .destructive) { game.startNewGame() }
+            Button("セーブデータを上書きして開始", role: .destructive) { showPlans = true }
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("現在のセーブデータは削除されます。")
+        }
+        .sheet(isPresented: $showPlans) {
+            StartupPlanSelectionView { plan in
+                showPlans = false
+                game.start(plan: plan)
+            }
+        }
+    }
+}
+
+private struct StartupPlanSelectionView: View {
+    let choose: (StartupPlan) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("最初の勝ち筋を選ぶ")
+                        .font(.title2.bold())
+                    Text("おすすめ立地・客層・店舗コンセプトが変わります。開始後も方針転換できます。")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    ForEach(StartupPlan.allCases) { plan in
+                        Button { choose(plan) } label: {
+                            HStack(spacing: 13) {
+                                Image(systemName: plan.icon)
+                                    .font(.title2)
+                                    .foregroundStyle(GameTheme.teal)
+                                    .frame(width: 46, height: 46)
+                                    .background(GameTheme.teal.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(plan.name).font(.headline).foregroundStyle(GameTheme.ink)
+                                    Text(plan.tagline).font(.caption).foregroundStyle(.secondary)
+                                    Text("\(plan.recommendedDistrict.name)・\(plan.recommendedStoreType.name)・\(plan.recommendedConcept.name)")
+                                        .font(.caption2.bold()).foregroundStyle(GameTheme.teal)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                            }
+                            .padding(13)
+                            .background(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 15))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(18)
+            }
+            .background(GameTheme.cream)
+            .navigationTitle("創業プラン")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
