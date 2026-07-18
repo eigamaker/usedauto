@@ -388,7 +388,7 @@ struct GridOrthographicCameraSpec: Hashable, Sendable {
     static let foundation = GridOrthographicCameraSpec(
         azimuthDegrees: 45,
         elevationDegrees: 38.16,
-        zoomScaleFactors: [1.0, 0.70, 0.49, 0.34]
+        zoomScaleFactors: [1.0, 0.62, 0.38, 0.22]
     )
 
     func cameraOffset(groundDistance: Float) -> GridCameraOffset {

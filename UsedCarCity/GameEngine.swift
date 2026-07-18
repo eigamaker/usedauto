@@ -116,7 +116,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v22"
+    private static let saveKey = "UsedCarCity.save.v23"
     private static let managerCandidates = [
         StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, marketingAbility: 84, serviceAbility: 71, monthlySalary: 56),
         StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, marketingAbility: 58, serviceAbility: 75, monthlySalary: 56),
@@ -1689,7 +1689,10 @@ final class GameEngine: ObservableObject {
         let disclosedIssueEffect = batch.disclosedIssue == nil ? 0.0 : -0.06
         let employeeEffect = employeeSalesCloseAdjustment(for: storeID)
         let competitiveEffect = priceWarCloseAdjustment(in: plot.district)
-        let chance = min(0.93, max(0.03, strategy.baseCloseChance + demandEffect + reputationEffect + preferenceEffect + catalogEffect + qualityEffect + budgetEffect + freshnessEffect + specialtyEffect + disclosedIssueEffect + employeeEffect + competitiveEffect))
+        // Apply stock age after the common cap so a high-demand district cannot
+        // completely hide the penalty for inventory that has sat for months.
+        let baselineChance = min(0.93, max(0.03, strategy.baseCloseChance + demandEffect + reputationEffect + preferenceEffect + catalogEffect + qualityEffect + budgetEffect + specialtyEffect + disclosedIssueEffect + employeeEffect + competitiveEffect))
+        let chance = min(0.93, max(0.03, baselineChance + freshnessEffect))
         return (offer, offer - batch.averageCost, chance)
     }
 
@@ -3706,7 +3709,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func placeCompetitors() {
-        let placements: [(Int, Int)] = [(0, 3), (1, 16), (2, 28), (2, 40), (0, 52), (1, 65)]
+        let placements: [(Int, Int)] = [(0, 3), (1, 38), (2, 72), (2, 106), (0, 137), (1, 166)]
         for (competitorIndex, plotID) in placements {
             guard plots.indices.contains(plotID), competitors.indices.contains(competitorIndex) else { continue }
             competitors[competitorIndex].plotIDs.append(plotID)

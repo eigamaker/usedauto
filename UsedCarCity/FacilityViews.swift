@@ -49,13 +49,13 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     var worldPoint: CGPoint {
         switch self {
-        case .auction: CityMapLayout.gridPoint(column: 2, row: 17)
-        case .bank: CityMapLayout.gridPoint(column: 0, row: 5)
-        case .realEstate: CityMapLayout.gridPoint(column: 6, row: 6)
-        case .workshop: CityMapLayout.gridPoint(column: 18, row: 11)
-        case .advertising: CityMapLayout.gridPoint(column: 9, row: 6)
-        case .recruiting: CityMapLayout.gridPoint(column: 14, row: 5)
-        case .cityHall: CityMapLayout.gridPoint(column: 18, row: 5)
+        case .auction: CityMapLayout.gridPoint(column: 5, row: 18)
+        case .bank: CityMapLayout.gridPoint(column: 7, row: 7)
+        case .realEstate: CityMapLayout.gridPoint(column: 11, row: 7)
+        case .workshop: CityMapLayout.gridPoint(column: 21, row: 15)
+        case .advertising: CityMapLayout.gridPoint(column: 15, row: 7)
+        case .recruiting: CityMapLayout.gridPoint(column: 20, row: 7)
+        case .cityHall: CityMapLayout.gridPoint(column: 28, row: 7)
         }
     }
 

@@ -106,20 +106,20 @@ struct CityMapBlueprint {
         id: "suihama",
         name: "翠浜市",
         grid: IsometricGridSpec(
-            columnCount: 20,
+            columnCount: 30,
             rowCount: 20,
-            origin: CGPoint(x: 0.058, y: 0.058),
-            columnSpacing: 0.0465,
-            rowSpacing: 0.0465,
-            lotSize: CGSize(width: 0.041, height: 0.036)
+            origin: CGPoint(x: 0.025, y: 0.045),
+            columnSpacing: 0.0325,
+            rowSpacing: 0.048,
+            lotSize: CGSize(width: 0.028, height: 0.040)
         ),
         districts: [
-            DistrictGridRegion(kind: .downtown, column: 0, row: 0, columns: 4, rows: 3),
-            DistrictGridRegion(kind: .station, column: 7, row: 1, columns: 4, rows: 3),
-            DistrictGridRegion(kind: .emerging, column: 15, row: 0, columns: 4, rows: 3),
-            DistrictGridRegion(kind: .suburb, column: 1, row: 8, columns: 4, rows: 3),
-            DistrictGridRegion(kind: .industrial, column: 13, row: 8, columns: 4, rows: 3),
-            DistrictGridRegion(kind: .highway, column: 7, row: 16, columns: 4, rows: 3)
+            DistrictGridRegion(kind: .downtown, column: 0, row: 0, columns: 6, rows: 5),
+            DistrictGridRegion(kind: .station, column: 12, row: 0, columns: 6, rows: 5),
+            DistrictGridRegion(kind: .emerging, column: 24, row: 0, columns: 6, rows: 5),
+            DistrictGridRegion(kind: .suburb, column: 0, row: 10, columns: 6, rows: 5),
+            DistrictGridRegion(kind: .industrial, column: 12, row: 10, columns: 6, rows: 5),
+            DistrictGridRegion(kind: .highway, column: 24, row: 10, columns: 6, rows: 5)
         ],
         majorRoads: [
             GridRoadPlacement(axis: .horizontal, position: 0.250, range: 0.01...0.98, width: 0.028, isMajor: true),

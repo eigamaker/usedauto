@@ -389,7 +389,7 @@ private final class GridCitySceneController {
     func setContinuousZoomFactor(_ factor: CGFloat) {
         currentZoomFactor = min(
             GridCameraZoom.scaleFactors.first ?? 1,
-            max(GridCameraZoom.scaleFactors.last ?? 0.34, factor)
+            max(GridCameraZoom.scaleFactors.last ?? 0.22, factor)
         )
         updateFacilityVisibility()
         updateAssetLODVisibility()
@@ -533,6 +533,7 @@ private final class GridCitySceneController {
         buildParcelNodes()
         scene.rootNode.addChildNode(makeRoadNode(isSidewalk: true))
         scene.rootNode.addChildNode(makeRoadNode(isSidewalk: false))
+        scene.rootNode.addChildNode(makeRoadMarkingNode())
         buildStaticObjectNodes()
         buildVacantMarkers()
         buildFacilityMarkers()
@@ -564,7 +565,7 @@ private final class GridCitySceneController {
                 width: CGFloat(bounds.width),
                 height: 0.40,
                 length: CGFloat(bounds.depth),
-                chamferRadius: 0
+                chamferRadius: 1.1
             )
             geometry.firstMaterial = material(color: baseDistrictColor(parcel.district))
             let node = SCNNode(geometry: geometry)
@@ -599,6 +600,52 @@ private final class GridCitySceneController {
         )
         let node = SCNNode(geometry: geometry)
         node.name = isSidewalk ? "road-sidewalks" : "road-pavement"
+        return node
+    }
+
+    private func makeRoadMarkingNode() -> SCNNode {
+        var rectangles: [(GridWorldPoint, GridLocalSurfaceRect)] = []
+        let arterialCellsByRow = Dictionary(grouping: map.roads.values.filter {
+            $0.roadClass == .arterial
+        }, by: { $0.coordinate.row })
+        let horizontalBandRows = Set(arterialCellsByRow.compactMap { row, cells in
+            cells.count > map.size.columns / 2 ? row : nil
+        })
+        for road in map.roads.values where road.roadClass == .arterial {
+            let center = map.metrics.worldCenter(of: road.coordinate, mapSize: map.size)
+            let isHorizontalBand = horizontalBandRows.contains(road.coordinate.row)
+            if !isHorizontalBand,
+               (road.connections.contains(.north) || road.connections.contains(.south)) {
+                rectangles.append((
+                    center,
+                    GridLocalSurfaceRect(
+                        centerX: 0,
+                        centerZ: 0,
+                        width: 0.42,
+                        depth: map.metrics.cellSize * 0.48
+                    )
+                ))
+            }
+            if isHorizontalBand,
+               (road.connections.contains(.east) || road.connections.contains(.west)) {
+                rectangles.append((
+                    center,
+                    GridLocalSurfaceRect(
+                        centerX: 0,
+                        centerZ: 0,
+                        width: map.metrics.cellSize * 0.48,
+                        depth: 0.42
+                    )
+                ))
+            }
+        }
+        let geometry = makeHorizontalGeometry(
+            rectangles: rectangles,
+            height: GridSceneElevation.pavementSurface + 0.015,
+            color: UIColor(red: 0.91, green: 0.77, blue: 0.38, alpha: 0.92)
+        )
+        let node = SCNNode(geometry: geometry)
+        node.name = "arterial-lane-markings"
         return node
     }
 
@@ -647,17 +694,40 @@ private final class GridCitySceneController {
     }
 
     private func makeObjectNode(_ object: GridPlacedObject, parcel: GridParcel) -> SCNNode {
-        let bounds = map.metrics.worldBounds(of: object.rect, mapSize: map.size)
-        let node = assetFactory.makeAsset(
+        let objectBounds = map.metrics.worldBounds(of: object.rect, mapSize: map.size)
+        let parcelBounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+        let container = SCNNode()
+        container.position = SCNVector3(
+            parcelBounds.center.x,
+            GridSceneElevation.assetBase,
+            parcelBounds.center.z
+        )
+        container.name = "object:\(object.id)"
+        setInteractionMetadata(on: container, parcel: parcel)
+
+        let definition = CityAssetCatalog.definition(for: object.assetID)
+        if object.kind == .building {
+            container.addChildNode(assetFactory.makeLotInfill(
+                category: definition.category,
+                facing: object.facing,
+                width: parcelBounds.width,
+                depth: parcelBounds.depth
+            ))
+        }
+
+        let assetNode = assetFactory.makeAsset(
             id: object.assetID,
             facing: object.facing,
             heightHint: object.kind == .parking ? nil : object.height
         )
-        node.position = SCNVector3(bounds.center.x, GridSceneElevation.assetBase, bounds.center.z)
-        node.name = "object:\(object.id)"
-        setInteractionMetadata(on: node, parcel: parcel)
-        registerAssetLODNodes(for: node)
-        return node
+        assetNode.position = SCNVector3(
+            objectBounds.center.x - parcelBounds.center.x,
+            0,
+            objectBounds.center.z - parcelBounds.center.z
+        )
+        container.addChildNode(assetNode)
+        registerAssetLODNodes(for: container)
+        return container
     }
 
     private func buildVacantMarkers() {
@@ -868,13 +938,13 @@ private final class GridCitySceneController {
         // Facility markers are map UI anchors, not occupied buildings. Anchoring
         // them to road-cell centers keeps them snapped without consuming a lot.
         switch facility {
-        case .auction: GridCoordinate(column: 10, row: 35)
-        case .bank: GridCoordinate(column: 5, row: 10)
-        case .realEstate: GridCoordinate(column: 20, row: 10)
-        case .workshop: GridCoordinate(column: 41, row: 27)
-        case .advertising: GridCoordinate(column: 31, row: 10)
-        case .recruiting: GridCoordinate(column: 52, row: 10)
-        case .cityHall: GridCoordinate(column: 57, row: 10)
+        case .auction: GridCoordinate(column: 15, row: 54)
+        case .bank: GridCoordinate(column: 10, row: 15)
+        case .realEstate: GridCoordinate(column: 30, row: 15)
+        case .workshop: GridCoordinate(column: 61, row: 42)
+        case .advertising: GridCoordinate(column: 46, row: 15)
+        case .recruiting: GridCoordinate(column: 77, row: 10)
+        case .cityHall: GridCoordinate(column: 87, row: 20)
         }
     }
 
@@ -942,12 +1012,12 @@ private final class GridCitySceneController {
 
     private func baseDistrictColor(_ district: DistrictKind) -> UIColor {
         switch district {
-        case .downtown: UIColor(red: 0.60, green: 0.53, blue: 0.67, alpha: 1)
-        case .station: UIColor(red: 0.52, green: 0.62, blue: 0.69, alpha: 1)
-        case .emerging: UIColor(red: 0.52, green: 0.67, blue: 0.45, alpha: 1)
-        case .suburb: UIColor(red: 0.50, green: 0.64, blue: 0.50, alpha: 1)
-        case .industrial: UIColor(red: 0.56, green: 0.56, blue: 0.53, alpha: 1)
-        case .highway: UIColor(red: 0.67, green: 0.59, blue: 0.44, alpha: 1)
+        case .downtown: UIColor(red: 0.53, green: 0.47, blue: 0.61, alpha: 1)
+        case .station: UIColor(red: 0.43, green: 0.61, blue: 0.69, alpha: 1)
+        case .emerging: UIColor(red: 0.48, green: 0.70, blue: 0.43, alpha: 1)
+        case .suburb: UIColor(red: 0.45, green: 0.65, blue: 0.47, alpha: 1)
+        case .industrial: UIColor(red: 0.51, green: 0.53, blue: 0.52, alpha: 1)
+        case .highway: UIColor(red: 0.68, green: 0.56, blue: 0.36, alpha: 1)
         }
     }
 

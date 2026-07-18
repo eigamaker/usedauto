@@ -192,40 +192,40 @@ enum CityAssetCatalog {
     static let definitions: [CityAssetDefinition] = ambientDefinitions + playerFacilityDefinitions
 
     static let ambientDefinitions: [CityAssetDefinition] = [
-        ambient(.residentialCottage, .generalResidential, .oneByOne, [.suburb], 7),
-        ambient(.residentialGable, .generalResidential, .oneByOne, [.suburb], 8),
-        ambient(.residentialFlat, .generalResidential, .oneByTwo, [.suburb], 7),
-        ambient(.residentialTwin, .generalResidential, .oneByTwo, [.suburb], 8),
-        ambient(.residentialApartment, .generalResidential, .twoByTwo, [.suburb], 13),
+        ambient(.residentialCottage, .generalResidential, .twoByTwo, [.suburb], 7),
+        ambient(.residentialGable, .generalResidential, .twoByTwo, [.suburb], 8),
+        ambient(.residentialFlat, .generalResidential, .twoByThree, [.suburb], 7),
+        ambient(.residentialTwin, .generalResidential, .twoByThree, [.suburb], 8),
+        ambient(.residentialApartment, .generalResidential, .threeByThree, [.suburb], 13),
 
-        ambient(.luxuryCourtyard, .luxuryResidential, .twoByTwo, [.emerging], 8, clearance: .vehicleApron),
-        ambient(.luxuryGarage, .luxuryResidential, .twoByTwo, [.emerging], 9, clearance: .frontOne),
-        ambient(.luxuryPool, .luxuryResidential, .twoByThree, [.emerging], 8, clearance: .vehicleApron),
-        ambient(.luxuryTerrace, .luxuryResidential, .twoByThree, [.emerging], 10, clearance: .frontOne),
+        ambient(.luxuryCourtyard, .luxuryResidential, .threeByThree, [.emerging], 8, clearance: .vehicleApron),
+        ambient(.luxuryGarage, .luxuryResidential, .threeByThree, [.emerging], 9, clearance: .frontOne),
+        ambient(.luxuryPool, .luxuryResidential, GridSize(width: 3, depth: 4), [.emerging], 8, clearance: .vehicleApron),
+        ambient(.luxuryTerrace, .luxuryResidential, .fourByFour, [.emerging], 10, clearance: .frontOne),
 
-        ambient(.commercialAutoDealer, .commercial, .twoByThree, [.station, .highway], 10, clearance: .frontOne),
-        ambient(.commercialGasStation, .commercial, .twoByTwo, [.station, .highway], 7, clearance: .frontOne),
-        ambient(.commercialConvenience, .commercial, .oneByTwo, [.station, .highway], 7, clearance: .frontOne),
-        ambient(.commercialRestaurant, .commercial, .oneByTwo, [.station, .highway], 8, clearance: .frontOne),
-        ambient(.commercialShopping, .commercial, .twoByThree, [.station, .highway], 12, clearance: .frontOne),
-        ambient(.commercialRoadside, .commercial, .twoByTwo, [.station, .highway], 9, clearance: .frontOne),
+        ambient(.commercialAutoDealer, .commercial, GridSize(width: 3, depth: 4), [.station, .highway], 10, clearance: .frontOne),
+        ambient(.commercialGasStation, .commercial, .threeByThree, [.station, .highway], 7, clearance: .frontOne),
+        ambient(.commercialConvenience, .commercial, .twoByThree, [.station, .highway], 7, clearance: .frontOne),
+        ambient(.commercialRestaurant, .commercial, .twoByThree, [.station, .highway], 8, clearance: .frontOne),
+        ambient(.commercialShopping, .commercial, .fourByFour, [.station, .highway], 12, clearance: .frontOne),
+        ambient(.commercialRoadside, .commercial, .threeByThree, [.station, .highway], 9, clearance: .frontOne),
 
         ambient(.industrialFactory, .industrial, .fourByFour, [.industrial], 13, clearance: .frontOne),
-        ambient(.industrialWarehouse, .industrial, .threeByThree, [.industrial, .highway], 12, clearance: .frontOne),
-        ambient(.industrialLoadingWarehouse, .industrial, .twoByThree, [.industrial, .highway], 11, clearance: .vehicleApron),
-        ambient(.industrialTankWorks, .industrial, .twoByThree, [.industrial], 12, clearance: .frontOne),
-        ambient(.industrialSmokestack, .industrial, .threeByThree, [.industrial], 18, clearance: .frontOne),
+        ambient(.industrialWarehouse, .industrial, .fourByFour, [.industrial, .highway], 12, clearance: .frontOne),
+        ambient(.industrialLoadingWarehouse, .industrial, GridSize(width: 3, depth: 4), [.industrial, .highway], 11, clearance: .vehicleApron),
+        ambient(.industrialTankWorks, .industrial, GridSize(width: 3, depth: 4), [.industrial], 12, clearance: .frontOne),
+        ambient(.industrialSmokestack, .industrial, .fourByFour, [.industrial], 18, clearance: .frontOne),
 
-        ambient(.downtownMixedUse, .downtown, .twoByTwo, [.downtown], 28),
-        ambient(.downtownOffice, .downtown, .twoByTwo, [.downtown], 34),
-        ambient(.downtownApartment, .downtown, .threeByThree, [.downtown], 30),
-        ambient(.downtownParkingStructure, .downtown, .twoByTwo, [.downtown], 18),
-        ambient(.downtownCornerBlock, .downtown, .threeByThree, [.downtown], 36),
+        ambient(.downtownMixedUse, .downtown, .threeByThree, [.downtown], 28),
+        ambient(.downtownOffice, .downtown, .threeByThree, [.downtown], 34),
+        ambient(.downtownApartment, .downtown, .fourByFour, [.downtown], 30),
+        ambient(.downtownParkingStructure, .downtown, .threeByThree, [.downtown], 18),
+        ambient(.downtownCornerBlock, .downtown, .fourByFour, [.downtown], 36),
 
         ambient(.highwayLogistics, .highway, .fourByFour, [.highway, .industrial], 12, clearance: .vehicleApron),
-        ambient(.highwayBigBox, .highway, .threeByThree, [.highway], 11, clearance: .vehicleApron),
-        ambient(.highwayMotorHotel, .highway, .twoByThree, [.highway], 15, clearance: .frontOne),
-        ambient(.surfaceParking, .parking, GridSize(width: 3, depth: 4), Set(DistrictKind.allCases), 1)
+        ambient(.highwayBigBox, .highway, .fourByFour, [.highway], 11, clearance: .vehicleApron),
+        ambient(.highwayMotorHotel, .highway, GridSize(width: 3, depth: 4), [.highway], 15, clearance: .frontOne),
+        ambient(.surfaceParking, .parking, .fourByFour, Set(DistrictKind.allCases), 1)
     ]
 
     static let playerFacilityDefinitions: [CityAssetDefinition] = [

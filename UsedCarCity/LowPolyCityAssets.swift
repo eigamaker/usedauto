@@ -90,6 +90,93 @@ final class LowPolyCityAssetFactory {
         return root
     }
 
+    /// Adds low-profile parcel composition around an ambient asset without
+    /// changing its occupied grid footprint. The building remains collision-
+    /// accurate while the rest of the purchased parcel reads as a deliberate
+    /// yard, forecourt or plaza instead of unused background.
+    func makeLotInfill(
+        category: CityAssetCategory,
+        facing: CardinalDirection,
+        width: Float,
+        depth: Float
+    ) -> SCNNode {
+        let c = AssetBuildContext(
+            width: max(4, width - 4),
+            depth: max(4, depth - 4),
+            height: 1
+        )
+        let root = SCNNode()
+        root.name = "asset-lot-infill:\(category.rawValue)"
+        let near = SCNNode()
+        near.name = Self.nearDetailNodeName
+        let props = SCNNode()
+        props.name = Self.propDetailNodeName
+        root.addChildNode(near)
+        root.addChildNode(props)
+
+        switch category {
+        case .generalResidential:
+            addBox(to: root, width: c.width * 0.13, height: 0.12, depth: c.depth * 0.58,
+                   x: c.width * 0.24, y: 0.06, z: c.depth * 0.18, material: .pavement, chamfer: 0.5)
+            addHedge(to: props, width: c.width * 0.72, x: 0, z: -c.depth * 0.45)
+            addTree(to: props, x: -c.width * 0.38, z: c.depth * 0.34, scale: 0.82)
+            addTree(to: props, x: c.width * 0.39, z: -c.depth * 0.31, scale: 0.72)
+        case .luxuryResidential:
+            addBox(to: root, width: c.width * 0.24, height: 0.12, depth: c.depth * 0.74,
+                   x: c.width * 0.27, y: 0.06, z: c.depth * 0.08, material: .pavement, chamfer: 0.7)
+            addBox(to: near, width: c.width * 0.24, height: 0.16, depth: c.depth * 0.22,
+                   x: -c.width * 0.27, y: 0.08, z: c.depth * 0.30, material: .poolBlue, chamfer: 0.8)
+            addHedge(to: props, width: c.width * 0.76, x: 0, z: -c.depth * 0.45)
+            addTree(to: props, x: -c.width * 0.40, z: -c.depth * 0.31, scale: 0.94)
+            addTree(to: props, x: c.width * 0.40, z: c.depth * 0.33, scale: 0.90)
+        case .commercial:
+            addBox(to: root, width: c.width * 0.90, height: 0.12, depth: c.depth * 0.38,
+                   x: 0, y: 0.06, z: c.depth * 0.27, material: .parkingAsphalt, chamfer: 0.6)
+            addParkingBayLines(to: near, props: props, c: c, carCount: 4)
+            addStreetLight(to: props, x: -c.width * 0.42, z: c.depth * 0.38)
+        case .industrial:
+            addBox(to: root, width: c.width * 0.92, height: 0.12, depth: c.depth * 0.40,
+                   x: 0, y: 0.06, z: c.depth * 0.26, material: .industrialPavement, chamfer: 0.45)
+            addFence(to: props, width: c.width * 0.86, x: 0, z: -c.depth * 0.45)
+            addTruck(to: props, x: c.width * 0.28, z: c.depth * 0.29)
+        case .downtown:
+            addBox(to: root, width: c.width * 0.92, height: 0.12, depth: c.depth * 0.24,
+                   x: 0, y: 0.06, z: c.depth * 0.37, material: .downtownPaving, chamfer: 0.45)
+            addBox(to: root, width: c.width * 0.18, height: 0.12, depth: c.depth * 0.70,
+                   x: -c.width * 0.36, y: 0.06, z: 0, material: .downtownPaving, chamfer: 0.45)
+            addStreetLight(to: props, x: -c.width * 0.40, z: c.depth * 0.37)
+            addStreetLight(to: props, x: c.width * 0.40, z: c.depth * 0.37)
+        case .highway:
+            addBox(to: root, width: c.width * 0.92, height: 0.12, depth: c.depth * 0.42,
+                   x: 0, y: 0.06, z: c.depth * 0.25, material: .parkingAsphalt, chamfer: 0.55)
+            addParkingBayLines(to: near, props: props, c: c, carCount: 3)
+            addTruck(to: props, x: -c.width * 0.30, z: c.depth * 0.25)
+        case .parking, .playerFacility:
+            break
+        }
+
+        root.eulerAngles.y = rotation(for: facing)
+        return root
+    }
+
+    private func addParkingBayLines(
+        to near: SCNNode,
+        props: SCNNode,
+        c: AssetBuildContext,
+        carCount: Int
+    ) {
+        let spacing = c.width * 0.72 / Float(max(1, carCount - 1))
+        for index in 0..<carCount {
+            let x = -c.width * 0.36 + Float(index) * spacing
+            addBox(to: near, width: 0.24, height: 0.08, depth: c.depth * 0.30,
+                   x: x, y: 0.12, z: c.depth * 0.27, material: .parkingLine, chamfer: 0)
+            if index.isMultiple(of: 2) {
+                addParkedCar(to: props, x: x + min(2.6, spacing * 0.30), z: c.depth * 0.27,
+                             color: index.isMultiple(of: 4) ? .vehicleBlue : .vehicleNeutral)
+            }
+        }
+    }
+
     private func buildResidential(
         _ c: AssetBuildContext,
         variant: Int,
@@ -101,35 +188,47 @@ final class LowPolyCityAssetFactory {
         let bodyHeight = variant == 4 ? c.height * 0.82 : c.height * 0.68
         switch variant {
         case 0:
-            addBox(to: root, width: c.width * 0.66, height: bodyHeight, depth: c.depth * 0.58,
-                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.10, material: .residentialWarm)
-            addGable(to: root, width: c.width * 0.70, depth: c.depth * 0.62, height: c.height * 0.28,
-                     x: 0, y: bodyHeight, z: -c.depth * 0.10, material: .roofBrown)
+            addBox(to: root, width: c.width * 0.86, height: bodyHeight, depth: c.depth * 0.78,
+                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.06, material: .residentialWarm)
+            addGable(to: root, width: c.width * 0.90, depth: c.depth * 0.82, height: c.height * 0.28,
+                     x: 0, y: bodyHeight, z: -c.depth * 0.06, material: .roofBrown)
         case 1:
-            addBox(to: root, width: c.width * 0.72, height: bodyHeight, depth: c.depth * 0.58,
-                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.08, material: .residentialCool)
-            addGable(to: root, width: c.width * 0.76, depth: c.depth * 0.62, height: c.height * 0.30,
-                     x: 0, y: bodyHeight, z: -c.depth * 0.08, material: .roofSlate)
+            addBox(to: root, width: c.width * 0.88, height: bodyHeight, depth: c.depth * 0.78,
+                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.05, material: .residentialCool)
+            addGable(to: root, width: c.width * 0.92, depth: c.depth * 0.82, height: c.height * 0.30,
+                     x: 0, y: bodyHeight, z: -c.depth * 0.05, material: .roofSlate)
         case 2:
-            addBox(to: root, width: c.width * 0.72, height: bodyHeight, depth: c.depth * 0.64,
-                   x: -c.width * 0.07, y: bodyHeight / 2, z: -c.depth * 0.10, material: .residentialLight)
-            addBox(to: root, width: c.width * 0.34, height: bodyHeight * 0.72, depth: c.depth * 0.30,
-                   x: c.width * 0.22, y: bodyHeight * 0.36, z: c.depth * 0.24, material: .residentialWarm)
+            addBox(to: root, width: c.width * 0.82, height: bodyHeight, depth: c.depth * 0.72,
+                   x: -c.width * 0.06, y: bodyHeight / 2, z: -c.depth * 0.08, material: .residentialLight)
+            addBox(to: root, width: c.width * 0.38, height: bodyHeight * 0.76, depth: c.depth * 0.36,
+                   x: c.width * 0.24, y: bodyHeight * 0.38, z: c.depth * 0.24, material: .residentialWarm)
         case 3:
-            let halfWidth = c.width * 0.34
-            for x in [-c.width * 0.19, c.width * 0.19] {
-                addBox(to: root, width: halfWidth, height: bodyHeight, depth: c.depth * 0.66,
+            let halfWidth = c.width * 0.42
+            for x in [-c.width * 0.22, c.width * 0.22] {
+                addBox(to: root, width: halfWidth, height: bodyHeight, depth: c.depth * 0.80,
                        x: x, y: bodyHeight / 2, z: -c.depth * 0.05, material: .residentialWarm)
-                addGable(to: root, width: halfWidth * 1.05, depth: c.depth * 0.70, height: c.height * 0.24,
+                addGable(to: root, width: halfWidth * 1.04, depth: c.depth * 0.84, height: c.height * 0.24,
                          x: x, y: bodyHeight, z: -c.depth * 0.05, material: .roofBrown)
             }
         default:
-            addBox(to: root, width: c.width * 0.78, height: bodyHeight, depth: c.depth * 0.70,
-                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.05, material: .residentialCool)
-            addBox(to: root, width: c.width * 0.82, height: 0.7, depth: c.depth * 0.75,
+            addBox(to: root, width: c.width * 0.88, height: bodyHeight, depth: c.depth * 0.80,
+                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.03, material: .residentialCool)
+            addBox(to: root, width: c.width * 0.92, height: 0.7, depth: c.depth * 0.84,
                    x: 0, y: bodyHeight + 0.35, z: -c.depth * 0.05, material: .roofSlate)
         }
+        if variant < 4 {
+            addBox(to: root, width: c.width * 0.34, height: 0.55, depth: c.depth * 0.18,
+                   x: c.width * 0.08, y: bodyHeight * 0.42, z: c.depth * 0.29,
+                   material: variant.isMultiple(of: 2) ? .roofBrown : .roofSlate)
+        }
+        if variant == 0 || variant == 1 {
+            addBox(to: root, width: 1.4, height: c.height * 0.38, depth: 1.4,
+                   x: c.width * 0.22, y: bodyHeight + c.height * 0.12,
+                   z: -c.depth * 0.18, material: .smokestackBrick)
+        }
         addFacadeStrip(to: near, width: c.width * 0.44, height: 1.0, z: c.depth * 0.22, y: bodyHeight * 0.55)
+        addBox(to: near, width: max(1.4, c.width * 0.12), height: bodyHeight * 0.42, depth: 0.42,
+               x: c.width * 0.18, y: bodyHeight * 0.21, z: c.depth * 0.305, material: .woodAccent)
         addTree(to: props, x: -c.width * 0.34, z: c.depth * 0.31, scale: 0.75)
         addHedge(to: props, width: c.width * 0.44, x: c.width * 0.18, z: c.depth * 0.42)
     }
@@ -144,20 +243,22 @@ final class LowPolyCityAssetFactory {
         addGround(to: root, c: c, material: .luxuryGarden)
         let mainHeight = c.height * 0.72
         if variant == 0 {
-            addBox(to: root, width: c.width * 0.62, height: mainHeight, depth: c.depth * 0.42,
-                   x: 0, y: mainHeight / 2, z: -c.depth * 0.22, material: .luxuryStone)
-            addBox(to: root, width: c.width * 0.25, height: mainHeight * 0.75, depth: c.depth * 0.34,
-                   x: -c.width * 0.27, y: mainHeight * 0.375, z: c.depth * 0.08, material: .luxuryLight)
-            addBox(to: root, width: c.width * 0.25, height: mainHeight * 0.75, depth: c.depth * 0.34,
-                   x: c.width * 0.27, y: mainHeight * 0.375, z: c.depth * 0.08, material: .luxuryLight)
+            addBox(to: root, width: c.width * 0.70, height: mainHeight, depth: c.depth * 0.56,
+                   x: 0, y: mainHeight / 2, z: -c.depth * 0.16, material: .luxuryStone)
+            addBox(to: root, width: c.width * 0.28, height: mainHeight * 0.75, depth: c.depth * 0.42,
+                   x: -c.width * 0.31, y: mainHeight * 0.375, z: c.depth * 0.12, material: .luxuryLight)
+            addBox(to: root, width: c.width * 0.28, height: mainHeight * 0.75, depth: c.depth * 0.42,
+                   x: c.width * 0.31, y: mainHeight * 0.375, z: c.depth * 0.12, material: .luxuryLight)
         } else {
-            addBox(to: root, width: c.width * 0.58, height: mainHeight, depth: c.depth * 0.46,
-                   x: -c.width * 0.10, y: mainHeight / 2, z: -c.depth * 0.18, material: variant == 3 ? .luxuryStone : .luxuryLight)
-            addBox(to: root, width: c.width * 0.28, height: mainHeight * 0.58, depth: c.depth * 0.34,
-                   x: c.width * 0.27, y: mainHeight * 0.29, z: c.depth * 0.12, material: .garageGray)
+            addBox(to: root, width: c.width * 0.68, height: mainHeight, depth: c.depth * 0.58,
+                   x: -c.width * 0.08, y: mainHeight / 2, z: -c.depth * 0.14, material: variant == 3 ? .luxuryStone : .luxuryLight)
+            addBox(to: root, width: c.width * 0.34, height: mainHeight * 0.62, depth: c.depth * 0.42,
+                   x: c.width * 0.29, y: mainHeight * 0.31, z: c.depth * 0.14, material: .garageGray)
         }
-        addBox(to: root, width: c.width * 0.64, height: 0.7, depth: c.depth * 0.50,
-               x: -c.width * 0.06, y: mainHeight + 0.35, z: -c.depth * 0.15, material: .roofLight)
+        addBox(to: root, width: c.width * 0.76, height: 0.7, depth: c.depth * 0.62,
+               x: -c.width * 0.05, y: mainHeight + 0.35, z: -c.depth * 0.12, material: .roofLight)
+        addBox(to: root, width: c.width * 0.30, height: 0.65, depth: c.depth * 0.20,
+               x: -c.width * 0.08, y: mainHeight * 0.48, z: c.depth * 0.18, material: .woodAccent)
         if variant == 2 {
             addBox(to: root, width: c.width * 0.42, height: 0.24, depth: c.depth * 0.24,
                    x: -c.width * 0.12, y: 0.20, z: c.depth * 0.31, material: .poolBlue, chamfer: 0.5)
@@ -166,6 +267,8 @@ final class LowPolyCityAssetFactory {
             addBox(to: near, width: c.width * 0.48, height: 0.5, depth: c.depth * 0.16,
                    x: -c.width * 0.05, y: mainHeight * 0.58, z: c.depth * 0.10, material: .woodAccent)
         }
+        addBox(to: near, width: c.width * 0.24, height: mainHeight * 0.40, depth: 0.55,
+               x: c.width * 0.27, y: mainHeight * 0.22, z: c.depth * 0.295, material: .garageGray)
         addFacadeStrip(to: near, width: c.width * 0.40, height: 1.2, z: c.depth * 0.08, y: mainHeight * 0.55)
         addTree(to: props, x: -c.width * 0.38, z: c.depth * 0.34, scale: 0.95)
         addTree(to: props, x: c.width * 0.39, z: -c.depth * 0.30, scale: 0.90)
@@ -182,25 +285,36 @@ final class LowPolyCityAssetFactory {
         addGround(to: root, c: c, material: .pavement)
         let bodyHeight = c.height * (variant == 4 ? 0.90 : 0.72)
         if variant == 1 {
-            addBox(to: root, width: c.width * 0.78, height: 1.0, depth: c.depth * 0.42,
-                   x: 0, y: c.height * 0.68, z: -c.depth * 0.12, material: .commercialCanopy)
-            for x in [-c.width * 0.28, c.width * 0.28] {
+            addBox(to: root, width: c.width * 0.90, height: 1.0, depth: c.depth * 0.54,
+                   x: 0, y: c.height * 0.68, z: -c.depth * 0.09, material: .commercialCanopy)
+            for x in [-c.width * 0.35, c.width * 0.35] {
                 addBox(to: root, width: 0.8, height: c.height * 0.68, depth: 0.8,
-                       x: x, y: c.height * 0.34, z: -c.depth * 0.12, material: .metalLight)
+                       x: x, y: c.height * 0.34, z: -c.depth * 0.09, material: .metalLight)
             }
-            addBox(to: root, width: c.width * 0.36, height: c.height * 0.55, depth: c.depth * 0.30,
-                   x: c.width * 0.25, y: c.height * 0.275, z: -c.depth * 0.31, material: .commercialLight)
+            addBox(to: root, width: c.width * 0.42, height: c.height * 0.55, depth: c.depth * 0.34,
+                   x: c.width * 0.23, y: c.height * 0.275, z: -c.depth * 0.30, material: .commercialLight)
             addBox(to: near, width: 1.4, height: 2.2, depth: 1.4, x: 0, y: 1.1, z: 0, material: .commercialAccent)
         } else {
-            let width = variant == 2 || variant == 3 ? c.width * 0.76 : c.width * 0.86
-            addBox(to: root, width: width, height: bodyHeight, depth: c.depth * 0.48,
-                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.23,
+            let width = variant == 2 || variant == 3 ? c.width * 0.88 : c.width * 0.92
+            addBox(to: root, width: width, height: bodyHeight, depth: c.depth * 0.60,
+                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.17,
                    material: variant == 0 ? .commercialGlass : .commercialLight)
-            addBox(to: root, width: width * 1.03, height: 0.8, depth: c.depth * 0.52,
-                   x: 0, y: bodyHeight + 0.4, z: -c.depth * 0.23, material: .roofSlate)
+            addBox(to: root, width: width * 1.03, height: 0.8, depth: c.depth * 0.64,
+                   x: 0, y: bodyHeight + 0.4, z: -c.depth * 0.17, material: .roofSlate)
             addBox(to: near, width: width * 0.72, height: 1.0, depth: 0.6,
                    x: 0, y: bodyHeight * 0.58, z: c.depth * 0.02, material: .commercialGlass)
         }
+        addBox(to: root, width: c.width * 0.72, height: 0.75, depth: 0.8,
+               x: 0, y: max(2.8, bodyHeight * 0.62), z: c.depth * 0.035,
+               material: variant.isMultiple(of: 2) ? .commercialAccent : .commercialCanopy)
+        addPylonSign(
+            to: root,
+            c: c,
+            x: c.width * 0.35,
+            z: c.depth * 0.34,
+            height: max(5.5, c.height * 0.86),
+            material: variant.isMultiple(of: 2) ? .commercialAccent : .commercialCanopy
+        )
         addBlankSign(to: near, x: c.width * 0.32, y: max(3, bodyHeight * 0.72), z: c.depth * 0.06,
                      width: c.width * 0.22, material: variant.isMultiple(of: 2) ? .commercialAccent : .commercialCanopy)
         for x in [-c.width * 0.25, 0, c.width * 0.25] {
@@ -219,30 +333,39 @@ final class LowPolyCityAssetFactory {
         addGround(to: root, c: c, material: .industrialPavement)
         let bodyHeight = min(c.height * 0.72, 13)
         if variant == 3 {
-            addBox(to: root, width: c.width * 0.50, height: bodyHeight * 0.72, depth: c.depth * 0.60,
-                   x: -c.width * 0.18, y: bodyHeight * 0.36, z: -c.depth * 0.08, material: .industrialWall)
+            addBox(to: root, width: c.width * 0.58, height: bodyHeight * 0.72, depth: c.depth * 0.72,
+                   x: -c.width * 0.16, y: bodyHeight * 0.36, z: -c.depth * 0.06, material: .industrialWall)
             for x in [c.width * 0.16, c.width * 0.34] {
                 addCylinder(to: root, radius: min(c.width, c.depth) * 0.12, height: bodyHeight * 0.72,
                             x: x, y: bodyHeight * 0.36, z: -c.depth * 0.10, material: .metalLight)
             }
         } else {
-            addBox(to: root, width: c.width * 0.76, height: bodyHeight, depth: c.depth * 0.62,
-                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.08,
+            addBox(to: root, width: c.width * 0.86, height: bodyHeight, depth: c.depth * 0.72,
+                   x: 0, y: bodyHeight / 2, z: -c.depth * 0.05,
                    material: variant == 0 ? .factoryBlue : .industrialWall)
             if variant == 0 {
                 for x in [-c.width * 0.26, 0, c.width * 0.26] {
-                    addGable(to: root, width: c.width * 0.25, depth: c.depth * 0.66, height: 2.8,
-                             x: x, y: bodyHeight, z: -c.depth * 0.08, material: .roofMetal)
+                    addGable(to: root, width: c.width * 0.27, depth: c.depth * 0.76, height: 2.8,
+                             x: x, y: bodyHeight, z: -c.depth * 0.05, material: .roofMetal)
                 }
             } else {
-                addBox(to: root, width: c.width * 0.80, height: 0.8, depth: c.depth * 0.66,
-                       x: 0, y: bodyHeight + 0.4, z: -c.depth * 0.08, material: .roofMetal)
+                addBox(to: root, width: c.width * 0.90, height: 0.8, depth: c.depth * 0.76,
+                       x: 0, y: bodyHeight + 0.4, z: -c.depth * 0.05, material: .roofMetal)
             }
         }
         if variant == 4 {
             addCylinder(to: root, radius: 2.0, height: c.height,
                         x: c.width * 0.30, y: c.height / 2, z: -c.depth * 0.18, material: .smokestackBrick)
         }
+        if variant == 1 || variant == 2 {
+            for x in [-c.width * 0.20, 0, c.width * 0.20] {
+                addCylinder(to: root, radius: 1.0, height: 1.8,
+                            x: x, y: bodyHeight + 0.9, z: -c.depth * 0.08, material: .rooftopEquipment)
+            }
+        }
+        addBox(to: root, width: c.width * 0.56, height: 0.7, depth: 0.6,
+               x: 0, y: max(2.8, bodyHeight * 0.56), z: c.depth * 0.235,
+               material: variant.isMultiple(of: 2) ? .factoryBlue : .smokestackBrick)
         for x in [-c.width * 0.23, 0, c.width * 0.23] {
             addBox(to: near, width: c.width * 0.16, height: 3.0, depth: 0.8,
                    x: x, y: 1.5, z: c.depth * 0.24, material: .loadingDoor)
@@ -283,6 +406,16 @@ final class LowPolyCityAssetFactory {
         addBox(to: root, width: towerWidth * 1.03, height: 0.8, depth: towerDepth * 1.03,
                x: variant == 4 ? -c.width * 0.08 : 0, y: c.height + 0.4,
                z: variant == 2 ? -c.depth * 0.05 : 0, material: .roofSlate)
+        if variant == 0 || variant == 4 {
+            let wingHeight = c.height * (variant == 4 ? 0.58 : 0.42)
+            addBox(to: root, width: c.width * 0.28, height: wingHeight, depth: c.depth * 0.42,
+                   x: c.width * 0.30, y: podiumHeight + wingHeight / 2,
+                   z: c.depth * 0.10, material: .officeBlue)
+        }
+        if variant == 1 {
+            addBox(to: root, width: towerWidth * 0.46, height: 2.6, depth: towerDepth * 0.40,
+                   x: 0, y: c.height + 1.7, z: 0, material: .commercialAccent)
+        }
         for level in stride(from: Float(8), to: c.height - 1, by: 5) {
             addBox(to: near, width: towerWidth * 0.74, height: 0.7, depth: 0.35,
                    x: 0, y: level, z: towerDepth / 2 + 0.2, material: .windowBlue)
@@ -301,18 +434,22 @@ final class LowPolyCityAssetFactory {
         addGround(to: root, c: c, material: .industrialPavement)
         if variant == 2 {
             let wingHeight = c.height * 0.82
-            addBox(to: root, width: c.width * 0.76, height: wingHeight, depth: c.depth * 0.52,
-                   x: 0, y: wingHeight / 2, z: -c.depth * 0.14, material: .roadsideWarm)
-            addBox(to: root, width: c.width * 0.18, height: c.height, depth: c.depth * 0.20,
-                   x: c.width * 0.30, y: c.height / 2, z: c.depth * 0.20, material: .roadsideAccent)
+            addBox(to: root, width: c.width * 0.88, height: wingHeight, depth: c.depth * 0.64,
+                   x: 0, y: wingHeight / 2, z: -c.depth * 0.10, material: .roadsideWarm)
+            addBox(to: root, width: c.width * 0.20, height: c.height, depth: c.depth * 0.24,
+                   x: c.width * 0.34, y: c.height / 2, z: c.depth * 0.22, material: .roadsideAccent)
         } else {
             let height = c.height * 0.76
-            addBox(to: root, width: c.width * 0.74, height: height, depth: c.depth * 0.56,
-                   x: 0, y: height / 2, z: -c.depth * 0.12,
+            addBox(to: root, width: c.width * 0.86, height: height, depth: c.depth * 0.68,
+                   x: 0, y: height / 2, z: -c.depth * 0.08,
                    material: variant == 0 ? .industrialWall : .roadsideWarm)
-            addBox(to: root, width: c.width * 0.78, height: 0.8, depth: c.depth * 0.60,
-                   x: 0, y: height + 0.4, z: -c.depth * 0.12, material: .roofMetal)
+            addBox(to: root, width: c.width * 0.90, height: 0.8, depth: c.depth * 0.72,
+                   x: 0, y: height + 0.4, z: -c.depth * 0.08, material: .roofMetal)
         }
+        addBox(to: root, width: c.width * 0.58, height: 0.8, depth: 0.75,
+               x: 0, y: max(3.2, c.height * 0.58), z: c.depth * 0.17, material: .roadsideAccent)
+        addPylonSign(to: root, c: c, x: c.width * 0.36, z: c.depth * 0.34,
+                     height: c.height * 0.92, material: variant == 0 ? .commercialCanopy : .roadsideAccent)
         addBlankSign(to: near, x: c.width * 0.30, y: c.height * 0.58, z: c.depth * 0.18,
                      width: c.width * 0.20, material: .roadsideAccent)
         addTruck(to: props, x: -c.width * 0.24, z: c.depth * 0.33)
@@ -328,10 +465,14 @@ final class LowPolyCityAssetFactory {
     ) {
         addGround(to: root, c: c, material: .playerPaving)
         let bodyHeight = c.height * 0.75
-        addBox(to: root, width: c.width * 0.72, height: bodyHeight, depth: c.depth * 0.44,
-               x: 0, y: bodyHeight / 2, z: -c.depth * 0.24, material: .playerWall)
-        addBox(to: root, width: c.width * 0.76, height: 0.9, depth: c.depth * 0.48,
-               x: 0, y: bodyHeight + 0.45, z: -c.depth * 0.24, material: .playerNavy)
+        addBox(to: root, width: c.width * 0.84, height: bodyHeight, depth: c.depth * 0.56,
+               x: 0, y: bodyHeight / 2, z: -c.depth * 0.18, material: .playerWall)
+        addBox(to: root, width: c.width * 0.88, height: 0.9, depth: c.depth * 0.60,
+               x: 0, y: bodyHeight + 0.45, z: -c.depth * 0.18, material: .playerNavy)
+        addBox(to: root, width: c.width * 0.52, height: 0.85, depth: 0.75,
+               x: 0, y: bodyHeight * 0.66, z: -c.depth * 0.005, material: .playerAccent)
+        addPylonSign(to: root, c: c, x: c.width * 0.36, z: c.depth * 0.34,
+                     height: c.height * 0.92, material: .playerAccent)
         addBox(to: near, width: c.width * 0.54, height: 1.5, depth: 0.55,
                x: 0, y: bodyHeight * 0.52, z: -c.depth * 0.01, material: .commercialGlass)
         addBox(to: near, width: c.width * 0.25, height: 1.2, depth: 0.7,
@@ -529,6 +670,21 @@ final class LowPolyCityAssetFactory {
                x: x, y: y, z: z, material: material, chamfer: 0.25)
     }
 
+    private func addPylonSign(
+        to parent: SCNNode,
+        c: AssetBuildContext,
+        x: Float,
+        z: Float,
+        height: Float,
+        material: AssetMaterialKey
+    ) {
+        let clampedHeight = min(c.height * 1.05, max(4.5, height))
+        addCylinder(to: parent, radius: 0.32, height: clampedHeight,
+                    x: x, y: clampedHeight / 2, z: z, material: .streetMetal)
+        addBox(to: parent, width: min(8, max(3, c.width * 0.18)), height: 2.4, depth: 0.75,
+               x: x, y: clampedHeight * 0.82, z: z, material: material, chamfer: 0.35)
+    }
+
     private func addTree(to parent: SCNNode, x: Float, z: Float, scale: Float) {
         addCylinder(to: parent, radius: 0.55 * scale, height: 3.8 * scale,
                     x: x, y: 1.9 * scale, z: z, material: .treeTrunk)
@@ -661,38 +817,38 @@ private enum AssetMaterialKey: String, Hashable {
 
     var color: UIColor {
         switch self {
-        case .residentialGarden: UIColor(red: 0.43, green: 0.60, blue: 0.39, alpha: 1)
-        case .luxuryGarden: UIColor(red: 0.39, green: 0.64, blue: 0.36, alpha: 1)
-        case .pavement: UIColor(red: 0.45, green: 0.47, blue: 0.46, alpha: 1)
+        case .residentialGarden: UIColor(red: 0.38, green: 0.66, blue: 0.36, alpha: 1)
+        case .luxuryGarden: UIColor(red: 0.32, green: 0.69, blue: 0.35, alpha: 1)
+        case .pavement: UIColor(red: 0.42, green: 0.47, blue: 0.48, alpha: 1)
         case .industrialPavement: UIColor(red: 0.39, green: 0.41, blue: 0.40, alpha: 1)
         case .downtownPaving: UIColor(red: 0.46, green: 0.45, blue: 0.47, alpha: 1)
         case .parkingAsphalt: UIColor(red: 0.25, green: 0.27, blue: 0.28, alpha: 1)
-        case .residentialWarm: UIColor(red: 0.78, green: 0.66, blue: 0.53, alpha: 1)
-        case .residentialCool: UIColor(red: 0.67, green: 0.70, blue: 0.67, alpha: 1)
-        case .residentialLight: UIColor(red: 0.83, green: 0.79, blue: 0.70, alpha: 1)
-        case .luxuryStone: UIColor(red: 0.72, green: 0.71, blue: 0.65, alpha: 1)
-        case .luxuryLight: UIColor(red: 0.88, green: 0.85, blue: 0.75, alpha: 1)
+        case .residentialWarm: UIColor(red: 0.88, green: 0.61, blue: 0.40, alpha: 1)
+        case .residentialCool: UIColor(red: 0.56, green: 0.69, blue: 0.76, alpha: 1)
+        case .residentialLight: UIColor(red: 0.90, green: 0.82, blue: 0.67, alpha: 1)
+        case .luxuryStone: UIColor(red: 0.78, green: 0.73, blue: 0.64, alpha: 1)
+        case .luxuryLight: UIColor(red: 0.94, green: 0.87, blue: 0.70, alpha: 1)
         case .garageGray: UIColor(red: 0.51, green: 0.53, blue: 0.52, alpha: 1)
-        case .commercialLight: UIColor(red: 0.73, green: 0.72, blue: 0.66, alpha: 1)
-        case .commercialGlass: UIColor(red: 0.30, green: 0.55, blue: 0.63, alpha: 1)
-        case .commercialAccent: UIColor(red: 0.76, green: 0.36, blue: 0.18, alpha: 1)
-        case .commercialCanopy: UIColor(red: 0.80, green: 0.58, blue: 0.20, alpha: 1)
-        case .industrialWall: UIColor(red: 0.52, green: 0.55, blue: 0.55, alpha: 1)
-        case .factoryBlue: UIColor(red: 0.42, green: 0.54, blue: 0.58, alpha: 1)
+        case .commercialLight: UIColor(red: 0.82, green: 0.78, blue: 0.66, alpha: 1)
+        case .commercialGlass: UIColor(red: 0.18, green: 0.56, blue: 0.70, alpha: 1)
+        case .commercialAccent: UIColor(red: 0.87, green: 0.29, blue: 0.14, alpha: 1)
+        case .commercialCanopy: UIColor(red: 0.95, green: 0.63, blue: 0.12, alpha: 1)
+        case .industrialWall: UIColor(red: 0.47, green: 0.54, blue: 0.58, alpha: 1)
+        case .factoryBlue: UIColor(red: 0.29, green: 0.53, blue: 0.65, alpha: 1)
         case .metalLight: UIColor(red: 0.68, green: 0.70, blue: 0.69, alpha: 1)
         case .loadingDoor: UIColor(red: 0.25, green: 0.28, blue: 0.29, alpha: 1)
         case .smokestackBrick: UIColor(red: 0.49, green: 0.32, blue: 0.27, alpha: 1)
-        case .downtownWall: UIColor(red: 0.60, green: 0.58, blue: 0.63, alpha: 1)
-        case .officeBlue: UIColor(red: 0.39, green: 0.53, blue: 0.62, alpha: 1)
+        case .downtownWall: UIColor(red: 0.57, green: 0.49, blue: 0.67, alpha: 1)
+        case .officeBlue: UIColor(red: 0.28, green: 0.52, blue: 0.68, alpha: 1)
         case .storefrontDark: UIColor(red: 0.23, green: 0.29, blue: 0.32, alpha: 1)
         case .parkingConcrete: UIColor(red: 0.54, green: 0.53, blue: 0.52, alpha: 1)
-        case .roadsideWarm: UIColor(red: 0.68, green: 0.55, blue: 0.39, alpha: 1)
-        case .roadsideAccent: UIColor(red: 0.66, green: 0.31, blue: 0.17, alpha: 1)
-        case .roofBrown: UIColor(red: 0.42, green: 0.27, blue: 0.22, alpha: 1)
-        case .roofSlate: UIColor(red: 0.27, green: 0.31, blue: 0.32, alpha: 1)
+        case .roadsideWarm: UIColor(red: 0.76, green: 0.51, blue: 0.29, alpha: 1)
+        case .roadsideAccent: UIColor(red: 0.80, green: 0.25, blue: 0.12, alpha: 1)
+        case .roofBrown: UIColor(red: 0.56, green: 0.27, blue: 0.17, alpha: 1)
+        case .roofSlate: UIColor(red: 0.18, green: 0.28, blue: 0.34, alpha: 1)
         case .roofLight: UIColor(red: 0.71, green: 0.72, blue: 0.69, alpha: 1)
         case .roofMetal: UIColor(red: 0.40, green: 0.44, blue: 0.45, alpha: 1)
-        case .windowBlue: UIColor(red: 0.23, green: 0.43, blue: 0.50, alpha: 1)
+        case .windowBlue: UIColor(red: 0.12, green: 0.47, blue: 0.62, alpha: 1)
         case .woodAccent: UIColor(red: 0.55, green: 0.35, blue: 0.22, alpha: 1)
         case .poolBlue: UIColor(red: 0.24, green: 0.68, blue: 0.76, alpha: 1)
         case .playerPaving: UIColor(red: 0.39, green: 0.45, blue: 0.44, alpha: 1)
@@ -704,8 +860,8 @@ private enum AssetMaterialKey: String, Hashable {
         case .parkingLine: UIColor(red: 0.88, green: 0.85, blue: 0.67, alpha: 1)
         case .rooftopEquipment: UIColor(red: 0.38, green: 0.40, blue: 0.40, alpha: 1)
         case .treeTrunk: UIColor(red: 0.34, green: 0.23, blue: 0.14, alpha: 1)
-        case .treeLeaf: UIColor(red: 0.24, green: 0.48, blue: 0.27, alpha: 1)
-        case .hedge: UIColor(red: 0.28, green: 0.51, blue: 0.26, alpha: 1)
+        case .treeLeaf: UIColor(red: 0.19, green: 0.55, blue: 0.24, alpha: 1)
+        case .hedge: UIColor(red: 0.22, green: 0.58, blue: 0.23, alpha: 1)
         case .streetMetal, .fenceMetal: UIColor(red: 0.28, green: 0.31, blue: 0.32, alpha: 1)
         case .lampLight: UIColor(red: 0.90, green: 0.84, blue: 0.56, alpha: 1)
         case .vehicleBlue: UIColor(red: 0.19, green: 0.44, blue: 0.62, alpha: 1)

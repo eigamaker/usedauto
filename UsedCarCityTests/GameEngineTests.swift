@@ -23,18 +23,18 @@ final class GameEngineTests: XCTestCase {
         game.tutorialMessage = nil
     }
 
-    func testNewGameCreatesSixExpandedDistrictsAndSeventyTwoPlots() {
+    func testNewGameCreatesSixExpandedDistrictsAndOneHundredEightyPlots() {
         let game = GameEngine()
         game.resetGame()
         XCTAssertEqual(game.districts.count, 6)
-        XCTAssertEqual(game.plots.count, 72)
+        XCTAssertEqual(game.plots.count, 180)
         for district in DistrictKind.allCases {
             XCTAssertEqual(game.plots.filter { $0.district == district }.count, CityMapLayout.plotsPerDistrict)
         }
     }
 
     func testAllCityPlotsAreUniqueGridAlignedCells() {
-        XCTAssertEqual(Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" }).count, 72)
+        XCTAssertEqual(Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" }).count, 180)
         for point in CityMapLayout.plotPositions {
             let column = (point.x - CityMapLayout.gridOrigin.x) / CityMapLayout.columnSpacing
             let row = (point.y - CityMapLayout.gridOrigin.y) / CityMapLayout.rowSpacing
@@ -47,9 +47,9 @@ final class GameEngineTests: XCTestCase {
 
     func testCityBlueprintKeepsReusablePlacementsInsideWorldBounds() {
         let blueprint = CityMapLayout.blueprint
-        XCTAssertEqual(blueprint.grid.columnCount, 20)
+        XCTAssertEqual(blueprint.grid.columnCount, 30)
         XCTAssertEqual(blueprint.grid.rowCount, 20)
-        XCTAssertEqual(blueprint.districts.reduce(0) { $0 + $1.columns * $1.rows }, 72)
+        XCTAssertEqual(blueprint.districts.reduce(0) { $0 + $1.columns * $1.rows }, 180)
         XCTAssertTrue(blueprint.majorRoads.allSatisfy { (0...1).contains($0.position) })
         XCTAssertTrue(blueprint.trees.allSatisfy { (0...1).contains($0.point.x) && (0...1).contains($0.point.y) })
     }
@@ -120,7 +120,7 @@ final class GameEngineTests: XCTestCase {
         let game = GameEngine()
         game.resetGame()
 
-        XCTAssertEqual(game.plots.count, 72)
+        XCTAssertEqual(game.plots.count, 180)
         XCTAssertTrue(game.plots.allSatisfy { $0.structure != .vacant })
         XCTAssertTrue(game.plots.allSatisfy { $0.isForSale && $0.isForLease })
     }

@@ -5,11 +5,14 @@ import Foundation
 enum ValidationCityMap {
     static let shared: GridCityMap = makeMap()
 
-    private static let mapSize = GridMapSize(columns: 64, rows: 38)
+    private static let mapSize = GridMapSize(columns: 93, rows: 57)
     private static let metrics = GridMetrics(cellSize: 20)
     private static let parcelSize = GridSize.fourByFour
-    private static let vacantLocalNumbers: Set<Int> = [4, 8, 12]
-    private static let parkingLocalNumbers: Set<Int> = [3]
+    private static let districtColumns = 6
+    private static let districtRows = 5
+    private static let plotsPerDistrict = districtColumns * districtRows
+    private static let vacantLocalNumbers: Set<Int> = [4, 10, 17, 24, 30]
+    private static let parkingLocalNumbers: Set<Int> = [3, 21]
 
     private struct DistrictBlock {
         let district: DistrictKind
@@ -20,11 +23,11 @@ enum ValidationCityMap {
 
     private static let districtBlocks: [DistrictBlock] = [
         .init(district: .downtown, startColumn: 1, startRow: 1, districtIndex: 0),
-        .init(district: .station, startColumn: 22, startRow: 1, districtIndex: 1),
-        .init(district: .emerging, startColumn: 43, startRow: 1, districtIndex: 2),
-        .init(district: .suburb, startColumn: 1, startRow: 18, districtIndex: 3),
-        .init(district: .industrial, startColumn: 22, startRow: 18, districtIndex: 4),
-        .init(district: .highway, startColumn: 43, startRow: 18, districtIndex: 5)
+        .init(district: .station, startColumn: 32, startRow: 1, districtIndex: 1),
+        .init(district: .emerging, startColumn: 63, startRow: 1, districtIndex: 2),
+        .init(district: .suburb, startColumn: 1, startRow: 28, districtIndex: 3),
+        .init(district: .industrial, startColumn: 32, startRow: 28, districtIndex: 4),
+        .init(district: .highway, startColumn: 63, startRow: 28, districtIndex: 5)
     ]
 
     private static func makeMap() -> GridCityMap {
@@ -32,8 +35,8 @@ enum ValidationCityMap {
         let roads = GridRoadNetwork.compile(roadClasses: roadClasses)
         let content = makeParcelsAndObjects()
         let map = GridCityMap(
-            id: "suihama-grid-v1",
-            name: "翠浜市 グリッド検証マップ",
+            id: "suihama-grid-v2",
+            name: "翠浜市 広域グリッドマップ",
             size: mapSize,
             metrics: metrics,
             roads: roads,
@@ -63,19 +66,19 @@ enum ValidationCityMap {
         }
 
         // Local streets form four-by-four parcels. Every line reaches an arterial.
-        for separator in [5, 10, 15, 26, 31, 36, 47, 52, 57] {
-            addVertical(column: separator, rows: 0...15, roadClass: .local)
-            addVertical(column: separator, rows: 17...34, roadClass: .local)
+        for separator in [5, 10, 15, 20, 25, 36, 41, 46, 51, 56, 67, 72, 77, 82, 87] {
+            addVertical(column: separator, rows: 0...24, roadClass: .local)
+            addVertical(column: separator, rows: 28...51, roadClass: .local)
         }
-        for row in [5, 10] {
-            addHorizontal(row: row, columns: 0...20, roadClass: .local)
-            addHorizontal(row: row, columns: 21...41, roadClass: .local)
-            addHorizontal(row: row, columns: 42...63, roadClass: .local)
+        for row in [5, 10, 15, 20] {
+            addHorizontal(row: row, columns: 0...29, roadClass: .local)
+            addHorizontal(row: row, columns: 32...60, roadClass: .local)
+            addHorizontal(row: row, columns: 63...92, roadClass: .local)
         }
-        for row in [22, 27, 32] {
-            addHorizontal(row: row, columns: 0...20, roadClass: .local)
-            addHorizontal(row: row, columns: 21...41, roadClass: .local)
-            addHorizontal(row: row, columns: 42...63, roadClass: .local)
+        for row in [32, 37, 42, 47] {
+            addHorizontal(row: row, columns: 0...29, roadClass: .local)
+            addHorizontal(row: row, columns: 32...60, roadClass: .local)
+            addHorizontal(row: row, columns: 63...92, roadClass: .local)
         }
 
         // A short curved feeder guarantees that corner/end tile variants are
@@ -83,12 +86,12 @@ enum ValidationCityMap {
         addVertical(column: 0, rows: 2...5, roadClass: .local)
 
         // Two vertical arterial corridors and one map-wide arterial band.
-        for column in 20...21 { addVertical(column: column, rows: 0...37, roadClass: .arterial) }
-        for column in 41...42 { addVertical(column: column, rows: 0...37, roadClass: .arterial) }
-        for row in 15...17 { addHorizontal(row: row, columns: 0...63, roadClass: .arterial) }
+        for column in 30...31 { addVertical(column: column, rows: 0...56, roadClass: .arterial) }
+        for column in 61...62 { addVertical(column: column, rows: 0...56, roadClass: .arterial) }
+        for row in 25...27 { addHorizontal(row: row, columns: 0...92, roadClass: .arterial) }
 
         // Four cells wide: a deliberately simplified highway/IC environment.
-        for row in 34...37 { addHorizontal(row: row, columns: 0...63, roadClass: .arterial) }
+        for row in 52...56 { addHorizontal(row: row, columns: 0...92, roadClass: .arterial) }
         return result
     }
 
@@ -102,10 +105,10 @@ enum ValidationCityMap {
         for block in districtBlocks {
             let districtAssets = CityAssetCatalog.ambientAssets(for: block.district)
             var districtAssetIndex = 0
-            for row in 0..<3 {
-                for column in 0..<4 {
-                    let localNumber = row * 4 + column + 1
-                    let legacyPlotID = block.districtIndex * 12 + localNumber - 1
+            for row in 0..<districtRows {
+                for column in 0..<districtColumns {
+                    let localNumber = row * districtColumns + column + 1
+                    let legacyPlotID = block.districtIndex * plotsPerDistrict + localNumber - 1
                     let parcelID = "parcel-\(legacyPlotID)"
                     let rect = GridRect(
                         origin: GridCoordinate(
@@ -117,7 +120,7 @@ enum ValidationCityMap {
                     let isVacant = vacantLocalNumbers.contains(localNumber)
                     let isParking = parkingLocalNumbers.contains(localNumber)
                     let objectID = isVacant ? nil : "object-\(legacyPlotID)"
-                    let access: Set<CardinalDirection> = column == 3 ? [.west] : [.east]
+                    let access: Set<CardinalDirection> = column == districtColumns - 1 ? [.west] : [.east]
                     let parcel = GridParcel(
                         id: parcelID,
                         legacyPlotID: legacyPlotID,

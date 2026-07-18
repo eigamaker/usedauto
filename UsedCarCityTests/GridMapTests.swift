@@ -182,7 +182,7 @@ final class GridMapTests: XCTestCase {
     }
 
     func testParcelsCarryRequiredGameplayFieldsAndRoadAccess() {
-        XCTAssertEqual(map.parcels.count, 72)
+        XCTAssertEqual(map.parcels.count, 180)
         XCTAssertEqual(Set(map.parcels.map(\.district)), Set(DistrictKind.allCases))
         for parcel in map.parcels {
             XCTAssertNotNil(parcel.legacyPlotID)
@@ -192,6 +192,23 @@ final class GridMapTests: XCTestCase {
             XCTAssertFalse(parcel.roadAccess.isEmpty)
             XCTAssertNotNil(parcel.price)
             XCTAssertEqual(parcel.ownership, .market)
+        }
+    }
+
+    func testExpandedCityProvidesBroadDistrictsAndEnoughBuildableLand() {
+        XCTAssertEqual(map.size, GridMapSize(columns: 93, rows: 57))
+        XCTAssertEqual(map.objects.count, 150)
+        XCTAssertGreaterThan(map.roads.count, 2_000)
+
+        let occupiedParcelIDs = Set(map.objects.map(\.parcelID))
+        for district in DistrictKind.allCases {
+            let parcels = map.parcels.filter { $0.district == district }
+            XCTAssertEqual(parcels.count, 30, district.rawValue)
+            XCTAssertEqual(
+                parcels.filter { !occupiedParcelIDs.contains($0.id) }.count,
+                5,
+                district.rawValue
+            )
         }
     }
 
@@ -211,9 +228,9 @@ final class GridMapTests: XCTestCase {
 
     func testPlaceholderBuildingsIncludeEveryRequiredFootprint() {
         let buildingFootprints = Set(
-            map.objects.filter { $0.kind == .building }.map {
-                GridSize(width: min($0.rect.size.width, $0.rect.size.depth),
-                         depth: max($0.rect.size.width, $0.rect.size.depth))
+            CityAssetCatalog.definitions.filter { $0.category != .parking }.map {
+                GridSize(width: min($0.footprint.width, $0.footprint.depth),
+                         depth: max($0.footprint.width, $0.footprint.depth))
             }
         )
         let required: Set<GridSize> = [
@@ -237,7 +254,7 @@ final class GridMapTests: XCTestCase {
 
     func testParkingUsesTheSameIntegerGridAsBuildings() {
         let parkingObjects = map.objects.filter { $0.kind == .parking }
-        XCTAssertEqual(parkingObjects.count, DistrictKind.allCases.count)
+        XCTAssertEqual(parkingObjects.count, DistrictKind.allCases.count * 2)
         for parking in parkingObjects {
             XCTAssertTrue(parking.rect.size.isValid)
             XCTAssertTrue(parking.rect.cells.allSatisfy(map.size.contains))
@@ -599,6 +616,52 @@ final class GridMapTests: XCTestCase {
         }
     }
 
+    func testAmbientBuildingsUseStreetBlockScaleFootprints() {
+        for definition in CityAssetCatalog.ambientDefinitions where definition.category != .parking {
+            XCTAssertGreaterThanOrEqual(definition.footprint.width, 2, definition.id.rawValue)
+            XCTAssertGreaterThanOrEqual(definition.footprint.depth, 2, definition.id.rawValue)
+            XCTAssertGreaterThanOrEqual(
+                definition.footprint.width * definition.footprint.depth,
+                4,
+                definition.id.rawValue
+            )
+        }
+    }
+
+    @MainActor
+    func testAmbientLotInfillStaysInsideItsParcelAtEveryRotation() {
+        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let parcelWidth = Float(GridSize.fourByFour.width) * map.metrics.cellSize
+        let parcelDepth = Float(GridSize.fourByFour.depth) * map.metrics.cellSize
+        let categories: [CityAssetCategory] = [
+            .generalResidential, .luxuryResidential, .commercial,
+            .industrial, .downtown, .highway
+        ]
+
+        for category in categories {
+            for facing in CardinalDirection.allCases {
+                let node = factory.makeLotInfill(
+                    category: category,
+                    facing: facing,
+                    width: parcelWidth,
+                    depth: parcelDepth
+                )
+                let bounds = node.boundingBox
+                var geometryNodeCount = 0
+                node.enumerateChildNodes { child, _ in
+                    XCTAssertNil(child.physicsBody, category.rawValue)
+                    if child.geometry != nil { geometryNodeCount += 1 }
+                }
+                XCTAssertGreaterThanOrEqual(bounds.min.x, -parcelWidth / 2, category.rawValue)
+                XCTAssertLessThanOrEqual(bounds.max.x, parcelWidth / 2, category.rawValue)
+                XCTAssertGreaterThanOrEqual(bounds.min.z, -parcelDepth / 2, category.rawValue)
+                XCTAssertLessThanOrEqual(bounds.max.z, parcelDepth / 2, category.rawValue)
+                XCTAssertGreaterThanOrEqual(bounds.min.y, -0.01, category.rawValue)
+                XCTAssertLessThanOrEqual(geometryNodeCount, 16, category.rawValue)
+            }
+        }
+    }
+
     @MainActor
     func testGeneratedAssetGeometryStaysInsideItsOrientedGridFootprint() {
         let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
@@ -682,19 +745,19 @@ final class GridMapTests: XCTestCase {
     func testParcelNeighborsAreResolvedOnlyAcrossContinuousRoadBands() throws {
         let first = try XCTUnwrap(map.parcel(legacyPlotID: 0))
         XCTAssertEqual(map.neighboringParcel(of: first, in: .east)?.legacyPlotID, 1)
-        XCTAssertEqual(map.neighboringParcel(of: first, in: .south)?.legacyPlotID, 4)
+        XCTAssertEqual(map.neighboringParcel(of: first, in: .south)?.legacyPlotID, 6)
         XCTAssertNil(map.neighboringParcel(of: first, in: .north))
         XCTAssertNil(map.neighboringParcel(of: first, in: .west))
 
-        let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 3))
+        let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 5))
         XCTAssertNil(map.neighboringParcel(of: districtEdge, in: .east))
     }
 
     func testMultiParcelStoreUsesOneBuildingAndGridContainedParkingLots() throws {
         let store = Store(
             name: "QA店",
-            plotID: 60,
-            plotIDs: [60, 61, 62],
+            plotID: 150,
+            plotIDs: [150, 151, 152],
             type: .roadside,
             acquisition: .lease,
             focus: .business,
