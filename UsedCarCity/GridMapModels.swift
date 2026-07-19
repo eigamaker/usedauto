@@ -676,6 +676,10 @@ enum GridPlacementRules {
         )
     }
 
+    /// Integer division floors toward the parcel origin, so an odd
+    /// width/depth difference lands half a cell off true center. Collision
+    /// and road checks use this rect as-is; renderers place the visuals on
+    /// the true parcel center to close that half cell.
     static func centeredRect(
         for assetID: CityAssetID,
         facing: CardinalDirection,

@@ -788,19 +788,17 @@ private final class GridCitySceneController {
         // metadata to it would make taps outside the lot appear selectable.
 
         let definition = CityAssetCatalog.definition(for: object.assetID)
+        // A sprite's measured ground plate depicts the building's entire lot
+        // (forecourt included), so the card always spans the parcel. This also
+        // sidesteps the half-cell offset of integer-centered odd footprints.
         if object.kind == .building,
            let spriteNode = spriteFactory.makeSprite(
             assetID: object.assetID,
             facing: object.facing,
-            worldWidth: objectBounds.width,
-            worldDepth: objectBounds.depth,
-            renderingOrder: spriteRenderingOrder(worldCenter: objectBounds.center)
+            worldWidth: parcelBounds.width,
+            worldDepth: parcelBounds.depth,
+            renderingOrder: spriteRenderingOrder(worldCenter: parcelBounds.center)
            ) {
-            spriteNode.position = SCNVector3(
-                objectBounds.center.x - parcelBounds.center.x,
-                0,
-                objectBounds.center.z - parcelBounds.center.z
-            )
             container.addChildNode(spriteNode)
             return container
         }
@@ -819,11 +817,22 @@ private final class GridCitySceneController {
             facing: object.facing,
             heightHint: object.kind == .parking ? nil : object.height
         )
-        assetNode.position = SCNVector3(
-            objectBounds.center.x - parcelBounds.center.x,
-            0,
-            objectBounds.center.z - parcelBounds.center.z
+        // An integer grid rect cannot center an odd-difference footprint
+        // exactly. When the object is the parcel's centered placement, close
+        // the remaining half cell visually; authored off-center rects keep
+        // their exact grid position.
+        let centeredPlacement = GridPlacementRules.centeredRect(
+            for: object.assetID,
+            facing: object.facing,
+            in: parcel
         )
+        assetNode.position = object.rect == centeredPlacement
+            ? SCNVector3Zero
+            : SCNVector3(
+                objectBounds.center.x - parcelBounds.center.x,
+                0,
+                objectBounds.center.z - parcelBounds.center.z
+            )
         container.addChildNode(assetNode)
         registerAssetLODNodes(for: container)
         return container
@@ -1002,7 +1011,6 @@ private final class GridCitySceneController {
         root.name = "player-store:\(store.id.uuidString)"
         for placement in GridStorePlacementAdapter.visualPlacements(for: store, map: map) {
             guard let parcel = map.parcel(id: placement.parcelID) else { continue }
-            let bounds = map.metrics.worldBounds(of: placement.rect, mapSize: map.size)
             let parcelBounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
             let infill = assetFactory.makeLotInfill(
                 category: .playerFacility,
@@ -1020,13 +1028,18 @@ private final class GridCitySceneController {
             root.addChildNode(infill)
 
             let node: SCNNode
+            // Store placements are always the parcel's centered rect, and an
+            // integer rect cannot center an odd-difference footprint exactly,
+            // so both the site card and the 3D fallback sit on the true
+            // parcel center. Cards additionally span the parcel because the
+            // measured plate depicts the whole dealer site.
             if placement.role == .primaryBuilding,
                let sprite = spriteFactory.makeSprite(
                 assetID: placement.assetID,
                 facing: placement.facing,
-                worldWidth: bounds.width,
-                worldDepth: bounds.depth,
-                renderingOrder: spriteRenderingOrder(worldCenter: bounds.center)
+                worldWidth: parcelBounds.width,
+                worldDepth: parcelBounds.depth,
+                renderingOrder: spriteRenderingOrder(worldCenter: parcelBounds.center)
                ) {
                 node = sprite
             } else {
@@ -1037,7 +1050,11 @@ private final class GridCitySceneController {
                 )
                 setInteractionMetadata(on: node, parcel: parcel)
             }
-            node.position = SCNVector3(bounds.center.x, GridSceneElevation.assetBase, bounds.center.z)
+            node.position = SCNVector3(
+                parcelBounds.center.x,
+                GridSceneElevation.assetBase,
+                parcelBounds.center.z
+            )
             node.name = placement.role == .primaryBuilding
                 ? "player-store-building:\(store.id.uuidString)"
                 : "player-store-parking:\(store.id.uuidString):\(placement.plotID)"
