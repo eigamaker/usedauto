@@ -23,21 +23,22 @@ final class GameEngineTests: XCTestCase {
         game.tutorialMessage = nil
     }
 
-    func testNewGameCreatesSixExpandedDistrictsAndTwoHundredEightyEightPlots() {
+    func testNewGameCreatesSixCoastalDistrictsWithDerivedPlots() {
         let game = GameEngine()
         game.resetGame()
         let map = CityMapDefinition.suihama
-        XCTAssertEqual(game.plots.count, 288)
+        XCTAssertEqual(game.plots.count, 147)
         XCTAssertEqual(game.districts.count, 6)
         XCTAssertEqual(game.plots.count, map.parcels.compactMap(\.legacyPlotID).count)
         for district in DistrictKind.allCases {
+            let districtPlots = game.plots.filter { $0.district == district }
             XCTAssertEqual(
-                game.plots.filter { $0.district == district }.count,
+                districtPlots.count,
                 map.parcels.filter { $0.district == district && $0.legacyPlotID != nil }.count
             )
             XCTAssertEqual(
-                Set(game.plots.filter { $0.district == district }.map(\.localNumber)),
-                Set(1...48)
+                Set(districtPlots.map(\.localNumber)),
+                Set(1...districtPlots.count)
             )
         }
     }
@@ -83,89 +84,6 @@ final class GameEngineTests: XCTestCase {
     func testMapFocusRequestsCarryGridSemanticTargets() {
         XCTAssertEqual(MapFocusRequest(plotID: 42).target, .plot(42))
         XCTAssertEqual(MapFocusRequest(district: .industrial).target, .district(.industrial))
-    }
-
-    func testAllCityPlotsAreUniqueGridAlignedCells() {
-        XCTAssertEqual(Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" }).count, 180)
-        for point in CityMapLayout.plotPositions {
-            let column = (point.x - CityMapLayout.gridOrigin.x) / CityMapLayout.columnSpacing
-            let row = (point.y - CityMapLayout.gridOrigin.y) / CityMapLayout.rowSpacing
-            XCTAssertEqual(column, column.rounded(), accuracy: 0.0001)
-            XCTAssertEqual(row, row.rounded(), accuracy: 0.0001)
-            XCTAssertTrue((0...1).contains(point.x))
-            XCTAssertTrue((0...1).contains(point.y))
-        }
-    }
-
-    func testCityBlueprintKeepsReusablePlacementsInsideWorldBounds() {
-        let blueprint = CityMapLayout.blueprint
-        XCTAssertEqual(blueprint.grid.columnCount, 30)
-        XCTAssertEqual(blueprint.grid.rowCount, 20)
-        XCTAssertEqual(blueprint.districts.reduce(0) { $0 + $1.columns * $1.rows }, 180)
-        XCTAssertTrue(blueprint.majorRoads.allSatisfy { (0...1).contains($0.position) })
-        XCTAssertTrue(blueprint.trees.allSatisfy { (0...1).contains($0.point.x) && (0...1).contains($0.point.y) })
-    }
-
-    func testEveryParcelStructureUsesAReusableAssetThatFitsItsGridCell() {
-        let game = GameEngine()
-        game.resetGame()
-
-        for plot in game.plots where plot.structure != .vacant {
-            let lot = CityMapLayout.lotRect(for: plot).insetBy(dx: 0.007, dy: 0.006)
-            let asset = MapAssetLibrary.parcelBuilding(for: plot, in: lot)
-            XCTAssertNotNil(asset)
-            XCTAssertTrue(lot.contains(asset!.rect))
-        }
-
-        let combinedLot = CityMapLayout.combinedLotRect(for: [0, 1, 2]).insetBy(dx: 0.004, dy: 0.004)
-        let dealership = MapAssetLibrary.dealership(in: combinedLot, type: .roadside, color: .orange)
-        XCTAssertTrue(combinedLot.contains(dealership.rect))
-    }
-
-    func testEveryVisibleParcelAndStoreTypeHasAnIsometricRasterSprite() {
-        let game = GameEngine()
-        game.resetGame()
-
-        for plot in game.plots where plot.structure != .vacant {
-            let sprite = MapAssetLibrary.parcelSprite(for: plot)
-            XCTAssertNotNil(sprite, "Missing raster sprite for \(plot.structure)")
-            XCTAssertGreaterThan(sprite!.pixelSize.width, 0)
-            XCTAssertGreaterThan(sprite!.pixelSize.height, 0)
-            XCTAssertTrue((0...1).contains(sprite!.groundAnchorY))
-        }
-
-        for type in StoreType.allCases {
-            let sprite = MapAssetLibrary.storeSprite(for: type)
-            XCTAssertFalse(sprite.imageName.isEmpty)
-            XCTAssertGreaterThan(sprite.pixelSize.width, sprite.pixelSize.height)
-            XCTAssertGreaterThan(sprite.widthScale, 0)
-        }
-    }
-
-    func testCityMapLODTransitionsAllRenderingLayersTogether() {
-        XCTAssertEqual(CityMapLevelOfDetail(cameraScale: 1.0), .overview)
-        XCTAssertEqual(CityMapLevelOfDetail(cameraScale: 1.35), .district)
-        XCTAssertEqual(CityMapLevelOfDetail(cameraScale: 2.15), .street)
-        XCTAssertFalse(CityMapLevelOfDetail.overview.usesHighResolutionTiles)
-        XCTAssertTrue(CityMapLevelOfDetail.district.usesHighResolutionTiles)
-        XCTAssertFalse(CityMapLevelOfDetail.district.showsParcelSprites)
-        XCTAssertTrue(CityMapLevelOfDetail.street.showsParcelSprites)
-        XCTAssertTrue(CityMapLevelOfDetail.street.showsMinorRoads)
-    }
-
-    func testHighResolutionCityMosaicHasTwelveGaplessTiles() {
-        XCTAssertEqual(CityMapRasterTile.all.count, 12)
-        XCTAssertEqual(Set(CityMapRasterTile.all.map(\.imageName)).count, 12)
-        XCTAssertEqual(CityMapRasterTile.mosaicPixelSize, CGSize(width: 7_240, height: 5_430))
-
-        let mapRect = CGRect(x: 20, y: 40, width: 800, height: 600)
-        let frames = CityMapRasterTile.all.map { $0.frame(in: mapRect) }
-        XCTAssertEqual(frames.map(\.width).min(), 200)
-        XCTAssertEqual(frames.map(\.height).min(), 200)
-        XCTAssertEqual(frames.map(\.minX).min(), mapRect.minX)
-        XCTAssertEqual(frames.map(\.minY).min(), mapRect.minY)
-        XCTAssertEqual(frames.map(\.maxX).max(), mapRect.maxX)
-        XCTAssertEqual(frames.map(\.maxY).max(), mapRect.maxY)
     }
 
     func testInitialVacancyMatchesTheAuthoritativeGridMap() throws {
@@ -736,7 +654,7 @@ final class GameEngineTests: XCTestCase {
             loanAmount: 100_000
         ))
         let newStore = game.store(at: plot.id)!
-        XCTAssertEqual(newStore.type.mapAssetName, "StoreSmall")
+        XCTAssertEqual(newStore.type, .small)
         XCTAssertEqual(newStore.openingMonthsRemaining, 1)
         XCTAssertEqual(
             game.plot(id: newStore.plotID)?.currentUse,
@@ -753,15 +671,15 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertTrue(game.renovateStore(newStore.id, to: .roadside))
         XCTAssertEqual(game.gridOccupancyIssues, [])
-        XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreSmall")
-        XCTAssertEqual(game.store(at: plot.id)?.pendingType?.mapAssetName, "StoreRoadside")
+        XCTAssertEqual(game.store(at: plot.id)?.type, .small)
+        XCTAssertEqual(game.store(at: plot.id)?.pendingType, .roadside)
         XCTAssertEqual(
             game.plot(id: newStore.plotID)?.currentUse,
             .construction(storeID: newStore.id, targetAssetID: .playerLargeDealer)
         )
         game.advanceWeek()
         game.advanceWeek()
-        XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreRoadside")
+        XCTAssertEqual(game.store(at: plot.id)?.type, .roadside)
         let renovatedStore = game.store(at: plot.id)!
         XCTAssertEqual(
             game.plot(id: renovatedStore.plotID)?.currentUse,

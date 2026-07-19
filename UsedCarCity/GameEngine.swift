@@ -47,6 +47,9 @@ final class GameEngine: ObservableObject {
     let maxTurns = 480
 
     private struct SaveData: Codable {
+        /// Saves are bound to the city map that produced their plots; a save
+        /// from another map generation must not be restored.
+        var mapID: String?
         let year: Int
         let month: Int
         let weekOfMonth: Int
@@ -152,7 +155,8 @@ final class GameEngine: ObservableObject {
         competitors = Self.makeCompetitors()
         placeCompetitors()
         if let data = UserDefaults.standard.data(forKey: Self.saveKey),
-           let saved = try? JSONDecoder().decode(SaveData.self, from: data) {
+           let saved = try? JSONDecoder().decode(SaveData.self, from: data),
+           saved.mapID == CityMapDefinition.suihama.id {
             pendingSave = saved
             hasSaveData = true
         }
@@ -417,7 +421,8 @@ final class GameEngine: ObservableObject {
     func returnToTitle() {
         save()
         if let data = UserDefaults.standard.data(forKey: Self.saveKey),
-           let saved = try? JSONDecoder().decode(SaveData.self, from: data) {
+           let saved = try? JSONDecoder().decode(SaveData.self, from: data),
+           saved.mapID == CityMapDefinition.suihama.id {
             pendingSave = saved
             hasSaveData = true
         }
@@ -3708,7 +3713,8 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
-        let snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, startupPlan: startupPlan, financialDistressWeeks: financialDistressWeeks)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, startupPlan: startupPlan, financialDistressWeeks: financialDistressWeeks)
+        snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
             pendingSave = snapshot

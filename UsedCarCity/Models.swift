@@ -707,25 +707,6 @@ enum StoreType: String, Codable, CaseIterable, Identifiable {
     var serviceQuality: Double {
         switch self { case .small: 0.85; case .standard: 1.0; case .roadside: 1.05; case .premium: 1.18; case .service: 1.30 }
     }
-    var mapAssetName: String {
-        switch self {
-        case .small: "StoreSmall"
-        case .standard: "StoreStandard"
-        case .roadside: "StoreRoadside"
-        case .premium: "StorePremium"
-        case .service: "StoreService"
-        }
-    }
-    var mapAssetWidth: CGFloat {
-        switch self {
-        case .small: 76
-        case .standard: 92
-        case .roadside: 112
-        case .premium: 96
-        case .service: 102
-        }
-    }
-
     var requiredGridCells: Int {
         switch self {
         case .small, .premium: 1

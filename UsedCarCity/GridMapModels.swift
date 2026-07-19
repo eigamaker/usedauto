@@ -180,16 +180,24 @@ enum RoadTileShape: String, Codable, CaseIterable, Sendable {
 enum GridRoadClass: String, Codable, CaseIterable, Sendable {
     case local
     case arterial
+    case expressway
 
     func pavementWidth(cellSize: Float) -> Float {
         switch self {
         case .local: cellSize * 0.60
         case .arterial: cellSize * 0.90
+        case .expressway: cellSize * 0.94
         }
     }
 
     func sidewalkWidth(cellSize: Float) -> Float {
-        min(cellSize, pavementWidth(cellSize: cellSize) + cellSize * 0.20)
+        switch self {
+        case .expressway:
+            // A grade-separated corridor has shoulders instead of sidewalks.
+            return pavementWidth(cellSize: cellSize)
+        case .local, .arterial:
+            return min(cellSize, pavementWidth(cellSize: cellSize) + cellSize * 0.20)
+        }
     }
 }
 
@@ -502,6 +510,15 @@ enum GridMapAnchorID: String, Hashable, Codable, Sendable, CaseIterable {
     case cityHall
 }
 
+/// Scenery-only ground cover. Terrain never hosts parcels or objects; the
+/// only permitted overlap is a road crossing water, which renders as a bridge.
+enum GridTerrainFeature: String, Codable, Sendable {
+    case water
+    case beach
+    case park
+    case plaza
+}
+
 struct GridCityMap: Hashable, Codable, Sendable {
     let id: String
     let name: String
@@ -511,8 +528,35 @@ struct GridCityMap: Hashable, Codable, Sendable {
     let parcels: [GridParcel]
     let objects: [GridPlacedObject]
     let anchors: [GridMapAnchorID: GridCoordinate]
+    let terrain: [GridCoordinate: GridTerrainFeature]
+
+    init(
+        id: String,
+        name: String,
+        size: GridMapSize,
+        metrics: GridMetrics,
+        roads: [GridCoordinate: GridRoadCell],
+        parcels: [GridParcel],
+        objects: [GridPlacedObject],
+        anchors: [GridMapAnchorID: GridCoordinate],
+        terrain: [GridCoordinate: GridTerrainFeature] = [:]
+    ) {
+        self.id = id
+        self.name = name
+        self.size = size
+        self.metrics = metrics
+        self.roads = roads
+        self.parcels = parcels
+        self.objects = objects
+        self.anchors = anchors
+        self.terrain = terrain
+    }
 
     func road(at coordinate: GridCoordinate) -> GridRoadCell? { roads[coordinate] }
+
+    func terrainFeature(at coordinate: GridCoordinate) -> GridTerrainFeature? {
+        terrain[coordinate]
+    }
 
     func parcel(id: String) -> GridParcel? { parcels.first(where: { $0.id == id }) }
 
@@ -1151,6 +1195,9 @@ enum GridMapValidationIssue: Hashable, Sendable, CustomStringConvertible {
     case objectKindMismatch(String)
     case invalidObjectHeight(String)
     case anchorOutsideMap(GridMapAnchorID, GridCoordinate)
+    case terrainOutsideMap(GridCoordinate)
+    case terrainOverlapsRoad(GridCoordinate)
+    case terrainOverlapsParcel(GridCoordinate, String)
 
     var description: String {
         switch self {
@@ -1181,6 +1228,9 @@ enum GridMapValidationIssue: Hashable, Sendable, CustomStringConvertible {
         case .objectKindMismatch(let object): "Object \(object) kind does not match its asset category"
         case .invalidObjectHeight(let object): "Object \(object) has an invalid height"
         case .anchorOutsideMap(let anchor, let coordinate): "Anchor \(anchor.rawValue) is outside map at \(coordinate)"
+        case .terrainOutsideMap(let coordinate): "Terrain is outside map at \(coordinate)"
+        case .terrainOverlapsRoad(let coordinate): "Non-water terrain overlaps road at \(coordinate)"
+        case .terrainOverlapsParcel(let coordinate, let parcel): "Terrain overlaps parcel \(parcel) at \(coordinate)"
         }
     }
 }
@@ -1192,6 +1242,21 @@ enum GridMapValidator {
         if map.metrics.cellSize <= 0 { issues.append(.invalidCellSize) }
         for (anchor, coordinate) in map.anchors where !map.size.contains(coordinate) {
             issues.append(.anchorOutsideMap(anchor, coordinate))
+        }
+        for (coordinate, feature) in map.terrain {
+            if !map.size.contains(coordinate) {
+                issues.append(.terrainOutsideMap(coordinate))
+            }
+            // Water may pass under a road as a bridge; every other feature is
+            // pedestrian ground and must not coincide with pavement.
+            if feature != .water, map.roads[coordinate] != nil {
+                issues.append(.terrainOverlapsRoad(coordinate))
+            }
+        }
+        for parcel in map.parcels {
+            for coordinate in parcel.rect.cells where map.terrain[coordinate] != nil {
+                issues.append(.terrainOverlapsParcel(coordinate, parcel.id))
+            }
         }
 
         var seenParcelIDs: Set<String> = []

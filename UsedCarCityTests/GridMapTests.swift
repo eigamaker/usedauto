@@ -4,7 +4,7 @@ import UIKit
 @testable import UsedCarCity
 
 final class GridMapTests: XCTestCase {
-    private let map = ValidationCityMap.shared
+    private let map = CityMapDefinition.suihama
 
     func testValidationMapSatisfiesEveryStructuralRule() {
         XCTAssertEqual(GridMapValidator.validate(map), [])
@@ -183,7 +183,7 @@ final class GridMapTests: XCTestCase {
     }
 
     func testParcelsCarryRequiredGameplayFieldsAndRoadAccess() {
-        XCTAssertEqual(map.parcels.count, 288)
+        XCTAssertEqual(map.parcels.count, 147)
         XCTAssertEqual(Set(map.parcels.map(\.district)), Set(DistrictKind.allCases))
         for parcel in map.parcels {
             XCTAssertNotNil(parcel.legacyPlotID)
@@ -213,18 +213,31 @@ final class GridMapTests: XCTestCase {
         )
     }
 
-    func testExpandedCityProvidesBroadDistrictsAndEnoughBuildableLand() {
-        XCTAssertEqual(map.size, GridMapSize(columns: 123, rows: 67))
-        XCTAssertEqual(map.objects.count, 264)
-        XCTAssertGreaterThan(map.roads.count, 3_000)
+    func testCoastalCityProvidesVariedDistrictsAndEnoughBuildableLand() {
+        XCTAssertEqual(map.size, GridMapSize(columns: 100, rows: 100))
+
+        // Districts intentionally differ in size so the city reads as a
+        // place: dense center, broad residential, compact station quarter.
+        let expectedParcelCounts: [DistrictKind: Int] = [
+            .downtown: 26, .station: 9, .emerging: 15,
+            .suburb: 38, .industrial: 20, .highway: 39
+        ]
+        let expectedVacantCounts: [DistrictKind: Int] = [
+            .downtown: 3, .station: 1, .emerging: 2,
+            .suburb: 3, .industrial: 2, .highway: 3
+        ]
+        let expectedParkingCounts: [DistrictKind: Int] = [
+            .downtown: 2, .station: 1, .emerging: 1,
+            .suburb: 2, .industrial: 2, .highway: 2
+        ]
 
         let occupiedParcelIDs = Set(map.objects.map(\.parcelID))
         for district in DistrictKind.allCases {
             let parcels = map.parcels.filter { $0.district == district }
-            XCTAssertEqual(parcels.count, 48, district.rawValue)
+            XCTAssertEqual(parcels.count, expectedParcelCounts[district], district.rawValue)
             XCTAssertEqual(
                 parcels.filter { !occupiedParcelIDs.contains($0.id) }.count,
-                4,
+                expectedVacantCounts[district],
                 district.rawValue
             )
             XCTAssertEqual(
@@ -232,9 +245,27 @@ final class GridMapTests: XCTestCase {
                     object.kind == .parking
                         && map.parcel(id: object.parcelID)?.district == district
                 }.count,
-                4,
+                expectedParkingCounts[district],
                 district.rawValue
             )
+        }
+        XCTAssertEqual(map.objects.count, map.parcels.count - 14)
+
+        // Scenery terrain must be present and can never intrude on parcels.
+        XCTAssertFalse(map.terrain.filter { $0.value == .water }.isEmpty)
+        XCTAssertFalse(map.terrain.filter { $0.value == .park }.isEmpty)
+        XCTAssertFalse(map.terrain.filter { $0.value == .beach }.isEmpty)
+        XCTAssertFalse(map.terrain.filter { $0.value == .plaza }.isEmpty)
+        for parcel in map.parcels {
+            XCTAssertTrue(parcel.rect.cells.allSatisfy { map.terrain[$0] == nil }, parcel.id)
+        }
+    }
+
+    func testRoadsBridgeWaterOnlyOnExpresswayAndArterialCrossings() {
+        let bridgeCells = map.roads.keys.filter { map.terrain[$0] == .water }
+        XCTAssertFalse(bridgeCells.isEmpty)
+        for cell in bridgeCells {
+            XCTAssertNotEqual(map.roads[cell]?.roadClass, GridRoadClass.local, "\(cell)")
         }
     }
 
@@ -292,7 +323,7 @@ final class GridMapTests: XCTestCase {
 
     func testParkingUsesTheSameIntegerGridAsBuildings() {
         let parkingObjects = map.objects.filter { $0.kind == .parking }
-        XCTAssertEqual(parkingObjects.count, DistrictKind.allCases.count * 4)
+        XCTAssertEqual(parkingObjects.count, 10)
         for parking in parkingObjects {
             XCTAssertTrue(parking.rect.size.isValid)
             XCTAssertTrue(parking.rect.cells.allSatisfy(map.size.contains))
@@ -641,14 +672,6 @@ final class GridMapTests: XCTestCase {
         )
     }
 
-    func testCityBuildingRenderingDefaultsToGridNative3D() {
-        XCTAssertEqual(CityBuildingRenderMode.selected(arguments: ["app"]), .gridNative3D)
-        XCTAssertEqual(
-            CityBuildingRenderMode.selected(arguments: ["app", "-legacy-iso25d-sprites"]),
-            .legacyIso25DSprites
-        )
-    }
-
     func testValidationMapUsesDistrictAppropriateAssetsFacingTheirRoads() {
         for object in map.objects {
             let parcel = try! XCTUnwrap(map.parcel(id: object.parcelID))
@@ -680,7 +703,7 @@ final class GridMapTests: XCTestCase {
 
     @MainActor
     func testAmbientLotInfillStaysInsideItsParcelAtEveryRotation() {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         let parcelWidth = Float(GridSize.fourByFour.width) * map.metrics.cellSize
         let parcelDepth = Float(GridSize.fourByFour.depth) * map.metrics.cellSize
         let categories: [CityAssetCategory] = [
@@ -714,7 +737,7 @@ final class GridMapTests: XCTestCase {
 
     @MainActor
     func testPlayerFacilityLotInfillVisuallyUsesMostOfPurchasedParcel() {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         let parcelWidth = Float(GridSize.fourByFour.width) * map.metrics.cellSize
         let parcelDepth = Float(GridSize.fourByFour.depth) * map.metrics.cellSize
         let node = factory.makeLotInfill(
@@ -726,13 +749,13 @@ final class GridMapTests: XCTestCase {
         let bounds = node.boundingBox
         XCTAssertGreaterThan(bounds.max.x - bounds.min.x, parcelWidth * 0.80)
         XCTAssertGreaterThan(bounds.max.z - bounds.min.z, parcelDepth * 0.80)
-        XCTAssertNotNil(node.childNode(withName: LowPolyCityAssetFactory.nearDetailNodeName, recursively: false))
-        XCTAssertNotNil(node.childNode(withName: LowPolyCityAssetFactory.propDetailNodeName, recursively: false))
+        XCTAssertNotNil(node.childNode(withName: CityBuildingFactory.nearDetailNodeName, recursively: false))
+        XCTAssertNotNil(node.childNode(withName: CityBuildingFactory.propDetailNodeName, recursively: false))
     }
 
     @MainActor
     func testGeneratedAssetGeometryStaysInsideItsOrientedGridFootprint() {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         for definition in CityAssetCatalog.definitions {
             for facing in CardinalDirection.allCases {
                 let node = factory.makeAsset(id: definition.id, facing: facing)
@@ -746,15 +769,15 @@ final class GridMapTests: XCTestCase {
                 XCTAssertLessThanOrEqual(maximum.z - minimum.z, Float(footprint.depth) * map.metrics.cellSize + 0.01, definition.id.rawValue)
                 XCTAssertGreaterThanOrEqual(minimum.y, -0.01, definition.id.rawValue)
                 XCTAssertLessThanOrEqual(maximum.y, definition.selectionVolume.maximumHeight + 0.01, definition.id.rawValue)
-                XCTAssertNotNil(node.childNode(withName: LowPolyCityAssetFactory.nearDetailNodeName, recursively: false))
-                XCTAssertNotNil(node.childNode(withName: LowPolyCityAssetFactory.propDetailNodeName, recursively: false))
+                XCTAssertNotNil(node.childNode(withName: CityBuildingFactory.nearDetailNodeName, recursively: false))
+                XCTAssertNotNil(node.childNode(withName: CityBuildingFactory.propDetailNodeName, recursively: false))
             }
         }
     }
 
     @MainActor
     func testAuthoredObjectHeightsRemainGroundedAndInsideSelectionVolumes() throws {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         for object in map.objects {
             let definition = CityAssetCatalog.definition(for: object.assetID)
             let node = factory.makeAsset(
@@ -778,7 +801,7 @@ final class GridMapTests: XCTestCase {
 
     @MainActor
     func testRepeatedAssetsReuseGeometryResources() throws {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         let first = factory.makeAsset(id: .residentialCottage, facing: .south)
         let second = factory.makeAsset(id: .residentialCottage, facing: .south)
         let firstGeometry = try XCTUnwrap(first.childNodes.first(where: { $0.geometry != nil })?.geometry)
@@ -788,7 +811,7 @@ final class GridMapTests: XCTestCase {
 
     @MainActor
     func testLowPolyAssetsHaveNormalsNoCollidersAndStayWithinNodeBudget() {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         var totalGeometryNodes = 0
         var uniqueMaterials: Set<ObjectIdentifier> = []
         for definition in CityAssetCatalog.definitions {
@@ -812,7 +835,7 @@ final class GridMapTests: XCTestCase {
 
     @MainActor
     func testAmbientBuildingsUseLayeredSilhouettesInsteadOfSingleBoxMasses() {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         for definition in CityAssetCatalog.ambientDefinitions where definition.category != .parking {
             let node = factory.makeAsset(id: definition.id, facing: .south)
             let footprintWidth = Float(definition.footprint.width) * map.metrics.cellSize
@@ -838,14 +861,14 @@ final class GridMapTests: XCTestCase {
 
     @MainActor
     func testTraditionalLowRiseAssetsUseFacetedRoofsInsteadOfBoxSlabs() {
-        let factory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         let traditionalAssets: [CityAssetID] = [
             .residentialCottage,
             .residentialGable,
             .residentialTwin,
             .luxuryCourtyard,
             .luxuryGarage,
-            .playerSmallDealer
+            .commercialRestaurant
         ]
 
         for assetID in traditionalAssets {
@@ -858,176 +881,29 @@ final class GridMapTests: XCTestCase {
     }
 
     @MainActor
-    func testIso25DAssetPackMatchesGridCatalogAndLoadsTransparentImages() throws {
-        XCTAssertEqual(Iso25DCityAssetCatalog.all.count, 52)
-        XCTAssertEqual(
-            Set(Iso25DCityAssetCatalog.all.map(\.imageName)).count,
-            Iso25DCityAssetCatalog.all.count
-        )
-        // Every card must scale and anchor from measured artwork geometry, and
-        // the generated calibration table must not carry stale extra entries.
-        XCTAssertEqual(
-            Set(Iso25DCityAssetCatalog.all.map(\.imageName)),
-            Set(Iso25DSpriteCalibration.byImageName.keys)
-        )
-
-        for sprite in Iso25DCityAssetCatalog.all {
-            let gridDefinition = CityAssetCatalog.definition(for: sprite.assetID)
-            XCTAssertEqual(sprite.footprint, gridDefinition.footprint)
-            XCTAssertEqual(sprite.origin, .footprintCenterAtGround)
-            XCTAssertEqual(sprite.frontDirection, gridDefinition.frontDirection)
-            XCTAssertEqual(sprite.roadConnectionDirections, gridDefinition.roadConnectionDirections)
-            XCTAssertEqual(sprite.requiredClearance, gridDefinition.requiredClearance)
-            XCTAssertEqual(sprite.allowedDistricts, gridDefinition.allowedDistricts)
-            XCTAssertTrue(sprite.supports(facing: sprite.facing))
-            // Measured ground plates stay near the image center; a value at
-            // these bounds means broken artwork (bad matte or projection),
-            // not a tuning choice.
-            XCTAssertTrue((0.35...0.65).contains(sprite.groundAnchorX), sprite.imageName)
-            XCTAssertTrue((0.4...0.9).contains(sprite.groundAnchorY), sprite.imageName)
-            XCTAssertTrue((0.65...1).contains(sprite.projectedFootprintWidthFraction), sprite.imageName)
-
-            let image = try XCTUnwrap(UIImage(named: sprite.imageName))
-            let cgImage = try XCTUnwrap(image.cgImage)
-            XCTAssertEqual(cgImage.width, sprite.pixelWidth)
-            XCTAssertEqual(cgImage.height, sprite.pixelHeight)
-            XCTAssertEqual(sprite.pixelWidth, 1_024)
-            XCTAssertEqual(sprite.pixelHeight, 1_024)
-            XCTAssertFalse(
-                [.none, .noneSkipFirst, .noneSkipLast].contains(cgImage.alphaInfo),
-                "\(sprite.imageName) must retain an alpha channel"
-            )
-        }
-
-        for representative in [
-            CityAssetID.residentialCottage,
-            .luxuryCourtyard,
-            .commercialConvenience,
-            .industrialFactory,
-            .downtownMixedUse,
-            .highwayLogistics,
-            .playerSmallDealer,
-            .playerMediumDealer,
-            .playerLargeDealer,
-            .playerServiceWorkshop
-        ] {
-            for facing in CardinalDirection.allCases {
-                XCTAssertNotNil(Iso25DCityAssetCatalog.definition(for: representative, facing: facing))
-            }
-        }
-    }
-
-    func testIso25DPlayerFacilityScaleVariantsUseDedicatedArtwork() throws {
-        let dedicatedFamilies: [(CityAssetID, String)] = [
-            (.playerMediumDealer, "Iso25DDealerMedium_"),
-            (.playerLargeDealer, "Iso25DDealerLarge_"),
-            (.playerServiceWorkshop, "Iso25DServiceWorkshop")
-        ]
-
-        for (assetID, imagePrefix) in dedicatedFamilies {
-            XCTAssertEqual(Iso25DCityAssetCatalog.representativeAssetID(for: assetID), assetID)
-            for facing in CardinalDirection.allCases {
-                let definition = try XCTUnwrap(
-                    Iso25DCityAssetCatalog.definition(for: assetID, facing: facing)
-                )
-                XCTAssertEqual(definition.assetID, assetID)
-                XCTAssertTrue(
-                    definition.imageName.hasPrefix(imagePrefix),
-                    "\(assetID.rawValue) \(facing.rawValue) must not reuse a smaller facility sprite"
-                )
-            }
-        }
-    }
-
-    func testIso25DVariantSelectionUsesAuthoredVariantAndDirectionFallback() throws {
-        let authoredPairs: [(CityAssetID, String, String)] = [
-            (.residentialApartment, "Iso25DResidentialApartmentB_East", "Iso25DResidentialApartmentB_West"),
-            (.luxuryPool, "Iso25DLuxuryPoolB_East", "Iso25DLuxuryPoolB_West"),
-            (.commercialGasStation, "Iso25DCommercialGasStationB_East", "Iso25DCommercialGasStationB_West"),
-            (.industrialLoadingWarehouse, "Iso25DIndustrialLoadingWarehouseB_East", "Iso25DIndustrialLoadingWarehouseB_West"),
-            (.downtownOffice, "Iso25DDowntownOfficeB_East", "Iso25DDowntownOfficeB_West"),
-            (.highwayBigBox, "Iso25DHighwayBigBoxB_East", "Iso25DHighwayBigBoxB_West")
-        ]
-
-        for (assetID, eastImage, westImage) in authoredPairs {
-            XCTAssertEqual(
-                try XCTUnwrap(Iso25DCityAssetCatalog.definition(for: assetID, facing: .east)).imageName,
-                eastImage
-            )
-            XCTAssertEqual(
-                try XCTUnwrap(Iso25DCityAssetCatalog.definition(for: assetID, facing: .west)).imageName,
-                westImage
-            )
-            XCTAssertNotNil(
-                Iso25DCityAssetCatalog.definition(for: assetID, facing: .north),
-                "\(assetID.rawValue) should fall back to its district A asset when B has no north card"
-            )
-        }
-
-        XCTAssertEqual(
-            Iso25DCityAssetCatalog.definition(for: .residentialGable, facing: .east)?.imageName,
-            "Iso25DHouseGeneralA_East"
-        )
-    }
-
-    @MainActor
-    func testIso25DAmbientCoverageAndSpriteGeometryStayGridDerived() throws {
-        for object in map.objects where object.kind == .building {
-            XCTAssertNotNil(
-                Iso25DCityAssetCatalog.definition(for: object.assetID, facing: object.facing),
-                "Missing 2.5D artwork for \(object.assetID.rawValue) facing \(object.facing.rawValue)"
-            )
-        }
-
-        let factory = Iso25DCitySpriteFactory()
-        let worldWidth = Float(4) * map.metrics.cellSize
-        let worldDepth = Float(4) * map.metrics.cellSize
-        let first = try XCTUnwrap(factory.makeSprite(
-            assetID: .residentialGable,
-            facing: .east,
-            worldWidth: worldWidth,
-            worldDepth: worldDepth,
-            renderingOrder: 12_345
-        ))
-        let second = try XCTUnwrap(factory.makeSprite(
-            assetID: .residentialTwin,
-            facing: .east,
-            worldWidth: worldWidth,
-            worldDepth: worldDepth,
-            renderingOrder: 12_346
-        ))
-        let plane = try XCTUnwrap(first.geometry as? SCNPlane)
-        let definition = try XCTUnwrap(
-            Iso25DCityAssetCatalog.definition(for: .residentialGable, facing: .east)
-        )
-        let expectedWidth = CGFloat(
-            (worldWidth + worldDepth) / sqrt(2) / definition.projectedFootprintWidthFraction
-        )
-        XCTAssertEqual(plane.width, expectedWidth, accuracy: 0.001)
-        XCTAssertEqual(first.renderingOrder, 12_345)
-        XCTAssertEqual(first.name, Iso25DCitySpriteFactory.spriteNodeName)
-        XCTAssertNil(first.physicsBody)
-        XCTAssertFalse(try XCTUnwrap(first.geometry?.firstMaterial).writesToDepthBuffer)
-        XCTAssertFalse(try XCTUnwrap(first.geometry?.firstMaterial).readsFromDepthBuffer)
-        XCTAssertTrue(first.geometry?.firstMaterial === second.geometry?.firstMaterial)
-    }
-
     func testParcelNeighborsAreResolvedOnlyAcrossContinuousRoadBands() throws {
+        // Downtown plot 0 sits at the block's north-west corner.
         let first = try XCTUnwrap(map.parcel(legacyPlotID: 0))
         XCTAssertEqual(map.neighboringParcel(of: first, in: .east)?.legacyPlotID, 1)
-        XCTAssertEqual(map.neighboringParcel(of: first, in: .south)?.legacyPlotID, 8)
+        XCTAssertEqual(map.neighboringParcel(of: first, in: .south)?.legacyPlotID, 4)
         XCTAssertNil(map.neighboringParcel(of: first, in: .north))
         XCTAssertNil(map.neighboringParcel(of: first, in: .west))
 
-        let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 7))
+        // The central park carve interrupts the row: plot 1's eastern
+        // neighbor across the park is not reachable through a road corridor.
+        let besidePark = try XCTUnwrap(map.parcel(legacyPlotID: 1))
+        XCTAssertNil(map.neighboringParcel(of: besidePark, in: .east))
+
+        // Rightmost parcel in the block has no east neighbor at all.
+        let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 3))
         XCTAssertNil(map.neighboringParcel(of: districtEdge, in: .east))
     }
 
     func testMultiParcelStoreUsesOneBuildingAndGridContainedParkingLots() throws {
         let store = Store(
             name: "QA店",
-            plotID: 150,
-            plotIDs: [150, 151, 152],
+            plotID: 108,
+            plotIDs: [108, 109, 110],
             type: .roadside,
             acquisition: .lease,
             focus: .business,
@@ -1073,7 +949,8 @@ final class GridMapTests: XCTestCase {
             roads: map.roads,
             parcels: parcels ?? map.parcels,
             objects: objects ?? map.objects,
-            anchors: anchors ?? map.anchors
+            anchors: anchors ?? map.anchors,
+            terrain: map.terrain
         )
     }
 

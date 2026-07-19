@@ -59,17 +59,6 @@ enum MapFacility: String, CaseIterable, Identifiable {
         }
     }
 
-    var worldPoint: CGPoint {
-        let map = CityMapDefinition.suihama
-        guard let coordinate = map.coordinate(for: gridAnchorID) else {
-            return CGPoint(x: 0.5, y: 0.5)
-        }
-        return CGPoint(
-            x: (CGFloat(coordinate.column) + 0.5) / CGFloat(map.size.columns),
-            y: (CGFloat(coordinate.row) + 0.5) / CGFloat(map.size.rows)
-        )
-    }
-
     var isPrimary: Bool { self == .auction }
 
     @MainActor func status(game: GameEngine) -> String {
@@ -100,18 +89,6 @@ struct MapFocusRequest: Equatable {
 
     init(district: DistrictKind) {
         target = .district(district)
-    }
-
-    /// Compatibility projection for the retired Canvas map. The active
-    /// SceneKit map consumes `target` directly and never resolves through this
-    /// normalized coordinate.
-    var worldPoint: CGPoint {
-        switch target {
-        case .plot(let plotID):
-            return CityMapLayout.position(for: plotID)
-        case .district(let district):
-            return CityMapLayout.trafficBadgePosition(for: district)
-        }
     }
 }
 
