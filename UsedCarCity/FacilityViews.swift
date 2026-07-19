@@ -47,16 +47,27 @@ enum MapFacility: String, CaseIterable, Identifiable {
         }
     }
 
-    var worldPoint: CGPoint {
+    var gridAnchorID: GridMapAnchorID {
         switch self {
-        case .auction: CityMapLayout.gridPoint(column: 5, row: 18)
-        case .bank: CityMapLayout.gridPoint(column: 7, row: 7)
-        case .realEstate: CityMapLayout.gridPoint(column: 11, row: 7)
-        case .workshop: CityMapLayout.gridPoint(column: 21, row: 15)
-        case .advertising: CityMapLayout.gridPoint(column: 15, row: 7)
-        case .recruiting: CityMapLayout.gridPoint(column: 20, row: 7)
-        case .cityHall: CityMapLayout.gridPoint(column: 28, row: 7)
+        case .auction: .auction
+        case .bank: .bank
+        case .realEstate: .realEstate
+        case .workshop: .workshop
+        case .advertising: .advertising
+        case .recruiting: .recruiting
+        case .cityHall: .cityHall
         }
+    }
+
+    var worldPoint: CGPoint {
+        let map = CityMapDefinition.suihama
+        guard let coordinate = map.coordinate(for: gridAnchorID) else {
+            return CGPoint(x: 0.5, y: 0.5)
+        }
+        return CGPoint(
+            x: (CGFloat(coordinate.column) + 0.5) / CGFloat(map.size.columns),
+            y: (CGFloat(coordinate.row) + 0.5) / CGFloat(map.size.rows)
+        )
     }
 
     var isPrimary: Bool { self == .auction }
@@ -74,9 +85,34 @@ enum MapFacility: String, CaseIterable, Identifiable {
     }
 }
 
+enum MapFocusTarget: Equatable {
+    case plot(Int)
+    case district(DistrictKind)
+}
+
 struct MapFocusRequest: Equatable {
     let id = UUID()
-    let worldPoint: CGPoint
+    let target: MapFocusTarget
+
+    init(plotID: Int) {
+        target = .plot(plotID)
+    }
+
+    init(district: DistrictKind) {
+        target = .district(district)
+    }
+
+    /// Compatibility projection for the retired Canvas map. The active
+    /// SceneKit map consumes `target` directly and never resolves through this
+    /// normalized coordinate.
+    var worldPoint: CGPoint {
+        switch target {
+        case .plot(let plotID):
+            return CityMapLayout.position(for: plotID)
+        case .district(let district):
+            return CityMapLayout.trafficBadgePosition(for: district)
+        }
+    }
 }
 
 struct FacilityHubSheet: View {

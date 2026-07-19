@@ -481,6 +481,7 @@ struct GridParcel: Identifiable, Hashable, Codable, Sendable {
     let legacyPlotID: Int?
     let rect: GridRect
     let district: DistrictKind
+    let areaSquareMeters: Int
     var ownership: GridParcelOwnership
     var isPurchasable: Bool
     var isBuildable: Bool
@@ -491,6 +492,16 @@ struct GridParcel: Identifiable, Hashable, Codable, Sendable {
     var isVacant: Bool { currentBuildingID == nil }
 }
 
+enum GridMapAnchorID: String, Hashable, Codable, Sendable, CaseIterable {
+    case auction
+    case bank
+    case realEstate
+    case workshop
+    case advertising
+    case recruiting
+    case cityHall
+}
+
 struct GridCityMap: Hashable, Codable, Sendable {
     let id: String
     let name: String
@@ -499,6 +510,7 @@ struct GridCityMap: Hashable, Codable, Sendable {
     let roads: [GridCoordinate: GridRoadCell]
     let parcels: [GridParcel]
     let objects: [GridPlacedObject]
+    let anchors: [GridMapAnchorID: GridCoordinate]
 
     func road(at coordinate: GridCoordinate) -> GridRoadCell? { roads[coordinate] }
 
@@ -513,6 +525,26 @@ struct GridCityMap: Hashable, Codable, Sendable {
     }
 
     func object(id: String) -> GridPlacedObject? { objects.first(where: { $0.id == id }) }
+
+    func coordinate(for anchorID: GridMapAnchorID) -> GridCoordinate? {
+        anchors[anchorID]
+    }
+
+    func worldCenter(of district: DistrictKind) -> GridWorldPoint? {
+        let districtParcels = parcels.filter { $0.district == district }
+        guard let first = districtParcels.first else { return nil }
+        var bounds = metrics.worldBounds(of: first.rect, mapSize: size)
+        for parcel in districtParcels.dropFirst() {
+            let parcelBounds = metrics.worldBounds(of: parcel.rect, mapSize: size)
+            bounds = GridWorldBounds(
+                minX: min(bounds.minX, parcelBounds.minX),
+                maxX: max(bounds.maxX, parcelBounds.maxX),
+                minZ: min(bounds.minZ, parcelBounds.minZ),
+                maxZ: max(bounds.maxZ, parcelBounds.maxZ)
+            )
+        }
+        return bounds.center
+    }
 
     func actualRoadAccess(for parcel: GridParcel) -> Set<CardinalDirection> {
         Set(CardinalDirection.allCases.filter { direction in
@@ -1118,6 +1150,7 @@ enum GridMapValidationIssue: Hashable, Sendable, CustomStringConvertible {
     case objectRoadConnectionMissing(String)
     case objectKindMismatch(String)
     case invalidObjectHeight(String)
+    case anchorOutsideMap(GridMapAnchorID, GridCoordinate)
 
     var description: String {
         switch self {
@@ -1147,6 +1180,7 @@ enum GridMapValidationIssue: Hashable, Sendable, CustomStringConvertible {
         case .objectRoadConnectionMissing(let object): "Object \(object) does not face an adjacent road"
         case .objectKindMismatch(let object): "Object \(object) kind does not match its asset category"
         case .invalidObjectHeight(let object): "Object \(object) has an invalid height"
+        case .anchorOutsideMap(let anchor, let coordinate): "Anchor \(anchor.rawValue) is outside map at \(coordinate)"
         }
     }
 }
@@ -1156,6 +1190,9 @@ enum GridMapValidator {
         var issues: [GridMapValidationIssue] = []
         if !map.size.isValid { issues.append(.invalidMapSize) }
         if map.metrics.cellSize <= 0 { issues.append(.invalidCellSize) }
+        for (anchor, coordinate) in map.anchors where !map.size.contains(coordinate) {
+            issues.append(.anchorOutsideMap(anchor, coordinate))
+        }
 
         var seenParcelIDs: Set<String> = []
         var seenLegacyPlotIDs: Set<Int> = []

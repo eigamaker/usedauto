@@ -116,7 +116,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v23"
+    private static let saveKey = "UsedCarCity.save.v25"
     private static let managerCandidates = [
         StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, marketingAbility: 84, serviceAbility: 71, monthlySalary: 56),
         StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, marketingAbility: 58, serviceAbility: 75, monthlySalary: 56),
@@ -486,11 +486,30 @@ final class GameEngine: ObservableObject {
     func plot(id: Int) -> LandPlot? { plots.first(where: { $0.id == id }) }
     func store(at plotID: Int) -> Store? { stores.first(where: { $0.plotIDs.contains(plotID) }) }
 
+    /// Keeps the parcel's visible use in lockstep with the store lifecycle.
+    /// The primary parcel owns the building or construction site; additional
+    /// footprint parcels become engine-aligned display parking.
+    private func synchronizeParcelUse(for store: Store) {
+        let targetType = store.pendingType ?? store.type
+        let isConstruction = store.openingMonthsRemaining != nil
+            || store.renovationMonthsRemaining != nil
+        for plotID in store.plotIDs {
+            guard let index = plots.firstIndex(where: { $0.id == plotID }) else { continue }
+            if plotID == store.plotID {
+                plots[index].currentUse = isConstruction
+                    ? .construction(storeID: store.id, targetAssetID: targetType.cityAssetID)
+                    : .playerFacility(storeID: store.id, assetID: store.type.cityAssetID)
+            } else {
+                plots[index].currentUse = .displayParking(storeID: store.id)
+            }
+        }
+    }
+
     var gridOccupancyIssues: [GridStoreOccupancyIssue] {
         GridStorePlacementAdapter.validate(
             plots: plots,
             stores: stores,
-            map: ValidationCityMap.shared
+            map: CityMapDefinition.suihama
         )
     }
 
@@ -1069,6 +1088,7 @@ final class GameEngine: ObservableObject {
             plots[index].occupant = .player(storeID: store.id)
             plots[index].structure = .vacant
         }
+        synchronizeParcelUse(for: store)
         if isFoundingStore {
             tutorialStep = .purchaseInventory
             generateWeeklyCustomerLeads(forceTutorialStoreID: store.id)
@@ -1095,6 +1115,7 @@ final class GameEngine: ObservableObject {
             guard let plotIndex = plots.firstIndex(where: { $0.id == plotID }) else { continue }
             plots[plotIndex].occupant = .available
             plots[plotIndex].structure = .vacant
+            plots[plotIndex].currentUse = .vacant
         }
         stores.remove(at: storeIndex)
         recalculateAssets()
@@ -1312,6 +1333,7 @@ final class GameEngine: ObservableObject {
             changed.delegateService = false
         }
         stores[index] = changed
+        synchronizeParcelUse(for: changed)
         save()
     }
 
@@ -1498,6 +1520,7 @@ final class GameEngine: ObservableObject {
         competitors[competitorIndex].strength = max(0.72, competitors[competitorIndex].strength - 0.08)
         plots[plotIndex].occupant = .player(storeID: store.id)
         plots[plotIndex].structure = .vacant
+        synchronizeParcelUse(for: store)
         recordCityEvent(CityEvent(
             turn: turn,
             kind: .competitorAcquisition,
@@ -1856,6 +1879,7 @@ final class GameEngine: ObservableObject {
             plots[plotIndex].structure = .vacant
         }
         stores[index].renovationMonthsRemaining = newType.renovationMonths(from: stores[index].type)
+        synchronizeParcelUse(for: stores[index])
         recordCityEvent(CityEvent(turn: turn, kind: .storeGrowth, title: "\(stores[index].name)が改装着工", detail: "\(newType.name)へ改装中。完成まで\(stores[index].renovationMonthsRemaining ?? 1)週間です", plotID: stores[index].plotID))
         recalculateAssets()
         assertGridOccupancyIntegrity()
@@ -2530,7 +2554,7 @@ final class GameEngine: ObservableObject {
             startingAt: plot,
             type: type,
             plots: plots,
-            map: ValidationCityMap.shared,
+            map: CityMapDefinition.suihama,
             acquisitionMode: mode,
             occupiedBy: storeID,
             requiredExistingIDs: requiredExistingIDs
@@ -2750,7 +2774,11 @@ final class GameEngine: ObservableObject {
         let occupied = Set(competitors.flatMap(\.plotIDs) + stores.map(\.plotID))
         let company = competitors[companyIndex]
         let candidates = plots.filter {
-            !occupied.contains($0.id) && isAvailable($0.occupant) && $0.development == nil && $0.price + StoreType.standard.buildCost <= company.cash
+            !occupied.contains($0.id)
+                && isAvailable($0.occupant)
+                && $0.development == nil
+                && $0.structure != .vacant
+                && $0.price + StoreType.standard.buildCost <= company.cash
         }
         guard let candidate = candidates.max(by: {
             competitorPlotScore(company: company, plot: $0) < competitorPlotScore(company: company, plot: $1)
@@ -3143,6 +3171,7 @@ final class GameEngine: ObservableObject {
                     notes.append("\(stores[index].name)は改装中（完成まで\(next)週間）")
                 }
             }
+            synchronizeParcelUse(for: stores[index])
         }
     }
 
@@ -3709,11 +3738,29 @@ final class GameEngine: ObservableObject {
     }
 
     private func placeCompetitors() {
-        let placements: [(Int, Int)] = [(0, 3), (1, 38), (2, 72), (2, 106), (0, 137), (1, 166)]
-        for (competitorIndex, plotID) in placements {
-            guard plots.indices.contains(plotID), competitors.indices.contains(competitorIndex) else { continue }
-            competitors[competitorIndex].plotIDs.append(plotID)
-            plots[plotID].occupant = .competitor(name: competitors[competitorIndex].name)
+        let assignments: [(district: DistrictKind, competitorIndex: Int)] = [
+            (.downtown, 0), (.station, 1), (.emerging, 2),
+            (.suburb, 2), (.industrial, 0), (.highway, 1)
+        ]
+        for assignment in assignments {
+            guard competitors.indices.contains(assignment.competitorIndex) else { continue }
+            let candidates = plots.filter {
+                $0.district == assignment.district
+                    && $0.development == nil
+                    && $0.structure != .vacant
+                    && isAvailable($0.occupant)
+            }
+            guard let candidate = candidates.max(by: { lhs, rhs in
+                let lhsScore = lhs.visibility * 0.30 + lhs.access * 0.30 + lhs.traffic * 0.40
+                let rhsScore = rhs.visibility * 0.30 + rhs.access * 0.30 + rhs.traffic * 0.40
+                if lhsScore == rhsScore { return lhs.id > rhs.id }
+                return lhsScore < rhsScore
+            }),
+                  let plotIndex = plots.firstIndex(where: { $0.id == candidate.id }) else { continue }
+            competitors[assignment.competitorIndex].plotIDs.append(candidate.id)
+            plots[plotIndex].occupant = .competitor(
+                name: competitors[assignment.competitorIndex].name
+            )
         }
     }
 
@@ -3962,37 +4009,91 @@ final class GameEngine: ObservableObject {
         ]
     }
 
-    static func makePlots() -> [LandPlot] {
-        let order: [DistrictKind] = [.downtown, .station, .emerging, .suburb, .industrial, .highway]
+    static func makePlots(map: GridCityMap = CityMapDefinition.suihama) -> [LandPlot] {
         var result: [LandPlot] = []
-        for (districtIndex, district) in order.enumerated() {
-            for local in 1...CityMapLayout.plotsPerDistrict {
-                let id = districtIndex * CityMapLayout.plotsPerDistrict + local - 1
-                let base: Int
-                switch district { case .downtown: base = 14_000; case .station: base = 9_500; case .suburb: base = 7_000; case .emerging: base = 6_200; case .industrial: base = 3_800; case .highway: base = 4_700 }
-                let variation = 88 + ((id * 17) % 27)
-                let price = base * variation / 100
-                let development: DevelopmentProject?
-                if district == .emerging && local == 6 {
-                    development = DevelopmentProject(title: "ひかりニュータウン第2期", monthsRemaining: 5, populationBoost: 5_200, trafficBoost: 0.10)
-                } else if district == .industrial && local == 12 {
-                    development = DevelopmentProject(title: "臨海物流パーク", monthsRemaining: 8, populationBoost: 1_800, trafficBoost: 0.13)
-                } else {
-                    development = nil
-                }
-                let structure: ParcelStructure
-                switch district {
-                case .downtown: structure = local.isMultiple(of: 2) ? .commercial : .apartment
-                case .station: structure = local.isMultiple(of: 2) ? .office : .apartment
-                case .emerging: structure = local.isMultiple(of: 3) ? .home : .villa
-                case .suburb: structure = local.isMultiple(of: 3) ? .apartment : .home
-                case .industrial: structure = local.isMultiple(of: 2) ? .factory : .warehouse
-                case .highway: structure = local.isMultiple(of: 2) ? .roadside : .warehouse
-                }
-                result.append(LandPlot(id: id, district: district, localNumber: local, area: 420, visibility: 0.78 + Double((id * 11) % 35) / 100, access: 0.80 + Double((id * 7) % 31) / 100, traffic: 0.82 + Double((id * 13) % 38) / 100, price: price, monthlyRent: max(18, price / 210), growth: 0.98 + Double((id * 5) % 11) / 100, occupant: .available, isForLease: true, isForSale: true, structure: structure, development: development))
+        var localCounts: [DistrictKind: Int] = [:]
+        let objectByParcelID = Dictionary(
+            map.objects.map { ($0.parcelID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let orderedParcels = map.parcels.sorted {
+            ($0.legacyPlotID ?? .max) < ($1.legacyPlotID ?? .max)
+        }
+        for parcel in orderedParcels {
+            guard let id = parcel.legacyPlotID else { continue }
+            let local = localCounts[parcel.district, default: 0] + 1
+            localCounts[parcel.district] = local
+            let development: DevelopmentProject?
+            if parcel.district == .emerging && local == 6 {
+                development = DevelopmentProject(title: "ひかりニュータウン第2期", monthsRemaining: 5, populationBoost: 5_200, trafficBoost: 0.10)
+            } else if parcel.district == .industrial && local == 12 {
+                development = DevelopmentProject(title: "臨海物流パーク", monthsRemaining: 8, populationBoost: 1_800, trafficBoost: 0.13)
+            } else {
+                development = nil
             }
+            let price = parcel.price ?? 0
+            result.append(LandPlot(
+                id: id,
+                district: parcel.district,
+                localNumber: local,
+                area: parcel.areaSquareMeters,
+                visibility: 0.78 + Double((id * 11) % 35) / 100,
+                access: 0.80 + Double((id * 7) % 31) / 100,
+                traffic: 0.82 + Double((id * 13) % 38) / 100,
+                price: price,
+                monthlyRent: max(18, price / 210),
+                growth: 0.98 + Double((id * 5) % 11) / 100,
+                occupant: .available,
+                isForLease: parcel.isPurchasable,
+                isForSale: parcel.isPurchasable,
+                structure: initialStructure(
+                    for: objectByParcelID[parcel.id],
+                    in: parcel.district
+                ),
+                currentUse: initialParcelUse(for: objectByParcelID[parcel.id]),
+                development: development
+            ))
         }
         return result
+    }
+
+    private static func initialStructure(
+        for object: GridPlacedObject?,
+        in district: DistrictKind
+    ) -> ParcelStructure {
+        guard let object, object.kind == .building else { return .vacant }
+        let definition = CityAssetCatalog.definition(for: object.assetID)
+        switch definition.category {
+        case .generalResidential:
+            return object.assetID == .residentialApartment ? .apartment : .home
+        case .luxuryResidential:
+            return .villa
+        case .commercial:
+            return district == .highway ? .roadside : .commercial
+        case .industrial:
+            return [.industrialFactory, .industrialTankWorks, .industrialSmokestack]
+                .contains(object.assetID) ? .factory : .warehouse
+        case .downtown:
+            if object.assetID == .downtownOffice { return .office }
+            if object.assetID == .downtownApartment { return .apartment }
+            return .commercial
+        case .highway:
+            return object.assetID == .highwayLogistics ? .warehouse : .roadside
+        case .parking:
+            return .vacant
+        case .playerFacility:
+            return .commercial
+        }
+    }
+
+    private static func initialParcelUse(for object: GridPlacedObject?) -> CityParcelUseState {
+        guard let object else { return .vacant }
+        switch object.kind {
+        case .building:
+            return .ambientBuilding(assetID: object.assetID)
+        case .parking:
+            return .surfaceParking
+        }
     }
 
     static func makeCompetitors() -> [Competitor] {

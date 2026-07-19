@@ -16,7 +16,7 @@ struct GridCityMapSurface: View {
     @State private var cameraCommand = GridCameraCommand.none
     @State private var showsGrid = CommandLine.arguments.contains("-debug-grid")
 
-    private let map = ValidationCityMap.shared
+    private let map = CityMapDefinition.suihama
 
     var body: some View {
         ZStack {
@@ -83,11 +83,22 @@ struct GridCityMapSurface: View {
     }
 
     private var focusPlotID: Int? {
-        guard let point = focusRequest?.worldPoint else { return nil }
-        return game.plots.min { lhs, rhs in
-            squaredDistance(CityMapLayout.position(for: lhs.id), point)
-                < squaredDistance(CityMapLayout.position(for: rhs.id), point)
-        }?.id
+        guard let target = focusRequest?.target else { return nil }
+        switch target {
+        case .plot(let plotID):
+            return map.parcel(legacyPlotID: plotID) == nil ? nil : plotID
+        case .district(let district):
+            guard let districtCenter = map.worldCenter(of: district) else { return nil }
+            return map.parcels
+                .filter { $0.district == district && $0.legacyPlotID != nil }
+                .min { lhs, rhs in
+                    let lhsCenter = map.metrics.worldBounds(of: lhs.rect, mapSize: map.size).center
+                    let rhsCenter = map.metrics.worldBounds(of: rhs.rect, mapSize: map.size).center
+                    return squaredDistance(lhsCenter, districtCenter)
+                        < squaredDistance(rhsCenter, districtCenter)
+                }?
+                .legacyPlotID
+        }
     }
 
     private var effectiveFocusPlotID: Int? {
@@ -99,9 +110,9 @@ struct GridCityMapSurface: View {
         return focusRequest?.id ?? GridCameraZoom.demoFocusRequestID
     }
 
-    private func squaredDistance(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
+    private func squaredDistance(_ lhs: GridWorldPoint, _ rhs: GridWorldPoint) -> Float {
         let dx = lhs.x - rhs.x
-        let dy = lhs.y - rhs.y
+        let dy = lhs.z - rhs.z
         return dx * dx + dy * dy
     }
 
@@ -329,10 +340,22 @@ private struct GridSceneRepresentable: UIViewRepresentable {
     }
 }
 
-/// Builds camera-facing cards from the same world-space grid rectangles used by
-/// placement and collision. The artwork can change without changing gameplay
-/// geometry, and the normalized ground anchor prevents the visible base from
-/// drifting when zooming or panning the orthographic camera.
+enum CityBuildingRenderMode: Equatable, Sendable {
+    case gridNative3D
+    case legacyIso25DSprites
+
+    static let legacySpriteArgument = "-legacy-iso25d-sprites"
+
+    static func selected(arguments: [String] = CommandLine.arguments) -> CityBuildingRenderMode {
+        arguments.contains(legacySpriteArgument) ? .legacyIso25DSprites : .gridNative3D
+    }
+}
+
+/// Builds camera-facing legacy cards from the same world-space grid rectangles
+/// used by placement and collision. New city rendering defaults to grid-native
+/// 3D geometry because the old artwork includes a baked lot plate whose angle
+/// cannot be corrected by scale and anchor calibration alone. This factory is
+/// retained behind `-legacy-iso25d-sprites` for visual comparisons only.
 @MainActor
 final class Iso25DCitySpriteFactory {
     static let spriteNodeName = "iso25d-sprite"
@@ -407,6 +430,7 @@ private enum GridSceneSelection {
 @MainActor
 private final class GridCitySceneController {
     private let map: GridCityMap
+    private let buildingRenderMode: CityBuildingRenderMode
     private weak var sceneView: SCNView?
     private let scene = SCNScene()
     private let cameraNode = SCNNode()
@@ -433,8 +457,13 @@ private final class GridCitySceneController {
 
     var zoomFactor: CGFloat { currentZoomFactor }
 
-    init(map: GridCityMap, sceneView: SCNView) {
+    init(
+        map: GridCityMap,
+        sceneView: SCNView,
+        buildingRenderMode: CityBuildingRenderMode = .selected()
+    ) {
         self.map = map
+        self.buildingRenderMode = buildingRenderMode
         self.sceneView = sceneView
         configureView(sceneView)
         buildScene()
@@ -573,9 +602,7 @@ private final class GridCitySceneController {
             )
 
             if let marker = vacantMarkerNodes[parcel.id] {
-                let isOwned: Bool
-                if let plot, case .player = plot.occupant { isOwned = true } else { isOwned = false }
-                marker.isHidden = isOwned
+                marker.isHidden = plot?.currentUse.isVacant != true
             }
         }
 
@@ -587,12 +614,19 @@ private final class GridCitySceneController {
                 staticObjectNodes[object.id]?.isHidden = false
                 continue
             }
-            let isPlayerOccupied: Bool
-            if case .player = plot.occupant { isPlayerOccupied = true }
-            else { isPlayerOccupied = false }
-            node.isHidden = plot.structure == .vacant || isPlayerOccupied
+            switch plot.currentUse {
+            case .ambientBuilding(let assetID):
+                node.isHidden = object.kind != .building || object.assetID != assetID
+            case .surfaceParking:
+                node.isHidden = object.kind != .parking
+            case .vacant, .construction, .playerFacility, .displayParking:
+                node.isHidden = true
+            }
         }
-        updateStoreNodes(stores: game.stores)
+        updateStoreNodes(
+            stores: game.stores,
+            plotByID: Dictionary(uniqueKeysWithValues: game.plots.map { ($0.id, $0) })
+        )
         sceneView?.setNeedsDisplay()
     }
 
@@ -788,10 +822,11 @@ private final class GridCitySceneController {
         // metadata to it would make taps outside the lot appear selectable.
 
         let definition = CityAssetCatalog.definition(for: object.assetID)
-        // A sprite's measured ground plate depicts the building's entire lot
-        // (forecourt included), so the card always spans the parcel. This also
-        // sidesteps the half-cell offset of integer-centered odd footprints.
-        if object.kind == .building,
+        // Legacy cards include their own photographed/generated ground plate.
+        // They are available only for before/after comparison; the default 3D
+        // path below composes an engine-owned lot surface and building geometry.
+        if buildingRenderMode == .legacyIso25DSprites,
+           object.kind == .building,
            let spriteNode = spriteFactory.makeSprite(
             assetID: object.assetID,
             facing: object.facing,
@@ -839,8 +874,10 @@ private final class GridCitySceneController {
     }
 
     private func buildVacantMarkers() {
-        for parcel in map.parcels where parcel.currentBuildingID == nil {
-            guard !map.objects.contains(where: { $0.parcelID == parcel.id }) else { continue }
+        // Every gameplay parcel receives a hidden reusable marker. Runtime
+        // state decides which marker is visible, so demolishing a building can
+        // reveal true vacant ground without rebuilding the SceneKit scene.
+        for parcel in map.parcels where parcel.legacyPlotID != nil {
             let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
             let node = SCNNode()
             node.position = SCNVector3(
@@ -880,6 +917,7 @@ private final class GridCitySceneController {
                 node.addChildNode(stakeNode)
             }
             vacantMarkerNodes[parcel.id] = node
+            node.isHidden = true
             scene.rootNode.addChildNode(node)
         }
     }
@@ -979,7 +1017,7 @@ private final class GridCitySceneController {
         sceneView?.pointOfView = cameraNode
     }
 
-    private func updateStoreNodes(stores: [Store]) {
+    private func updateStoreNodes(stores: [Store], plotByID: [Int: LandPlot]) {
         let activeIDs = Set(stores.map(\.id))
         for id in Array(runtimeStoreNodes.keys) where !activeIDs.contains(id) {
             if let node = runtimeStoreNodes[id] {
@@ -991,14 +1029,17 @@ private final class GridCitySceneController {
             runtimeStoreSignatures[id] = nil
         }
         for store in stores {
-            let signature = "\(store.type.rawValue)-\(store.plotIDs.sorted())"
+            let parcelSignature = store.plotIDs.sorted().map { plotID in
+                "\(plotID):\(plotByID[plotID].map(parcelUseSignature) ?? "missing")"
+            }.joined(separator: ",")
+            let signature = "\(store.type.rawValue)-\(store.pendingType?.rawValue ?? "none")-\(parcelSignature)"
             if runtimeStoreSignatures[store.id] == signature { continue }
             if let oldNode = runtimeStoreNodes[store.id] {
                 interactionPlotIDs[ObjectIdentifier(oldNode)] = nil
                 unregisterAssetLODNodes(for: oldNode)
                 oldNode.removeFromParentNode()
             }
-            let node = makeStoreNode(store: store)
+            let node = makeStoreNode(store: store, plotByID: plotByID)
             runtimeStoreNodes[store.id] = node
             runtimeStoreSignatures[store.id] = signature
             scene.rootNode.addChildNode(node)
@@ -1006,7 +1047,7 @@ private final class GridCitySceneController {
         }
     }
 
-    private func makeStoreNode(store: Store) -> SCNNode {
+    private func makeStoreNode(store: Store, plotByID: [Int: LandPlot]) -> SCNNode {
         let root = SCNNode()
         root.name = "player-store:\(store.id.uuidString)"
         for placement in GridStorePlacementAdapter.visualPlacements(for: store, map: map) {
@@ -1030,10 +1071,16 @@ private final class GridCitySceneController {
             let node: SCNNode
             // Store placements are always the parcel's centered rect, and an
             // integer rect cannot center an odd-difference footprint exactly,
-            // so both the site card and the 3D fallback sit on the true
-            // parcel center. Cards additionally span the parcel because the
-            // measured plate depicts the whole dealer site.
+            // so both the grid-native building and the legacy comparison card
+            // sit on the true parcel center.
             if placement.role == .primaryBuilding,
+               plotByID[placement.plotID]?.currentUse.isUnderConstruction == true {
+                node = makeConstructionSiteNode(
+                    width: parcelBounds.width,
+                    depth: parcelBounds.depth
+                )
+            } else if buildingRenderMode == .legacyIso25DSprites,
+               placement.role == .primaryBuilding,
                let sprite = spriteFactory.makeSprite(
                 assetID: placement.assetID,
                 facing: placement.facing,
@@ -1048,8 +1095,8 @@ private final class GridCitySceneController {
                     facing: placement.facing,
                     heightHint: placement.height
                 )
-                setInteractionMetadata(on: node, parcel: parcel)
             }
+            setInteractionMetadata(on: node, parcel: parcel)
             node.position = SCNVector3(
                 parcelBounds.center.x,
                 GridSceneElevation.assetBase,
@@ -1060,6 +1107,85 @@ private final class GridCitySceneController {
                 : "player-store-parking:\(store.id.uuidString):\(placement.plotID)"
             root.addChildNode(node)
         }
+        return root
+    }
+
+    private func parcelUseSignature(_ plot: LandPlot) -> String {
+        switch plot.currentUse {
+        case .ambientBuilding(let assetID):
+            return "ambient:\(assetID.rawValue)"
+        case .surfaceParking:
+            return "surface-parking"
+        case .vacant:
+            return "vacant"
+        case .construction(let storeID, let assetID):
+            return "construction:\(storeID.uuidString):\(assetID.rawValue)"
+        case .playerFacility(let storeID, let assetID):
+            return "facility:\(storeID.uuidString):\(assetID.rawValue)"
+        case .displayParking(let storeID):
+            return "display-parking:\(storeID.uuidString)"
+        }
+    }
+
+    /// A grid-contained construction placeholder. Its foundation and frame
+    /// are sized from the authoritative parcel bounds, so it cannot introduce
+    /// the baked rotation or lot-edge mismatch of the legacy sprite cards.
+    private func makeConstructionSiteNode(width: Float, depth: Float) -> SCNNode {
+        let root = SCNNode()
+        root.name = "construction-site"
+
+        let usableWidth = max(12, width - 14)
+        let usableDepth = max(12, depth - 14)
+        let foundationHeight: Float = 0.7
+        let frameHeight = min(12, max(7, min(usableWidth, usableDepth) * 0.18))
+        let concrete = material(color: UIColor(red: 0.62, green: 0.64, blue: 0.64, alpha: 1))
+        let steel = material(color: UIColor(red: 0.93, green: 0.48, blue: 0.12, alpha: 1))
+        let timber = material(color: UIColor(red: 0.55, green: 0.34, blue: 0.17, alpha: 1))
+
+        let foundation = SCNBox(
+            width: CGFloat(usableWidth),
+            height: CGFloat(foundationHeight),
+            length: CGFloat(usableDepth),
+            chamferRadius: 0.5
+        )
+        foundation.firstMaterial = concrete
+        let foundationNode = SCNNode(geometry: foundation)
+        foundationNode.position.y = foundationHeight / 2
+        root.addChildNode(foundationNode)
+
+        let columnInsetX = max(3, usableWidth / 2 - 3)
+        let columnInsetZ = max(3, usableDepth / 2 - 3)
+        for (x, z) in [
+            (-columnInsetX, -columnInsetZ), (columnInsetX, -columnInsetZ),
+            (-columnInsetX, columnInsetZ), (columnInsetX, columnInsetZ)
+        ] {
+            let column = SCNBox(width: 1.2, height: CGFloat(frameHeight), length: 1.2, chamferRadius: 0.15)
+            column.firstMaterial = steel
+            let columnNode = SCNNode(geometry: column)
+            columnNode.position = SCNVector3(x, foundationHeight + frameHeight / 2, z)
+            root.addChildNode(columnNode)
+        }
+
+        for z in [-columnInsetZ, columnInsetZ] {
+            let beam = SCNBox(width: CGFloat(usableWidth - 4), height: 1.0, length: 1.0, chamferRadius: 0.12)
+            beam.firstMaterial = steel
+            let beamNode = SCNNode(geometry: beam)
+            beamNode.position = SCNVector3(0, foundationHeight + frameHeight, z)
+            root.addChildNode(beamNode)
+        }
+        for x in [-columnInsetX, columnInsetX] {
+            let beam = SCNBox(width: 1.0, height: 1.0, length: CGFloat(usableDepth - 4), chamferRadius: 0.12)
+            beam.firstMaterial = steel
+            let beamNode = SCNNode(geometry: beam)
+            beamNode.position = SCNVector3(x, foundationHeight + frameHeight, 0)
+            root.addChildNode(beamNode)
+        }
+
+        let materials = SCNBox(width: 8, height: 1.8, length: 4, chamferRadius: 0.25)
+        materials.firstMaterial = timber
+        let materialsNode = SCNNode(geometry: materials)
+        materialsNode.position = SCNVector3(0, foundationHeight + 0.9, usableDepth * 0.27)
+        root.addChildNode(materialsNode)
         return root
     }
 
@@ -1112,17 +1238,10 @@ private final class GridCitySceneController {
     }
 
     private func facilityGridCoordinate(_ facility: MapFacility) -> GridCoordinate {
-        // Facility markers are map UI anchors, not occupied buildings. Anchoring
-        // them to road-cell centers keeps them snapped without consuming a lot.
-        switch facility {
-        case .auction: GridCoordinate(column: 15, row: 54)
-        case .bank: GridCoordinate(column: 10, row: 15)
-        case .realEstate: GridCoordinate(column: 30, row: 15)
-        case .workshop: GridCoordinate(column: 61, row: 42)
-        case .advertising: GridCoordinate(column: 46, row: 15)
-        case .recruiting: GridCoordinate(column: 77, row: 10)
-        case .cityHall: GridCoordinate(column: 87, row: 20)
-        }
+        // Facility markers are named anchors in the authored map definition,
+        // not renderer-owned coordinates or occupied parcels.
+        map.coordinate(for: facility.gridAnchorID)
+            ?? GridCoordinate(column: map.size.columns / 2, row: map.size.rows / 2)
     }
 
     private func facilityColor(_ facility: MapFacility) -> UIColor {

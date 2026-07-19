@@ -183,11 +183,12 @@ final class GridMapTests: XCTestCase {
     }
 
     func testParcelsCarryRequiredGameplayFieldsAndRoadAccess() {
-        XCTAssertEqual(map.parcels.count, 180)
+        XCTAssertEqual(map.parcels.count, 288)
         XCTAssertEqual(Set(map.parcels.map(\.district)), Set(DistrictKind.allCases))
         for parcel in map.parcels {
             XCTAssertNotNil(parcel.legacyPlotID)
             XCTAssertTrue(parcel.rect.size.isValid)
+            XCTAssertGreaterThan(parcel.areaSquareMeters, 0)
             XCTAssertTrue(parcel.isPurchasable)
             XCTAssertTrue(parcel.isBuildable)
             XCTAssertFalse(parcel.roadAccess.isEmpty)
@@ -196,21 +197,57 @@ final class GridMapTests: XCTestCase {
         }
     }
 
+    func testProductionCityDefinitionUsesTheValidatedGridAndNamedAnchors() {
+        XCTAssertEqual(CityMapDefinition.suihama, map)
+        XCTAssertEqual(Set(map.anchors.keys), Set(GridMapAnchorID.allCases))
+        XCTAssertTrue(map.anchors.values.allSatisfy(map.size.contains))
+    }
+
+    func testMapValidatorRejectsAnAnchorOutsideTheGrid() {
+        var anchors = map.anchors
+        let invalid = GridCoordinate(column: map.size.columns, row: map.size.rows)
+        anchors[.bank] = invalid
+        XCTAssertTrue(
+            GridMapValidator.validate(replacingMap(anchors: anchors))
+                .contains(.anchorOutsideMap(.bank, invalid))
+        )
+    }
+
     func testExpandedCityProvidesBroadDistrictsAndEnoughBuildableLand() {
-        XCTAssertEqual(map.size, GridMapSize(columns: 93, rows: 57))
-        XCTAssertEqual(map.objects.count, 168)
-        XCTAssertGreaterThan(map.roads.count, 2_000)
+        XCTAssertEqual(map.size, GridMapSize(columns: 123, rows: 67))
+        XCTAssertEqual(map.objects.count, 264)
+        XCTAssertGreaterThan(map.roads.count, 3_000)
 
         let occupiedParcelIDs = Set(map.objects.map(\.parcelID))
         for district in DistrictKind.allCases {
             let parcels = map.parcels.filter { $0.district == district }
-            XCTAssertEqual(parcels.count, 30, district.rawValue)
+            XCTAssertEqual(parcels.count, 48, district.rawValue)
             XCTAssertEqual(
                 parcels.filter { !occupiedParcelIDs.contains($0.id) }.count,
-                2,
+                4,
+                district.rawValue
+            )
+            XCTAssertEqual(
+                map.objects.filter { object in
+                    object.kind == .parking
+                        && map.parcel(id: object.parcelID)?.district == district
+                }.count,
+                4,
                 district.rawValue
             )
         }
+    }
+
+    func testExpandedDistrictsUseMultipleBuildingSilhouettes() {
+        for district in DistrictKind.allCases {
+            let assetIDs = Set(map.objects.compactMap { object -> CityAssetID? in
+                guard object.kind == .building,
+                      map.parcel(id: object.parcelID)?.district == district else { return nil }
+                return object.assetID
+            })
+            XCTAssertGreaterThanOrEqual(assetIDs.count, 4, district.rawValue)
+        }
+        XCTAssertGreaterThanOrEqual(CityAssetCatalog.ambientAssets(for: .highway).count, 8)
     }
 
     func testVacantLandIsASelectableBuildableParcelObject() {
@@ -255,7 +292,7 @@ final class GridMapTests: XCTestCase {
 
     func testParkingUsesTheSameIntegerGridAsBuildings() {
         let parkingObjects = map.objects.filter { $0.kind == .parking }
-        XCTAssertEqual(parkingObjects.count, DistrictKind.allCases.count * 2)
+        XCTAssertEqual(parkingObjects.count, DistrictKind.allCases.count * 4)
         for parking in parkingObjects {
             XCTAssertTrue(parking.rect.size.isValid)
             XCTAssertTrue(parking.rect.cells.allSatisfy(map.size.contains))
@@ -436,6 +473,7 @@ final class GridMapTests: XCTestCase {
             legacyPlotID: vacant.legacyPlotID,
             rect: vacant.rect,
             district: vacant.district,
+            areaSquareMeters: vacant.areaSquareMeters,
             ownership: vacant.ownership,
             isPurchasable: vacant.isPurchasable,
             isBuildable: true,
@@ -600,6 +638,14 @@ final class GridMapTests: XCTestCase {
         XCTAssertEqual(
             CityAssetLODPolicy.visibility(zoomFactor: GridCameraZoom.scaleFactors[2]),
             CityAssetLODVisibility(showsNearDetails: true, showsProps: true)
+        )
+    }
+
+    func testCityBuildingRenderingDefaultsToGridNative3D() {
+        XCTAssertEqual(CityBuildingRenderMode.selected(arguments: ["app"]), .gridNative3D)
+        XCTAssertEqual(
+            CityBuildingRenderMode.selected(arguments: ["app", "-legacy-iso25d-sprites"]),
+            .legacyIso25DSprites
         )
     }
 
@@ -969,11 +1015,11 @@ final class GridMapTests: XCTestCase {
     func testParcelNeighborsAreResolvedOnlyAcrossContinuousRoadBands() throws {
         let first = try XCTUnwrap(map.parcel(legacyPlotID: 0))
         XCTAssertEqual(map.neighboringParcel(of: first, in: .east)?.legacyPlotID, 1)
-        XCTAssertEqual(map.neighboringParcel(of: first, in: .south)?.legacyPlotID, 6)
+        XCTAssertEqual(map.neighboringParcel(of: first, in: .south)?.legacyPlotID, 8)
         XCTAssertNil(map.neighboringParcel(of: first, in: .north))
         XCTAssertNil(map.neighboringParcel(of: first, in: .west))
 
-        let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 5))
+        let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 7))
         XCTAssertNil(map.neighboringParcel(of: districtEdge, in: .east))
     }
 
@@ -1016,7 +1062,8 @@ final class GridMapTests: XCTestCase {
 
     private func replacingMap(
         parcels: [GridParcel]? = nil,
-        objects: [GridPlacedObject]? = nil
+        objects: [GridPlacedObject]? = nil,
+        anchors: [GridMapAnchorID: GridCoordinate]? = nil
     ) -> GridCityMap {
         GridCityMap(
             id: map.id,
@@ -1025,7 +1072,8 @@ final class GridMapTests: XCTestCase {
             metrics: map.metrics,
             roads: map.roads,
             parcels: parcels ?? map.parcels,
-            objects: objects ?? map.objects
+            objects: objects ?? map.objects,
+            anchors: anchors ?? map.anchors
         )
     }
 

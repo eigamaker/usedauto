@@ -10,6 +10,9 @@ import ImageIO
 // Usage:
 //   swift Tools/calibrate_iso25d_sprites.swift \
 //       UsedCarCity/Assets.xcassets UsedCarCity/Iso25DSpriteCalibration.swift
+//   swift Tools/calibrate_iso25d_sprites.swift \
+//       UsedCarCity/Assets.xcassets UsedCarCity/Iso25DSpriteCalibration.swift \
+//       --strict
 //
 // Detection model: each sprite depicts its full lot as a ground plate whose
 // left/right/front corners are the extreme opaque pixels of the lower part of
@@ -23,6 +26,10 @@ let alphaThreshold: UInt8 = 24
 // tight excludes wide roofs and canopies from corner detection.
 let cornerSearchBand = 360
 let cornerTolerance = 2
+let maximumCornerAsymmetry = 8
+let expectedPlateHeightOverWidth = 0.618
+let maximumPlateRatioDeviation = 0.020
+let maximumFrontCenterOffset = 0.015
 
 struct PlateMeasurement {
     let imageName: String
@@ -141,17 +148,20 @@ func measurePlate(imageName: String, path: String) -> PlateMeasurement? {
 
     let frontX = Double(rowMinX[bottomRow] + rowMaxX[bottomRow]) / 2 + 0.5
     var warnings: [String] = []
-    if abs(leftCornerRow - rightCornerRow) > 25 {
+    if abs(leftCornerRow - rightCornerRow) > maximumCornerAsymmetry {
         warnings.append("asymmetric corners: left y=\(leftCornerRow) right y=\(rightCornerRow)")
     }
-    if abs(frontX / Double(width) - centerX) > 0.025 {
+    if abs(frontX / Double(width) - centerX) > maximumFrontCenterOffset {
         warnings.append(String(
             format: "front corner x=%.3f is off plate center x=%.3f",
             frontX / Double(width), centerX
         ))
     }
-    if ratio < 0.2 || ratio > 0.9 {
-        warnings.append(String(format: "unusual plate height/width ratio %.3f", ratio))
+    if abs(ratio - expectedPlateHeightOverWidth) > maximumPlateRatioDeviation {
+        warnings.append(String(
+            format: "plate height/width ratio %.3f differs from %.3f",
+            ratio, expectedPlateHeightOverWidth
+        ))
     }
     return PlateMeasurement(
         imageName: imageName,
@@ -164,9 +174,10 @@ func measurePlate(imageName: String, path: String) -> PlateMeasurement? {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count == 3 else {
+let usesStrictQualityGate = arguments.count == 4 && arguments[3] == "--strict"
+guard arguments.count == 3 || usesStrictQualityGate else {
     FileHandle.standardError.write(Data(
-        "usage: swift Tools/calibrate_iso25d_sprites.swift <xcassets path> <output swift file>\n".utf8
+        "usage: swift Tools/calibrate_iso25d_sprites.swift <xcassets path> <output swift file> [--strict]\n".utf8
     ))
     exit(1)
 }
@@ -196,6 +207,16 @@ for imageSet in imageSets {
         measurement.anchorX, measurement.anchorY,
         measurement.plateHeightOverWidth, flags
     ))
+}
+
+if usesStrictQualityGate {
+    let rejected = measurements.filter { !$0.warnings.isEmpty }
+    guard rejected.isEmpty else {
+        FileHandle.standardError.write(Data(
+            "strict projection gate rejected \(rejected.count) of \(measurements.count) sprites; output was not changed\n".utf8
+        ))
+        exit(2)
+    }
 }
 
 var generated = """

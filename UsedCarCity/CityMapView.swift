@@ -103,7 +103,7 @@ struct CityMapView: View {
             }
             .sheet(item: $selectedFacility) { facility in
                 FacilityHubSheet(facility: facility) { plot in
-                    focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id))
+                    focusRequest = MapFocusRequest(plotID: plot.id)
                     selectedPlot = plot
                 }
                 .presentationDetents([.height(270), .large])
@@ -111,20 +111,20 @@ struct CityMapView: View {
             }
             .sheet(isPresented: $showSearch) {
                 MapSearchView { facility in selectedFacility = facility; showSearch = false } focusDistrict: { kind in
-                    focusRequest = MapFocusRequest(worldPoint: CityMapLayout.trafficBadgePosition(for: kind)); showSearch = false
+                    focusRequest = MapFocusRequest(district: kind); showSearch = false
                 }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showNotifications) {
                 NotificationCenterView(open: { facility in selectedFacility = facility; showNotifications = false }, openStore: { store in
                     if let plot = game.plot(id: store.plotID) {
-                        focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id)); selectedPlot = plot
+                        focusRequest = MapFocusRequest(plotID: plot.id); selectedPlot = plot
                     }
                     showNotifications = false
                 }, openEvent: { event in
                     if let plotID = event.plotID, let plot = game.plot(id: plotID) {
-                        focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id)); selectedPlot = plot
+                        focusRequest = MapFocusRequest(plotID: plot.id); selectedPlot = plot
                     } else if let district = event.district {
-                        focusRequest = MapFocusRequest(worldPoint: CityMapLayout.trafficBadgePosition(for: district))
+                        focusRequest = MapFocusRequest(district: district)
                     }
                     showNotifications = false
                 })
@@ -155,18 +155,18 @@ struct CityMapView: View {
         case .chooseLocation:
             return {
                 guard let plot = game.recommendedFoundingPlot else { return }
-                focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id))
+                focusRequest = MapFocusRequest(plotID: plot.id)
             }
         case .buildStore:
             return {
                 guard let id = game.tutorialPlotID, let plot = game.plot(id: id) else { return }
-                focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: id))
+                focusRequest = MapFocusRequest(plotID: id)
                 selectedPlot = plot
             }
         case .purchaseInventory, .setPrice, .runFirstMonth:
             return {
                 guard let store = game.stores.first, let plot = game.plot(id: store.plotID) else { return }
-                focusRequest = MapFocusRequest(worldPoint: CityMapLayout.position(for: plot.id))
+                focusRequest = MapFocusRequest(plotID: plot.id)
                 selectedPlot = plot
             }
         default:

@@ -23,14 +23,66 @@ final class GameEngineTests: XCTestCase {
         game.tutorialMessage = nil
     }
 
-    func testNewGameCreatesSixExpandedDistrictsAndOneHundredEightyPlots() {
+    func testNewGameCreatesSixExpandedDistrictsAndTwoHundredEightyEightPlots() {
         let game = GameEngine()
         game.resetGame()
+        let map = CityMapDefinition.suihama
+        XCTAssertEqual(game.plots.count, 288)
         XCTAssertEqual(game.districts.count, 6)
-        XCTAssertEqual(game.plots.count, 180)
+        XCTAssertEqual(game.plots.count, map.parcels.compactMap(\.legacyPlotID).count)
         for district in DistrictKind.allCases {
-            XCTAssertEqual(game.plots.filter { $0.district == district }.count, CityMapLayout.plotsPerDistrict)
+            XCTAssertEqual(
+                game.plots.filter { $0.district == district }.count,
+                map.parcels.filter { $0.district == district && $0.legacyPlotID != nil }.count
+            )
+            XCTAssertEqual(
+                Set(game.plots.filter { $0.district == district }.map(\.localNumber)),
+                Set(1...48)
+            )
         }
+    }
+
+    func testGameplayPlotsAreDerivedFromAuthoritativeGridParcels() throws {
+        let game = GameEngine()
+        game.resetGame()
+        let map = CityMapDefinition.suihama
+
+        XCTAssertEqual(Set(game.plots.map(\.id)), Set(map.parcels.compactMap(\.legacyPlotID)))
+        for plot in game.plots {
+            let parcel = try XCTUnwrap(map.parcel(legacyPlotID: plot.id))
+            XCTAssertEqual(plot.district, parcel.district)
+            XCTAssertEqual(plot.area, parcel.areaSquareMeters)
+            XCTAssertEqual(plot.price, try XCTUnwrap(parcel.price))
+            XCTAssertEqual(plot.isForSale, parcel.isPurchasable)
+            XCTAssertEqual(plot.isForLease, parcel.isPurchasable)
+            let object = map.objects.first(where: { $0.parcelID == parcel.id })
+            switch object?.kind {
+            case .building:
+                XCTAssertEqual(plot.currentUse, .ambientBuilding(assetID: try XCTUnwrap(object?.assetID)))
+            case .parking:
+                XCTAssertEqual(plot.currentUse, .surfaceParking)
+            case nil:
+                XCTAssertEqual(plot.currentUse, .vacant)
+            }
+        }
+    }
+
+    func testInitialCompetitorsUseSemanticDistrictPlacements() throws {
+        let game = GameEngine()
+        game.resetGame()
+
+        XCTAssertTrue(game.competitors.allSatisfy { $0.plotIDs.count == 2 })
+        let occupiedDistricts = try Set(game.competitors.flatMap(\.plotIDs).map { plotID in
+            let plot = try XCTUnwrap(game.plot(id: plotID))
+            XCTAssertNotEqual(plot.structure, .vacant)
+            return plot.district
+        })
+        XCTAssertEqual(occupiedDistricts, Set(DistrictKind.allCases))
+    }
+
+    func testMapFocusRequestsCarryGridSemanticTargets() {
+        XCTAssertEqual(MapFocusRequest(plotID: 42).target, .plot(42))
+        XCTAssertEqual(MapFocusRequest(district: .industrial).target, .district(.industrial))
     }
 
     func testAllCityPlotsAreUniqueGridAlignedCells() {
@@ -116,12 +168,18 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(frames.map(\.maxY).max(), mapRect.maxY)
     }
 
-    func testEveryCityCellStartsWithAPurchasableGridBuilding() {
+    func testInitialVacancyMatchesTheAuthoritativeGridMap() throws {
         let game = GameEngine()
         game.resetGame()
+        let map = CityMapDefinition.suihama
 
-        XCTAssertEqual(game.plots.count, 180)
-        XCTAssertTrue(game.plots.allSatisfy { $0.structure != .vacant })
+        for plot in game.plots {
+            let parcel = try XCTUnwrap(map.parcel(legacyPlotID: plot.id))
+            let hasBuilding = map.objects.contains {
+                $0.parcelID == parcel.id && $0.kind == .building
+            }
+            XCTAssertEqual(plot.structure != .vacant, hasBuilding, parcel.id)
+        }
         XCTAssertTrue(game.plots.allSatisfy { $0.isForSale && $0.isForLease })
     }
 
@@ -133,7 +191,7 @@ final class GameEngineTests: XCTestCase {
         let footprint = game.footprintPlots(startingAt: plot, type: .standard)
 
         XCTAssertEqual(footprint.count, 2)
-        XCTAssertTrue(footprint.allSatisfy { $0.structure != .vacant })
+        let demolitionCost = game.demolitionCost(for: footprint)
         game.selectFoundingPlot(plot.id)
         XCTAssertTrue(game.buildStore(on: plot, type: .standard, mode: .lease, focus: .family, concept: .family, loanAmount: 0))
 
@@ -141,6 +199,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(store.plotIDs.count, 2)
         XCTAssertEqual(Set(store.plotIDs), Set(footprint.map(\.id)))
         XCTAssertTrue(store.plotIDs.allSatisfy { game.plot(id: $0)?.structure == .vacant })
+        XCTAssertGreaterThanOrEqual(demolitionCost, 0)
     }
 
     func testMultiCellBreakEvenIncludesEveryOccupiedPlot() {
@@ -173,20 +232,24 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertTrue(game.buildStore(on: plot, type: .roadside, mode: .purchase, focus: .business, concept: .business, loanAmount: 0))
         XCTAssertEqual(game.stores[0].plotIDs.count, 3)
-        let coordinates = game.stores[0].plotIDs.compactMap(CityMapLayout.gridCoordinate(for:))
-        XCTAssertTrue(Set(coordinates.map { $0.row }).count == 1 || Set(coordinates.map { $0.column }).count == 1)
+        let parcels = game.stores[0].plotIDs.compactMap {
+            CityMapDefinition.suihama.parcel(legacyPlotID: $0)
+        }
+        XCTAssertTrue(
+            Set(parcels.map { $0.rect.minRow }).count == 1
+                || Set(parcels.map { $0.rect.minColumn }).count == 1
+        )
     }
 
-    func testFacilitiesUseGridCellsSeparateFromStorePlots() {
-        let plotPoints = Set(CityMapLayout.plotPositions.map { "\($0.x),\($0.y)" })
-        let facilityPoints = MapFacility.allCases.map(\.worldPoint)
-        XCTAssertEqual(Set(facilityPoints.map { "\($0.x),\($0.y)" }).count, MapFacility.allCases.count)
-        for point in facilityPoints {
-            XCTAssertFalse(plotPoints.contains("\(point.x),\(point.y)"))
-            let column = (point.x - CityMapLayout.gridOrigin.x) / CityMapLayout.columnSpacing
-            let row = (point.y - CityMapLayout.gridOrigin.y) / CityMapLayout.rowSpacing
-            XCTAssertEqual(column, column.rounded(), accuracy: 0.0001)
-            XCTAssertEqual(row, row.rounded(), accuracy: 0.0001)
+    func testFacilitiesUseNamedGridAnchorsSeparateFromStoreParcels() throws {
+        let map = CityMapDefinition.suihama
+        let coordinates = try MapFacility.allCases.map { facility in
+            try XCTUnwrap(map.coordinate(for: facility.gridAnchorID))
+        }
+        XCTAssertEqual(Set(coordinates).count, MapFacility.allCases.count)
+        for coordinate in coordinates {
+            XCTAssertTrue(map.size.contains(coordinate))
+            XCTAssertNil(map.parcel(at: coordinate))
         }
     }
 
@@ -675,27 +738,80 @@ final class GameEngineTests: XCTestCase {
         let newStore = game.store(at: plot.id)!
         XCTAssertEqual(newStore.type.mapAssetName, "StoreSmall")
         XCTAssertEqual(newStore.openingMonthsRemaining, 1)
+        XCTAssertEqual(
+            game.plot(id: newStore.plotID)?.currentUse,
+            .construction(storeID: newStore.id, targetAssetID: .playerSmallDealer)
+        )
         XCTAssertEqual(game.gridOccupancyIssues, [])
 
         game.advanceWeek()
         XCTAssertNil(game.store(at: plot.id)?.openingMonthsRemaining)
+        XCTAssertEqual(
+            game.plot(id: newStore.plotID)?.currentUse,
+            .playerFacility(storeID: newStore.id, assetID: .playerSmallDealer)
+        )
 
         XCTAssertTrue(game.renovateStore(newStore.id, to: .roadside))
         XCTAssertEqual(game.gridOccupancyIssues, [])
         XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreSmall")
         XCTAssertEqual(game.store(at: plot.id)?.pendingType?.mapAssetName, "StoreRoadside")
+        XCTAssertEqual(
+            game.plot(id: newStore.plotID)?.currentUse,
+            .construction(storeID: newStore.id, targetAssetID: .playerLargeDealer)
+        )
         game.advanceWeek()
         game.advanceWeek()
         XCTAssertEqual(game.store(at: plot.id)?.type.mapAssetName, "StoreRoadside")
+        let renovatedStore = game.store(at: plot.id)!
+        XCTAssertEqual(
+            game.plot(id: renovatedStore.plotID)?.currentUse,
+            .playerFacility(storeID: renovatedStore.id, assetID: .playerLargeDealer)
+        )
+        for plotID in renovatedStore.plotIDs where plotID != renovatedStore.plotID {
+            XCTAssertEqual(
+                game.plot(id: plotID)?.currentUse,
+                .displayParking(storeID: renovatedStore.id)
+            )
+        }
 
         game.closeStore(newStore.id)
         XCTAssertNil(game.store(at: plot.id))
         XCTAssertEqual(game.gridOccupancyIssues, [])
+        for plotID in renovatedStore.plotIDs {
+            XCTAssertEqual(game.plot(id: plotID)?.currentUse, .vacant)
+        }
         if case .available = game.plot(id: plot.id)?.occupant {
             // The dynamic map layer now has no building to draw on this lot.
         } else {
             XCTFail("Closed store plot should become available")
         }
+    }
+
+    func testConstructionParcelUsePersistsAcrossReload() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let plot = game.plots.first(where: {
+            game.footprintPlots(startingAt: $0, type: .small).count == 1
+        })!
+
+        XCTAssertTrue(game.buildStore(
+            on: plot,
+            type: .small,
+            mode: .lease,
+            focus: .value,
+            concept: .general,
+            loanAmount: 100_000
+        ))
+        let store = game.store(at: plot.id)!
+
+        let reloaded = GameEngine()
+        reloaded.loadGame()
+        XCTAssertEqual(
+            reloaded.plot(id: plot.id)?.currentUse,
+            .construction(storeID: store.id, targetAssetID: .playerSmallDealer)
+        )
+        reloaded.resetGame()
     }
 
     func testStoreTypesUseCatalogDistrictRestrictions() {

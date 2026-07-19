@@ -436,6 +436,15 @@ enum CityAssetCatalog {
     }
 
     static func ambientAssets(for district: DistrictKind) -> [CityAssetDefinition] {
+        if district == .highway {
+            // Interchanges naturally mix logistics, roadside retail, service
+            // stations, and large commercial buildings. Using every compatible
+            // non-parking asset prevents a highway district made from only the
+            // same three silhouettes.
+            return ambientDefinitions.filter {
+                $0.category != .parking && $0.allowedDistricts.contains(.highway)
+            }
+        }
         let category: CityAssetCategory = switch district {
         case .suburb: .generalResidential
         case .emerging: .luxuryResidential

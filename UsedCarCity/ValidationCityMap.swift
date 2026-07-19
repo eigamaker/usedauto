@@ -5,17 +5,25 @@ import Foundation
 enum ValidationCityMap {
     static let shared: GridCityMap = makeMap()
 
-    private static let mapSize = GridMapSize(columns: 93, rows: 57)
     private static let metrics = GridMetrics(cellSize: 20)
     private static let parcelSize = GridSize.fourByFour
-    private static let districtColumns = 6
-    private static let districtRows = 5
+    private static let parcelStride = 5
+    private static let districtColumns = 8
+    private static let districtRows = 6
+    private static let districtCellWidth = districtColumns * parcelStride
+    private static let districtCellDepth = districtRows * parcelStride
+    private static let lowerDistrictStartRow = districtCellDepth + 3
+    private static let highwayStartRow = lowerDistrictStartRow + districtCellDepth - 1
+    private static let mapSize = GridMapSize(
+        columns: districtCellWidth * 3 + 3,
+        rows: highwayStartRow + 5
+    )
     private static let plotsPerDistrict = districtColumns * districtRows
-    // Keep two buyable lots in every district (twelve in total), but let the
-    // validation city read as a settled town rather than a checkerboard of
-    // empty green squares.  Parcel geometry and buildability are unchanged.
-    private static let vacantLocalNumbers: Set<Int> = [10, 24]
-    private static let parkingLocalNumbers: Set<Int> = [3, 21]
+    // Keep a repeatable but sparse mix of development sites and surface
+    // parking in every expanded district. Buildings still dominate, while
+    // each 8×6 district has enough open land for multi-cell player facilities.
+    private static let vacantLocalNumbers: Set<Int> = [10, 24, 39, 46]
+    private static let parkingLocalNumbers: Set<Int> = [3, 18, 29, 43]
 
     private struct DistrictBlock {
         let district: DistrictKind
@@ -26,11 +34,11 @@ enum ValidationCityMap {
 
     private static let districtBlocks: [DistrictBlock] = [
         .init(district: .downtown, startColumn: 1, startRow: 1, districtIndex: 0),
-        .init(district: .station, startColumn: 32, startRow: 1, districtIndex: 1),
-        .init(district: .emerging, startColumn: 63, startRow: 1, districtIndex: 2),
-        .init(district: .suburb, startColumn: 1, startRow: 28, districtIndex: 3),
-        .init(district: .industrial, startColumn: 32, startRow: 28, districtIndex: 4),
-        .init(district: .highway, startColumn: 63, startRow: 28, districtIndex: 5)
+        .init(district: .station, startColumn: districtCellWidth + 2, startRow: 1, districtIndex: 1),
+        .init(district: .emerging, startColumn: districtCellWidth * 2 + 3, startRow: 1, districtIndex: 2),
+        .init(district: .suburb, startColumn: 1, startRow: lowerDistrictStartRow, districtIndex: 3),
+        .init(district: .industrial, startColumn: districtCellWidth + 2, startRow: lowerDistrictStartRow, districtIndex: 4),
+        .init(district: .highway, startColumn: districtCellWidth * 2 + 3, startRow: lowerDistrictStartRow, districtIndex: 5)
     ]
 
     private static func makeMap() -> GridCityMap {
@@ -38,17 +46,27 @@ enum ValidationCityMap {
         let roads = GridRoadNetwork.compile(roadClasses: roadClasses)
         let content = makeParcelsAndObjects()
         let map = GridCityMap(
-            id: "suihama-grid-v2",
+            id: "suihama-grid-v3",
             name: "翠浜市 広域グリッドマップ",
             size: mapSize,
             metrics: metrics,
             roads: roads,
             parcels: content.parcels,
-            objects: content.objects
+            objects: content.objects,
+            anchors: [
+                .auction: GridCoordinate(column: districtCellWidth / 2, row: highwayStartRow + 2),
+                .bank: GridCoordinate(column: 15, row: 18),
+                .realEstate: GridCoordinate(column: districtCellWidth, row: 18),
+                .workshop: GridCoordinate(column: districtCellWidth * 2 + 1, row: lowerDistrictStartRow + 15),
+                .advertising: GridCoordinate(column: districtCellWidth + districtCellWidth / 2 + 1, row: 18),
+                .recruiting: GridCoordinate(column: districtCellWidth * 2 + districtCellWidth / 2 + 2, row: 12),
+                .cityHall: GridCoordinate(column: mapSize.columns - 6, row: districtCellDepth - 5)
+            ]
         )
+        let issues = GridMapValidator.validate(map)
         precondition(
-            GridMapValidator.validate(map).isEmpty,
-            "Validation map must satisfy the shared grid rules"
+            issues.isEmpty,
+            "Validation map must satisfy the shared grid rules:\n\(issues.map(\.description).joined(separator: "\n"))"
         )
         return map
     }
@@ -68,20 +86,34 @@ enum ValidationCityMap {
             }
         }
 
-        // Local streets form four-by-four parcels. Every line reaches an arterial.
-        for separator in [5, 10, 15, 20, 25, 36, 41, 46, 51, 56, 67, 72, 77, 82, 87] {
-            addVertical(column: separator, rows: 0...24, roadClass: .local)
-            addVertical(column: separator, rows: 28...51, roadClass: .local)
+        // Local streets form four-by-four parcels. Dimensions are derived from
+        // the district row/column counts so expanding the city does not require
+        // rewriting a coordinate table.
+        let verticalSeparators = districtBlocks.flatMap { block in
+            (0..<(districtColumns - 1)).map {
+                block.startColumn + parcelSize.width + $0 * parcelStride
+            }
         }
-        for row in [5, 10, 15, 20] {
-            addHorizontal(row: row, columns: 0...29, roadClass: .local)
-            addHorizontal(row: row, columns: 32...60, roadClass: .local)
-            addHorizontal(row: row, columns: 63...92, roadClass: .local)
+        for separator in verticalSeparators {
+            addVertical(column: separator, rows: 0...(districtCellDepth - 1), roadClass: .local)
+            addVertical(column: separator, rows: lowerDistrictStartRow...(highwayStartRow - 1), roadClass: .local)
         }
-        for row in [32, 37, 42, 47] {
-            addHorizontal(row: row, columns: 0...29, roadClass: .local)
-            addHorizontal(row: row, columns: 32...60, roadClass: .local)
-            addHorizontal(row: row, columns: 63...92, roadClass: .local)
+
+        let firstArterialStart = districtCellWidth
+        let secondArterialStart = districtCellWidth * 2 + 1
+        let districtColumnRanges = [
+            0...(firstArterialStart - 1),
+            (districtCellWidth + 2)...(secondArterialStart - 1),
+            (districtCellWidth * 2 + 3)...(mapSize.columns - 1)
+        ]
+        let upperLocalRows = (0..<(districtRows - 1)).map { parcelStride + $0 * parcelStride }
+        let lowerLocalRows = (0..<(districtRows - 1)).map {
+            lowerDistrictStartRow + parcelSize.depth + $0 * parcelStride
+        }
+        for row in upperLocalRows + lowerLocalRows {
+            for columns in districtColumnRanges {
+                addHorizontal(row: row, columns: columns, roadClass: .local)
+            }
         }
 
         // A short curved feeder guarantees that corner/end tile variants are
@@ -89,12 +121,20 @@ enum ValidationCityMap {
         addVertical(column: 0, rows: 2...5, roadClass: .local)
 
         // Two vertical arterial corridors and one map-wide arterial band.
-        for column in 30...31 { addVertical(column: column, rows: 0...56, roadClass: .arterial) }
-        for column in 61...62 { addVertical(column: column, rows: 0...56, roadClass: .arterial) }
-        for row in 25...27 { addHorizontal(row: row, columns: 0...92, roadClass: .arterial) }
+        for column in firstArterialStart...(firstArterialStart + 1) {
+            addVertical(column: column, rows: 0...(mapSize.rows - 1), roadClass: .arterial)
+        }
+        for column in secondArterialStart...(secondArterialStart + 1) {
+            addVertical(column: column, rows: 0...(mapSize.rows - 1), roadClass: .arterial)
+        }
+        for row in districtCellDepth...(lowerDistrictStartRow - 1) {
+            addHorizontal(row: row, columns: 0...(mapSize.columns - 1), roadClass: .arterial)
+        }
 
         // Four cells wide: a deliberately simplified highway/IC environment.
-        for row in 52...56 { addHorizontal(row: row, columns: 0...92, roadClass: .arterial) }
+        for row in highwayStartRow...(mapSize.rows - 1) {
+            addHorizontal(row: row, columns: 0...(mapSize.columns - 1), roadClass: .arterial)
+        }
         return result
     }
 
@@ -107,7 +147,6 @@ enum ValidationCityMap {
 
         for block in districtBlocks {
             let districtAssets = CityAssetCatalog.ambientAssets(for: block.district)
-            var districtAssetIndex = 0
             for row in 0..<districtRows {
                 for column in 0..<districtColumns {
                     let localNumber = row * districtColumns + column + 1
@@ -129,6 +168,7 @@ enum ValidationCityMap {
                         legacyPlotID: legacyPlotID,
                         rect: rect,
                         district: block.district,
+                        areaSquareMeters: 420,
                         ownership: .market,
                         isPurchasable: true,
                         isBuildable: true,
@@ -139,10 +179,10 @@ enum ValidationCityMap {
                     parcels.append(parcel)
 
                     guard let objectID else { continue }
+                    let paletteIndex = (column + row * 3 + block.districtIndex) % districtAssets.count
                     let asset = isParking
                         ? CityAssetCatalog.definition(for: .surfaceParking)
-                        : districtAssets[districtAssetIndex % districtAssets.count]
-                    if !isParking { districtAssetIndex += 1 }
+                        : districtAssets[paletteIndex]
                     let facing = access.first ?? .south
                     let footprint = asset.footprint(facing: facing)
                     let objectRect = centeredRect(footprint: footprint, inside: rect)
@@ -164,7 +204,7 @@ enum ValidationCityMap {
                         facing: facing,
                         height: isParking
                             ? asset.nominalHeight
-                            : asset.nominalHeight + Float(localNumber % 3) * heightStep
+                            : asset.nominalHeight + Float((localNumber + block.districtIndex) % 3) * heightStep
                     ))
                 }
             }
@@ -214,4 +254,11 @@ enum ValidationCityMap {
         }
         return base * (88 + ((legacyPlotID * 17) % 27)) / 100
     }
+}
+
+/// Production entry point for authored city geometry and gameplay parcels.
+/// `ValidationCityMap` remains the deterministic builder behind this value so
+/// structural tests and the running game exercise the exact same definition.
+enum CityMapDefinition {
+    static let suihama = ValidationCityMap.shared
 }

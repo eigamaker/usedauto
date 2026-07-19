@@ -292,7 +292,7 @@ struct StoreSettingsView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("所有地は時価、設備は簿価の30%、在庫は原価の80%で売却します。この操作は取り消せません。")
+                Text("所有地は時価、設備は簿価の30%、在庫は原価の80%で売却します。店舗と設備は撤去され、使用していた区画は更地になります。この操作は取り消せません。")
             }
             .alert("店舗改装", isPresented: Binding(get: { renovationMessage != nil }, set: { if !$0 { renovationMessage = nil } })) {
                 Button("OK") { renovationMessage = nil }

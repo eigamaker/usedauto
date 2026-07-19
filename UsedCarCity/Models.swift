@@ -930,6 +930,29 @@ enum ParcelStructure: String, Codable, CaseIterable, Hashable {
     }
 }
 
+/// The visible, current use of a city parcel. Unlike `ParcelStructure`, which
+/// records the pre-acquisition structure for pricing and demolition rules,
+/// this state follows the parcel through construction, operation, and
+/// demolition and is the authority used by the grid renderer.
+enum CityParcelUseState: Codable, Hashable {
+    case ambientBuilding(assetID: CityAssetID)
+    case surfaceParking
+    case vacant
+    case construction(storeID: UUID, targetAssetID: CityAssetID)
+    case playerFacility(storeID: UUID, assetID: CityAssetID)
+    case displayParking(storeID: UUID)
+
+    var isVacant: Bool {
+        if case .vacant = self { return true }
+        return false
+    }
+
+    var isUnderConstruction: Bool {
+        if case .construction = self { return true }
+        return false
+    }
+}
+
 struct LandPlot: Identifiable, Codable, Hashable {
     let id: Int
     let district: DistrictKind
@@ -945,6 +968,7 @@ struct LandPlot: Identifiable, Codable, Hashable {
     var isForLease: Bool
     var isForSale: Bool
     var structure: ParcelStructure
+    var currentUse: CityParcelUseState = .vacant
     var lastPriceChange: Double = 0
     var development: DevelopmentProject? = nil
 }
