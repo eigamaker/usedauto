@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "Iso25DHighwayLogisticsA_North.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

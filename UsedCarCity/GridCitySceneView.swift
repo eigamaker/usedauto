@@ -26,8 +26,8 @@ struct GridCityMapSurface: View {
                 layer: layer,
                 demandCategory: demandCategory,
                 selectedPlotID: selectedPlot?.id,
-                focusPlotID: focusPlotID,
-                focusRequestID: focusRequest?.id,
+                focusPlotID: effectiveFocusPlotID,
+                focusRequestID: effectiveFocusRequestID,
                 zoomStep: zoomStep,
                 cameraCommand: cameraCommand,
                 showsGrid: showsGrid,
@@ -90,6 +90,15 @@ struct GridCityMapSurface: View {
         }?.id
     }
 
+    private var effectiveFocusPlotID: Int? {
+        focusPlotID ?? GridCameraZoom.demoFocusPlotID()
+    }
+
+    private var effectiveFocusRequestID: UUID? {
+        guard effectiveFocusPlotID != nil else { return nil }
+        return focusRequest?.id ?? GridCameraZoom.demoFocusRequestID
+    }
+
     private func squaredDistance(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
         let dx = lhs.x - rhs.x
         let dy = lhs.y - rhs.y
@@ -128,6 +137,7 @@ private struct GridCameraButton: View {
 
 enum GridCameraZoom {
     static let scaleFactors = GridOrthographicCameraSpec.foundation.zoomScaleFactors.map(CGFloat.init)
+    static let demoFocusRequestID = UUID()
 
     static func clamped(_ step: Int) -> Int {
         min(scaleFactors.count - 1, max(0, step))
@@ -319,6 +329,75 @@ private struct GridSceneRepresentable: UIViewRepresentable {
     }
 }
 
+/// Builds camera-facing cards from the same world-space grid rectangles used by
+/// placement and collision. The artwork can change without changing gameplay
+/// geometry, and the normalized ground anchor prevents the visible base from
+/// drifting when zooming or panning the orthographic camera.
+@MainActor
+final class Iso25DCitySpriteFactory {
+    static let spriteNodeName = "iso25d-sprite"
+
+    private var materials: [String: SCNMaterial] = [:]
+
+    func makeSprite(
+        assetID: CityAssetID,
+        facing: CardinalDirection,
+        worldWidth: Float,
+        worldDepth: Float,
+        renderingOrder: Int
+    ) -> SCNNode? {
+        guard worldWidth > 0,
+              worldDepth > 0,
+              let definition = Iso25DCityAssetCatalog.definition(for: assetID, facing: facing),
+              UIImage(named: definition.imageName) != nil else { return nil }
+
+        let projectedFootprintWidth = (worldWidth + worldDepth) / sqrt(2)
+        let planeWidth = projectedFootprintWidth / definition.projectedFootprintWidthFraction
+        let planeHeight = planeWidth / definition.aspectRatio
+        let plane = SCNPlane(width: CGFloat(planeWidth), height: CGFloat(planeHeight))
+        plane.widthSegmentCount = 1
+        plane.heightSegmentCount = 1
+        plane.firstMaterial = material(for: definition.imageName)
+
+        let node = SCNNode(geometry: plane)
+        node.name = Self.spriteNodeName
+        node.pivot = SCNMatrix4MakeTranslation(
+            (definition.groundAnchorX - 0.5) * planeWidth,
+            (0.5 - definition.groundAnchorY) * planeHeight,
+            0
+        )
+        let billboard = SCNBillboardConstraint()
+        billboard.freeAxes = .all
+        node.constraints = [billboard]
+        node.renderingOrder = renderingOrder
+        node.castsShadow = false
+        return node
+    }
+
+    func cachedMaterial(for imageName: String) -> SCNMaterial? {
+        materials[imageName]
+    }
+
+    private func material(for imageName: String) -> SCNMaterial {
+        if let cached = materials[imageName] { return cached }
+        let result = SCNMaterial()
+        result.name = "iso25d-material:\(imageName)"
+        result.diffuse.contents = UIImage(named: imageName)
+        result.diffuse.magnificationFilter = .linear
+        result.diffuse.minificationFilter = .linear
+        result.diffuse.mipFilter = .linear
+        result.lightingModel = .constant
+        result.blendMode = .alpha
+        result.transparencyMode = .dualLayer
+        result.writesToDepthBuffer = false
+        result.readsFromDepthBuffer = false
+        result.isDoubleSided = true
+        result.fresnelExponent = 0
+        materials[imageName] = result
+        return result
+    }
+}
+
 @MainActor
 private enum GridSceneSelection {
     case plot(Int)
@@ -350,6 +429,7 @@ private final class GridCitySceneController {
     private var currentZoomFactor: CGFloat = 1
     private var lastViewSize = CGSize.zero
     private lazy var assetFactory = LowPolyCityAssetFactory(cellSize: map.metrics.cellSize)
+    private lazy var spriteFactory = Iso25DCitySpriteFactory()
 
     var zoomFactor: CGFloat { currentZoomFactor }
 
@@ -518,7 +598,7 @@ private final class GridCitySceneController {
 
     private func configureView(_ view: SCNView) {
         view.scene = scene
-        view.backgroundColor = UIColor(red: 0.69, green: 0.79, blue: 0.83, alpha: 1)
+        view.backgroundColor = UIColor(red: 0.70, green: 0.88, blue: 0.93, alpha: 1)
         view.antialiasingMode = .multisampling2X
         view.preferredFramesPerSecond = 30
         view.rendersContinuously = false
@@ -551,7 +631,7 @@ private final class GridCitySceneController {
             length: CGFloat(bounds.depth),
             chamferRadius: 0
         )
-        geometry.firstMaterial = material(color: UIColor(red: 0.43, green: 0.53, blue: 0.39, alpha: 1))
+        geometry.firstMaterial = material(color: UIColor(red: 0.31, green: 0.58, blue: 0.34, alpha: 1))
         let node = SCNNode(geometry: geometry)
         node.position = SCNVector3(bounds.center.x, -1, bounds.center.z)
         node.name = "map-ground"
@@ -591,8 +671,8 @@ private final class GridCitySceneController {
             }
         }
         let color = isSidewalk
-            ? UIColor(red: 0.57, green: 0.58, blue: 0.56, alpha: 1)
-            : UIColor(red: 0.20, green: 0.22, blue: 0.23, alpha: 1)
+            ? UIColor(red: 0.76, green: 0.73, blue: 0.64, alpha: 1)
+            : UIColor(red: 0.26, green: 0.30, blue: 0.32, alpha: 1)
         let geometry = makeHorizontalGeometry(
             rectangles: rectangles,
             height: isSidewalk ? GridSceneElevation.sidewalkSurface : GridSceneElevation.pavementSurface,
@@ -703,9 +783,28 @@ private final class GridCitySceneController {
             parcelBounds.center.z
         )
         container.name = "object:\(object.id)"
-        setInteractionMetadata(on: container, parcel: parcel)
+        // Selection remains attached to the exact parcel geometry. A sprite is
+        // a rectangular card with transparent pixels, so attaching interaction
+        // metadata to it would make taps outside the lot appear selectable.
 
         let definition = CityAssetCatalog.definition(for: object.assetID)
+        if object.kind == .building,
+           let spriteNode = spriteFactory.makeSprite(
+            assetID: object.assetID,
+            facing: object.facing,
+            worldWidth: objectBounds.width,
+            worldDepth: objectBounds.depth,
+            renderingOrder: spriteRenderingOrder(worldCenter: objectBounds.center)
+           ) {
+            spriteNode.position = SCNVector3(
+                objectBounds.center.x - parcelBounds.center.x,
+                0,
+                objectBounds.center.z - parcelBounds.center.z
+            )
+            container.addChildNode(spriteNode)
+            return container
+        }
+
         if object.kind == .building {
             container.addChildNode(assetFactory.makeLotInfill(
                 category: definition.category,
@@ -734,19 +833,43 @@ private final class GridCitySceneController {
         for parcel in map.parcels where parcel.currentBuildingID == nil {
             guard !map.objects.contains(where: { $0.parcelID == parcel.id }) else { continue }
             let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
-            let markerHeight: Float = 0.45
-            let geometry = SCNBox(width: 25, height: CGFloat(markerHeight), length: 25, chamferRadius: 1.5)
-            let markerMaterial = material(color: UIColor(red: 0.38, green: 0.78, blue: 0.40, alpha: 0.88))
-            markerMaterial.emission.contents = UIColor(red: 0.08, green: 0.22, blue: 0.08, alpha: 1)
-            geometry.firstMaterial = markerMaterial
-            let node = SCNNode(geometry: geometry)
+            let node = SCNNode()
             node.position = SCNVector3(
                 bounds.center.x,
-                GridSceneElevation.parcelSurface + markerHeight / 2,
+                GridSceneElevation.parcelSurface,
                 bounds.center.z
             )
             node.name = "vacant:\(parcel.id)"
             setInteractionMetadata(on: node, parcel: parcel)
+
+            // A purchasable parcel is an intentionally prepared construction
+            // pad, not a bright lawn.  Its muted earth base keeps it readable
+            // without competing with the town's completed buildings.
+            let padHeight: Float = 0.22
+            let pad = SCNBox(
+                width: CGFloat(bounds.width - 5),
+                height: CGFloat(padHeight),
+                length: CGFloat(bounds.depth - 5),
+                chamferRadius: 1.2
+            )
+            pad.firstMaterial = material(color: UIColor(red: 0.72, green: 0.63, blue: 0.45, alpha: 1))
+            let padNode = SCNNode(geometry: pad)
+            padNode.position.y = padHeight / 2
+            node.addChildNode(padNode)
+
+            let foundation = SCNBox(width: 22, height: 0.10, length: 22, chamferRadius: 0.8)
+            foundation.firstMaterial = material(color: UIColor(red: 0.87, green: 0.82, blue: 0.66, alpha: 1))
+            let foundationNode = SCNNode(geometry: foundation)
+            foundationNode.position.y = padHeight + 0.05
+            node.addChildNode(foundationNode)
+
+            for (x, z) in [(-29 as Float, -29 as Float), (29, -29), (-29, 29), (29, 29)] {
+                let stake = SCNBox(width: 1.4, height: 2.8, length: 1.4, chamferRadius: 0.2)
+                stake.firstMaterial = material(color: UIColor(red: 0.94, green: 0.46, blue: 0.16, alpha: 1))
+                let stakeNode = SCNNode(geometry: stake)
+                stakeNode.position = SCNVector3(x, padHeight + 1.4, z)
+                node.addChildNode(stakeNode)
+            }
             vacantMarkerNodes[parcel.id] = node
             scene.rootNode.addChildNode(node)
         }
@@ -813,16 +936,19 @@ private final class GridCitySceneController {
     private func buildLighting() {
         let ambientLight = SCNLight()
         ambientLight.type = .ambient
-        ambientLight.intensity = 620
-        ambientLight.color = UIColor(white: 0.80, alpha: 1)
+        // A restrained ambient fill keeps the town clean on mobile while
+        // leaving enough directional contrast for roof pitches, canopies and
+        // loading bays to read as shapes instead of coloured boxes.
+        ambientLight.intensity = 300
+        ambientLight.color = UIColor(red: 0.78, green: 0.85, blue: 0.91, alpha: 1)
         let ambient = SCNNode()
         ambient.light = ambientLight
         scene.rootNode.addChildNode(ambient)
 
         let directionalLight = SCNLight()
         directionalLight.type = .directional
-        directionalLight.intensity = 1_050
-        directionalLight.color = UIColor(red: 1, green: 0.96, blue: 0.88, alpha: 1)
+        directionalLight.intensity = 1_400
+        directionalLight.color = UIColor(red: 1, green: 0.93, blue: 0.78, alpha: 1)
         directionalLight.castsShadow = false
         let directional = SCNNode()
         directional.light = directionalLight
@@ -877,19 +1003,53 @@ private final class GridCitySceneController {
         for placement in GridStorePlacementAdapter.visualPlacements(for: store, map: map) {
             guard let parcel = map.parcel(id: placement.parcelID) else { continue }
             let bounds = map.metrics.worldBounds(of: placement.rect, mapSize: map.size)
-            let node = assetFactory.makeAsset(
-                id: placement.assetID,
+            let parcelBounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            let infill = assetFactory.makeLotInfill(
+                category: .playerFacility,
                 facing: placement.facing,
-                heightHint: placement.height
+                width: parcelBounds.width,
+                depth: parcelBounds.depth
             )
+            infill.position = SCNVector3(
+                parcelBounds.center.x,
+                GridSceneElevation.assetBase,
+                parcelBounds.center.z
+            )
+            infill.name = "player-store-lot-infill:\(store.id.uuidString):\(placement.plotID)"
+            setInteractionMetadata(on: infill, parcel: parcel)
+            root.addChildNode(infill)
+
+            let node: SCNNode
+            if placement.role == .primaryBuilding,
+               let sprite = spriteFactory.makeSprite(
+                assetID: placement.assetID,
+                facing: placement.facing,
+                worldWidth: bounds.width,
+                worldDepth: bounds.depth,
+                renderingOrder: spriteRenderingOrder(worldCenter: bounds.center)
+               ) {
+                node = sprite
+            } else {
+                node = assetFactory.makeAsset(
+                    id: placement.assetID,
+                    facing: placement.facing,
+                    heightHint: placement.height
+                )
+                setInteractionMetadata(on: node, parcel: parcel)
+            }
             node.position = SCNVector3(bounds.center.x, GridSceneElevation.assetBase, bounds.center.z)
             node.name = placement.role == .primaryBuilding
                 ? "player-store-building:\(store.id.uuidString)"
                 : "player-store-parking:\(store.id.uuidString):\(placement.plotID)"
-            setInteractionMetadata(on: node, parcel: parcel)
             root.addChildNode(node)
         }
         return root
+    }
+
+    private func spriteRenderingOrder(worldCenter: GridWorldPoint) -> Int {
+        // The fixed camera sits on +X/+Z. Draw farther cards first, then nearer
+        // cards, while keeping the value stable at every pan and zoom level.
+        10_000 + Int(((worldCenter.x + worldCenter.z) / map.metrics.cellSize * 8).rounded())
     }
 
     private func updateFacilityVisibility() {
@@ -1003,21 +1163,19 @@ private final class GridCitySceneController {
     private func material(color: UIColor) -> SCNMaterial {
         let result = SCNMaterial()
         result.diffuse.contents = color
-        result.roughness.contents = 0.88
-        result.metalness.contents = 0
-        result.lightingModel = .physicallyBased
+        result.lightingModel = .lambert
         result.isDoubleSided = true
         return result
     }
 
     private func baseDistrictColor(_ district: DistrictKind) -> UIColor {
         switch district {
-        case .downtown: UIColor(red: 0.53, green: 0.47, blue: 0.61, alpha: 1)
-        case .station: UIColor(red: 0.43, green: 0.61, blue: 0.69, alpha: 1)
-        case .emerging: UIColor(red: 0.48, green: 0.70, blue: 0.43, alpha: 1)
-        case .suburb: UIColor(red: 0.45, green: 0.65, blue: 0.47, alpha: 1)
-        case .industrial: UIColor(red: 0.51, green: 0.53, blue: 0.52, alpha: 1)
-        case .highway: UIColor(red: 0.68, green: 0.56, blue: 0.36, alpha: 1)
+        case .downtown: UIColor(red: 0.70, green: 0.67, blue: 0.64, alpha: 1)
+        case .station: UIColor(red: 0.61, green: 0.72, blue: 0.55, alpha: 1)
+        case .emerging: UIColor(red: 0.47, green: 0.76, blue: 0.43, alpha: 1)
+        case .suburb: UIColor(red: 0.53, green: 0.78, blue: 0.46, alpha: 1)
+        case .industrial: UIColor(red: 0.61, green: 0.64, blue: 0.60, alpha: 1)
+        case .highway: UIColor(red: 0.67, green: 0.66, blue: 0.46, alpha: 1)
         }
     }
 

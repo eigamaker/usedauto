@@ -388,7 +388,9 @@ struct GridOrthographicCameraSpec: Hashable, Sendable {
     static let foundation = GridOrthographicCameraSpec(
         azimuthDegrees: 45,
         elevationDegrees: 38.16,
-        zoomScaleFactors: [1.0, 0.62, 0.38, 0.22]
+        // The final close inspection step is for reading asset silhouettes,
+        // doors and forecourts; it keeps the same orthographic camera angle.
+        zoomScaleFactors: [1.0, 0.62, 0.38, 0.22, 0.14]
     )
 
     func cameraOffset(groundDistance: Float) -> GridCameraOffset {

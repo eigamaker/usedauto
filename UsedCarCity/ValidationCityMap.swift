@@ -11,7 +11,10 @@ enum ValidationCityMap {
     private static let districtColumns = 6
     private static let districtRows = 5
     private static let plotsPerDistrict = districtColumns * districtRows
-    private static let vacantLocalNumbers: Set<Int> = [4, 10, 17, 24, 30]
+    // Keep two buyable lots in every district (twelve in total), but let the
+    // validation city read as a settled town rather than a checkerboard of
+    // empty green squares.  Parcel geometry and buildability are unchanged.
+    private static let vacantLocalNumbers: Set<Int> = [10, 24]
     private static let parkingLocalNumbers: Set<Int> = [3, 21]
 
     private struct DistrictBlock {
@@ -143,6 +146,14 @@ enum ValidationCityMap {
                     let facing = access.first ?? .south
                     let footprint = asset.footprint(facing: facing)
                     let objectRect = centeredRect(footprint: footprint, inside: rect)
+                    // Keep authored height variation inside the asset's
+                    // declared selection volume (at most +20%).  This lets
+                    // district variation remain visible without giving an
+                    // object a hit region shorter than its actual geometry.
+                    let heightStep = min(
+                        heightVariation(for: block.district),
+                        asset.nominalHeight * 0.10
+                    )
                     objects.append(GridPlacedObject(
                         id: objectID,
                         parcelID: parcelID,
@@ -153,7 +164,7 @@ enum ValidationCityMap {
                         facing: facing,
                         height: isParking
                             ? asset.nominalHeight
-                            : asset.nominalHeight + Float(localNumber % 3) * heightVariation(for: block.district)
+                            : asset.nominalHeight + Float(localNumber % 3) * heightStep
                     ))
                 }
             }
