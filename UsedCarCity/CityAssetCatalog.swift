@@ -203,64 +203,64 @@ struct Iso25DSpriteDefinition: Identifiable, Equatable, Sendable {
 /// access and selection.
 enum Iso25DCityAssetCatalog {
     static let all: [Iso25DSpriteDefinition] = [
-        sprite(.residentialCottage, facing: .north, imageName: "Iso25DHouseGeneralA_North", groundAnchor: (0.50, 0.73)),
-        sprite(.residentialCottage, facing: .south, imageName: "Iso25DHouseGeneralA", groundAnchor: (0.50, 0.73)),
-        sprite(.residentialCottage, facing: .east, imageName: "Iso25DHouseGeneralA_East", groundAnchor: (0.50, 0.72)),
-        sprite(.residentialCottage, facing: .west, imageName: "Iso25DHouseGeneralA_West", groundAnchor: (0.50, 0.70)),
-        sprite(.residentialApartment, facing: .east, imageName: "Iso25DResidentialApartmentB_East", groundAnchor: (0.50, 0.75)),
-        sprite(.residentialApartment, facing: .west, imageName: "Iso25DResidentialApartmentB_West", groundAnchor: (0.50, 0.75)),
+        sprite(.residentialCottage, facing: .north, imageName: "Iso25DHouseGeneralA_North"),
+        sprite(.residentialCottage, facing: .south, imageName: "Iso25DHouseGeneralA"),
+        sprite(.residentialCottage, facing: .east, imageName: "Iso25DHouseGeneralA_East"),
+        sprite(.residentialCottage, facing: .west, imageName: "Iso25DHouseGeneralA_West"),
+        sprite(.residentialApartment, facing: .east, imageName: "Iso25DResidentialApartmentB_East"),
+        sprite(.residentialApartment, facing: .west, imageName: "Iso25DResidentialApartmentB_West"),
 
-        sprite(.luxuryCourtyard, facing: .north, imageName: "Iso25DLuxuryVillaA_North", groundAnchor: (0.50, 0.75)),
-        sprite(.luxuryCourtyard, facing: .south, imageName: "Iso25DLuxuryVillaA", groundAnchor: (0.50, 0.75)),
-        sprite(.luxuryCourtyard, facing: .east, imageName: "Iso25DLuxuryVillaA_East", groundAnchor: (0.50, 0.75)),
-        sprite(.luxuryCourtyard, facing: .west, imageName: "Iso25DLuxuryVillaA_West", groundAnchor: (0.50, 0.75)),
-        sprite(.luxuryPool, facing: .east, imageName: "Iso25DLuxuryPoolB_East", groundAnchor: (0.50, 0.76)),
-        sprite(.luxuryPool, facing: .west, imageName: "Iso25DLuxuryPoolB_West", groundAnchor: (0.50, 0.76)),
+        sprite(.luxuryCourtyard, facing: .north, imageName: "Iso25DLuxuryVillaA_North"),
+        sprite(.luxuryCourtyard, facing: .south, imageName: "Iso25DLuxuryVillaA"),
+        sprite(.luxuryCourtyard, facing: .east, imageName: "Iso25DLuxuryVillaA_East"),
+        sprite(.luxuryCourtyard, facing: .west, imageName: "Iso25DLuxuryVillaA_West"),
+        sprite(.luxuryPool, facing: .east, imageName: "Iso25DLuxuryPoolB_East"),
+        sprite(.luxuryPool, facing: .west, imageName: "Iso25DLuxuryPoolB_West"),
 
-        sprite(.commercialConvenience, facing: .north, imageName: "Iso25DConvenienceStore_North", groundAnchor: (0.50, 0.65)),
-        sprite(.commercialConvenience, facing: .south, imageName: "Iso25DConvenienceStore", groundAnchor: (0.50, 0.64)),
-        sprite(.commercialConvenience, facing: .east, imageName: "Iso25DConvenienceStore_East", groundAnchor: (0.50, 0.66)),
-        sprite(.commercialConvenience, facing: .west, imageName: "Iso25DConvenienceStore_West", groundAnchor: (0.50, 0.65)),
-        sprite(.commercialGasStation, facing: .east, imageName: "Iso25DCommercialGasStationB_East", groundAnchor: (0.50, 0.67)),
-        sprite(.commercialGasStation, facing: .west, imageName: "Iso25DCommercialGasStationB_West", groundAnchor: (0.50, 0.67)),
+        sprite(.commercialConvenience, facing: .north, imageName: "Iso25DConvenienceStore_North"),
+        sprite(.commercialConvenience, facing: .south, imageName: "Iso25DConvenienceStore"),
+        sprite(.commercialConvenience, facing: .east, imageName: "Iso25DConvenienceStore_East"),
+        sprite(.commercialConvenience, facing: .west, imageName: "Iso25DConvenienceStore_West"),
+        sprite(.commercialGasStation, facing: .east, imageName: "Iso25DCommercialGasStationB_East"),
+        sprite(.commercialGasStation, facing: .west, imageName: "Iso25DCommercialGasStationB_West"),
 
-        sprite(.industrialFactory, facing: .north, imageName: "Iso25DIndustrialFactoryA_North", groundAnchor: (0.50, 0.67)),
-        sprite(.industrialFactory, facing: .south, imageName: "Iso25DIndustrialFactoryA", groundAnchor: (0.50, 0.67)),
-        sprite(.industrialFactory, facing: .east, imageName: "Iso25DIndustrialFactoryA_East", groundAnchor: (0.50, 0.67)),
-        sprite(.industrialFactory, facing: .west, imageName: "Iso25DIndustrialFactoryA_West", groundAnchor: (0.50, 0.68)),
-        sprite(.industrialLoadingWarehouse, facing: .east, imageName: "Iso25DIndustrialLoadingWarehouseB_East", groundAnchor: (0.50, 0.67)),
-        sprite(.industrialLoadingWarehouse, facing: .west, imageName: "Iso25DIndustrialLoadingWarehouseB_West", groundAnchor: (0.50, 0.67)),
+        sprite(.industrialFactory, facing: .north, imageName: "Iso25DIndustrialFactoryA_North"),
+        sprite(.industrialFactory, facing: .south, imageName: "Iso25DIndustrialFactoryA"),
+        sprite(.industrialFactory, facing: .east, imageName: "Iso25DIndustrialFactoryA_East"),
+        sprite(.industrialFactory, facing: .west, imageName: "Iso25DIndustrialFactoryA_West"),
+        sprite(.industrialLoadingWarehouse, facing: .east, imageName: "Iso25DIndustrialLoadingWarehouseB_East"),
+        sprite(.industrialLoadingWarehouse, facing: .west, imageName: "Iso25DIndustrialLoadingWarehouseB_West"),
 
-        sprite(.downtownMixedUse, facing: .north, imageName: "Iso25DDowntownMixedUseA_North", groundAnchor: (0.50, 0.79)),
-        sprite(.downtownMixedUse, facing: .south, imageName: "Iso25DDowntownMixedUseA", groundAnchor: (0.50, 0.79)),
-        sprite(.downtownMixedUse, facing: .east, imageName: "Iso25DDowntownMixedUseA_East", groundAnchor: (0.50, 0.79)),
-        sprite(.downtownMixedUse, facing: .west, imageName: "Iso25DDowntownMixedUseA_West", groundAnchor: (0.50, 0.79)),
-        sprite(.downtownOffice, facing: .east, imageName: "Iso25DDowntownOfficeB_East", groundAnchor: (0.50, 0.79)),
-        sprite(.downtownOffice, facing: .west, imageName: "Iso25DDowntownOfficeB_West", groundAnchor: (0.50, 0.79)),
+        sprite(.downtownMixedUse, facing: .north, imageName: "Iso25DDowntownMixedUseA_North"),
+        sprite(.downtownMixedUse, facing: .south, imageName: "Iso25DDowntownMixedUseA"),
+        sprite(.downtownMixedUse, facing: .east, imageName: "Iso25DDowntownMixedUseA_East"),
+        sprite(.downtownMixedUse, facing: .west, imageName: "Iso25DDowntownMixedUseA_West"),
+        sprite(.downtownOffice, facing: .east, imageName: "Iso25DDowntownOfficeB_East"),
+        sprite(.downtownOffice, facing: .west, imageName: "Iso25DDowntownOfficeB_West"),
 
-        sprite(.highwayLogistics, facing: .north, imageName: "Iso25DHighwayLogisticsA_North", groundAnchor: (0.50, 0.67)),
-        sprite(.highwayLogistics, facing: .south, imageName: "Iso25DHighwayLogisticsA", groundAnchor: (0.50, 0.67)),
-        sprite(.highwayLogistics, facing: .east, imageName: "Iso25DHighwayLogisticsA_East", groundAnchor: (0.50, 0.67)),
-        sprite(.highwayLogistics, facing: .west, imageName: "Iso25DHighwayLogisticsA_West", groundAnchor: (0.50, 0.67)),
-        sprite(.highwayBigBox, facing: .east, imageName: "Iso25DHighwayBigBoxB_East", groundAnchor: (0.50, 0.68)),
-        sprite(.highwayBigBox, facing: .west, imageName: "Iso25DHighwayBigBoxB_West", groundAnchor: (0.50, 0.68)),
+        sprite(.highwayLogistics, facing: .north, imageName: "Iso25DHighwayLogisticsA_North"),
+        sprite(.highwayLogistics, facing: .south, imageName: "Iso25DHighwayLogisticsA"),
+        sprite(.highwayLogistics, facing: .east, imageName: "Iso25DHighwayLogisticsA_East"),
+        sprite(.highwayLogistics, facing: .west, imageName: "Iso25DHighwayLogisticsA_West"),
+        sprite(.highwayBigBox, facing: .east, imageName: "Iso25DHighwayBigBoxB_East"),
+        sprite(.highwayBigBox, facing: .west, imageName: "Iso25DHighwayBigBoxB_West"),
 
-        sprite(.playerSmallDealer, facing: .north, imageName: "Iso25DDealer_North", groundAnchor: (0.50, 0.67)),
-        sprite(.playerSmallDealer, facing: .south, imageName: "Iso25DDealerSmall", groundAnchor: (0.50, 0.67)),
-        sprite(.playerSmallDealer, facing: .east, imageName: "Iso25DDealer_East", groundAnchor: (0.50, 0.67)),
-        sprite(.playerSmallDealer, facing: .west, imageName: "Iso25DDealer_West", groundAnchor: (0.50, 0.67)),
-        sprite(.playerMediumDealer, facing: .north, imageName: "Iso25DDealerMedium_North", groundAnchor: (0.50, 0.67)),
-        sprite(.playerMediumDealer, facing: .south, imageName: "Iso25DDealerMedium_South", groundAnchor: (0.50, 0.67)),
-        sprite(.playerMediumDealer, facing: .east, imageName: "Iso25DDealerMedium_East", groundAnchor: (0.50, 0.67)),
-        sprite(.playerMediumDealer, facing: .west, imageName: "Iso25DDealerMedium_West", groundAnchor: (0.50, 0.67)),
-        sprite(.playerLargeDealer, facing: .north, imageName: "Iso25DDealerLarge_North", groundAnchor: (0.50, 0.67)),
-        sprite(.playerLargeDealer, facing: .south, imageName: "Iso25DDealerLarge_South", groundAnchor: (0.50, 0.67)),
-        sprite(.playerLargeDealer, facing: .east, imageName: "Iso25DDealerLarge_East", groundAnchor: (0.50, 0.67)),
-        sprite(.playerLargeDealer, facing: .west, imageName: "Iso25DDealerLarge_West", groundAnchor: (0.50, 0.67)),
-        sprite(.playerServiceWorkshop, facing: .north, imageName: "Iso25DServiceWorkshop_North", groundAnchor: (0.50, 0.66)),
-        sprite(.playerServiceWorkshop, facing: .south, imageName: "Iso25DServiceWorkshop", groundAnchor: (0.50, 0.66)),
-        sprite(.playerServiceWorkshop, facing: .east, imageName: "Iso25DServiceWorkshop_East", groundAnchor: (0.50, 0.66)),
-        sprite(.playerServiceWorkshop, facing: .west, imageName: "Iso25DServiceWorkshop_West", groundAnchor: (0.50, 0.66))
+        sprite(.playerSmallDealer, facing: .north, imageName: "Iso25DDealer_North"),
+        sprite(.playerSmallDealer, facing: .south, imageName: "Iso25DDealerSmall"),
+        sprite(.playerSmallDealer, facing: .east, imageName: "Iso25DDealer_East"),
+        sprite(.playerSmallDealer, facing: .west, imageName: "Iso25DDealer_West"),
+        sprite(.playerMediumDealer, facing: .north, imageName: "Iso25DDealerMedium_North"),
+        sprite(.playerMediumDealer, facing: .south, imageName: "Iso25DDealerMedium_South"),
+        sprite(.playerMediumDealer, facing: .east, imageName: "Iso25DDealerMedium_East"),
+        sprite(.playerMediumDealer, facing: .west, imageName: "Iso25DDealerMedium_West"),
+        sprite(.playerLargeDealer, facing: .north, imageName: "Iso25DDealerLarge_North"),
+        sprite(.playerLargeDealer, facing: .south, imageName: "Iso25DDealerLarge_South"),
+        sprite(.playerLargeDealer, facing: .east, imageName: "Iso25DDealerLarge_East"),
+        sprite(.playerLargeDealer, facing: .west, imageName: "Iso25DDealerLarge_West"),
+        sprite(.playerServiceWorkshop, facing: .north, imageName: "Iso25DServiceWorkshop_North"),
+        sprite(.playerServiceWorkshop, facing: .south, imageName: "Iso25DServiceWorkshop"),
+        sprite(.playerServiceWorkshop, facing: .east, imageName: "Iso25DServiceWorkshop_East"),
+        sprite(.playerServiceWorkshop, facing: .west, imageName: "Iso25DServiceWorkshop_West")
     ]
 
     private static let byKey = Dictionary(uniqueKeysWithValues: all.map {
@@ -320,19 +320,22 @@ enum Iso25DCityAssetCatalog {
         _ id: CityAssetID,
         facing: CardinalDirection,
         imageName: String,
-        pixels: (width: Int, height: Int) = (1_024, 1_024),
-        groundAnchor: (x: Float, y: Float),
-        projectedFootprintWidthFraction: Float = 0.94
+        pixels: (width: Int, height: Int) = (1_024, 1_024)
     ) -> Iso25DSpriteDefinition {
-        Iso25DSpriteDefinition(
+        guard let calibration = Iso25DSpriteCalibration.byImageName[imageName] else {
+            preconditionFailure(
+                "No measured calibration for \(imageName) — run Tools/calibrate_iso25d_sprites.swift"
+            )
+        }
+        return Iso25DSpriteDefinition(
             assetID: id,
             facing: facing,
             imageName: imageName,
             pixelWidth: pixels.width,
             pixelHeight: pixels.height,
-            groundAnchorX: groundAnchor.x,
-            groundAnchorY: groundAnchor.y,
-            projectedFootprintWidthFraction: projectedFootprintWidthFraction
+            groundAnchorX: calibration.groundAnchorX,
+            groundAnchorY: calibration.groundAnchorY,
+            projectedFootprintWidthFraction: calibration.footprintWidthFraction
         )
     }
 

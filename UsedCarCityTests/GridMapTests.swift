@@ -818,6 +818,12 @@ final class GridMapTests: XCTestCase {
             Set(Iso25DCityAssetCatalog.all.map(\.imageName)).count,
             Iso25DCityAssetCatalog.all.count
         )
+        // Every card must scale and anchor from measured artwork geometry, and
+        // the generated calibration table must not carry stale extra entries.
+        XCTAssertEqual(
+            Set(Iso25DCityAssetCatalog.all.map(\.imageName)),
+            Set(Iso25DSpriteCalibration.byImageName.keys)
+        )
 
         for sprite in Iso25DCityAssetCatalog.all {
             let gridDefinition = CityAssetCatalog.definition(for: sprite.assetID)
@@ -828,9 +834,12 @@ final class GridMapTests: XCTestCase {
             XCTAssertEqual(sprite.requiredClearance, gridDefinition.requiredClearance)
             XCTAssertEqual(sprite.allowedDistricts, gridDefinition.allowedDistricts)
             XCTAssertTrue(sprite.supports(facing: sprite.facing))
-            XCTAssertTrue((0...1).contains(sprite.groundAnchorX))
-            XCTAssertTrue((0...1).contains(sprite.groundAnchorY))
-            XCTAssertTrue((0.85...1).contains(sprite.projectedFootprintWidthFraction))
+            // Measured ground plates stay near the image center; a value at
+            // these bounds means broken artwork (bad matte or projection),
+            // not a tuning choice.
+            XCTAssertTrue((0.35...0.65).contains(sprite.groundAnchorX), sprite.imageName)
+            XCTAssertTrue((0.4...0.9).contains(sprite.groundAnchorY), sprite.imageName)
+            XCTAssertTrue((0.65...1).contains(sprite.projectedFootprintWidthFraction), sprite.imageName)
 
             let image = try XCTUnwrap(UIImage(named: sprite.imageName))
             let cgImage = try XCTUnwrap(image.cgImage)

@@ -7,30 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0517F5BE16ECDAA56741B4DF /* Iso25DSpriteCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E07D130AD590D7940AA9B2E /* Iso25DSpriteCalibration.swift */; };
 		0C54D7A9E882D0BA6C28241F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7E05CB3F0B106E864CD5E80A /* Assets.xcassets */; };
+		0E28654C0A46E76D3A3B40F8 /* GridMapModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74048FF6EAF92884804658F0 /* GridMapModels.swift */; };
 		182561B56C4534E151B12769 /* IsometricMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */; };
+		1AC84B5C81F75768AD6A0717 /* GridCitySceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F38E41AEC301DF8AE2DB192A /* GridCitySceneView.swift */; };
 		1E54382B49F8B1DFC56E3C01 /* ManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B96C4CD1B6B808F7892797 /* ManagementViews.swift */; };
 		29DFFEE10959B681CCD3EEB6 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8B963E2680F1614B9C82085 /* OnboardingView.swift */; };
+		2F050F3BFF7469D85AF5EC4D /* GridMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927B65887C66F2E1A15FB150 /* GridMapTests.swift */; };
 		379C75F3E29895381B88D9E5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9818ABA4195147A46D2CA15C /* RootView.swift */; };
 		3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */; };
+		6DA128FAED9F1F7355313BD8 /* LowPolyCityAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E1B8228707BCC339AA429F /* LowPolyCityAssets.swift */; };
+		75A4F82A46602CA938878E0F /* CityMapBlueprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0325BBC5924FF33AB9EF4002 /* CityMapBlueprint.swift */; };
 		8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */; };
 		8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */; };
 		9040838EF619B02856AC5667 /* CityMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E28EC484C7566BDF62A0D40 /* CityMapView.swift */; };
-		C30000000000000000000001 /* GridMapModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* GridMapModels.swift */; };
-		C30000000000000000000002 /* ValidationCityMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* ValidationCityMap.swift */; };
-		C30000000000000000000003 /* GridCitySceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000003 /* GridCitySceneView.swift */; };
-		B20000000000000000000001 /* CityMapBlueprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* CityMapBlueprint.swift */; };
-		B20000000000000000000002 /* MapAssetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* MapAssetLibrary.swift */; };
+		986C38B0EF96B2249A269A48 /* CityAssetCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5835EE83D490DDA8757F0AB /* CityAssetCatalog.swift */; };
 		AA385308489176468FE026E8 /* PlotDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */; };
 		C12475F7972B43622615DBCE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1FAE8B5F6C57CDB708261A /* Theme.swift */; };
 		D6A336DCFEE02987CA024ACC /* GameEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CBDC247994254299B87FD5B /* GameEngineTests.swift */; };
-		C30000000000000000000004 /* GridMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000004 /* GridMapTests.swift */; };
-		C30000000000000000000005 /* CityAssetCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000005 /* CityAssetCatalog.swift */; };
-		C30000000000000000000006 /* LowPolyCityAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000006 /* LowPolyCityAssets.swift */; };
+		D6FBDB3571CC19D2428EF68F /* MapAssetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DFFBF2A54F7A823FA4F1339 /* MapAssetLibrary.swift */; };
 		DA3E3D58E395CEF2EEE95E21 /* OperationsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412AFB3815F6E33D7B734156 /* OperationsViews.swift */; };
 		DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE73B5C41E1720C59FD0FACB /* Models.swift */; };
 		DEBF92653182B2B29EB44F42 /* FinanceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */; };
 		DF9BE19281A9C7D295B9B99F /* UsedCarCityApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */; };
+		F637C309729A29AF5EF2CBC7 /* ValidationCityMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1939D96096665A1142FABCB /* ValidationCityMap.swift */; };
 		F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7096782B05120F5807D91227 /* StoreCommandCenterView.swift */; };
 /* End PBXBuildFile section */
 
@@ -45,6 +46,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0325BBC5924FF33AB9EF4002 /* CityMapBlueprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMapBlueprint.swift; sourceTree = "<group>"; };
 		04B96C4CD1B6B808F7892797 /* ManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagementViews.swift; sourceTree = "<group>"; };
 		0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlotDetailView.swift; sourceTree = "<group>"; };
 		1CBDC247994254299B87FD5B /* GameEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngineTests.swift; sourceTree = "<group>"; };
@@ -53,23 +55,23 @@
 		2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngine.swift; sourceTree = "<group>"; };
 		412AFB3815F6E33D7B734156 /* OperationsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsViews.swift; sourceTree = "<group>"; };
 		467AB062A23FFB7FE409BCBA /* UsedCarCityTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = UsedCarCityTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4DFFBF2A54F7A823FA4F1339 /* MapAssetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapAssetLibrary.swift; sourceTree = "<group>"; };
 		4E28EC484C7566BDF62A0D40 /* CityMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMapView.swift; sourceTree = "<group>"; };
 		5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceViews.swift; sourceTree = "<group>"; };
-		6F61274CC4DE98047FE3A25E /* UsedCarCity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UsedCarCity.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		64E1B8228707BCC339AA429F /* LowPolyCityAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowPolyCityAssets.swift; sourceTree = "<group>"; };
+		6F61274CC4DE98047FE3A25E /* UsedCarCity.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = UsedCarCity.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7096782B05120F5807D91227 /* StoreCommandCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreCommandCenterView.swift; sourceTree = "<group>"; };
+		74048FF6EAF92884804658F0 /* GridMapModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapModels.swift; sourceTree = "<group>"; };
 		7E05CB3F0B106E864CD5E80A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7E1FAE8B5F6C57CDB708261A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		8E07D130AD590D7940AA9B2E /* Iso25DSpriteCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Iso25DSpriteCalibration.swift; sourceTree = "<group>"; };
+		927B65887C66F2E1A15FB150 /* GridMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapTests.swift; sourceTree = "<group>"; };
 		9818ABA4195147A46D2CA15C /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IsometricMapView.swift; sourceTree = "<group>"; };
-		B10000000000000000000001 /* CityMapBlueprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMapBlueprint.swift; sourceTree = "<group>"; };
-		B10000000000000000000002 /* MapAssetLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapAssetLibrary.swift; sourceTree = "<group>"; };
-		C40000000000000000000001 /* GridMapModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapModels.swift; sourceTree = "<group>"; };
-		C40000000000000000000002 /* ValidationCityMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationCityMap.swift; sourceTree = "<group>"; };
-		C40000000000000000000003 /* GridCitySceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridCitySceneView.swift; sourceTree = "<group>"; };
-		C40000000000000000000004 /* GridMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapTests.swift; sourceTree = "<group>"; };
-		C40000000000000000000005 /* CityAssetCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityAssetCatalog.swift; sourceTree = "<group>"; };
-		C40000000000000000000006 /* LowPolyCityAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LowPolyCityAssets.swift; sourceTree = "<group>"; };
 		D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityViews.swift; sourceTree = "<group>"; };
+		D5835EE83D490DDA8757F0AB /* CityAssetCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityAssetCatalog.swift; sourceTree = "<group>"; };
+		F1939D96096665A1142FABCB /* ValidationCityMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValidationCityMap.swift; sourceTree = "<group>"; };
+		F38E41AEC301DF8AE2DB192A /* GridCitySceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridCitySceneView.swift; sourceTree = "<group>"; };
 		F8B963E2680F1614B9C82085 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		FE73B5C41E1720C59FD0FACB /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -79,7 +81,7 @@
 			isa = PBXGroup;
 			children = (
 				1CBDC247994254299B87FD5B /* GameEngineTests.swift */,
-				C40000000000000000000004 /* GridMapTests.swift */,
+				927B65887C66F2E1A15FB150 /* GridMapTests.swift */,
 			);
 			path = UsedCarCityTests;
 			sourceTree = "<group>";
@@ -107,18 +109,19 @@
 			children = (
 				7E05CB3F0B106E864CD5E80A /* Assets.xcassets */,
 				1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */,
-				B10000000000000000000001 /* CityMapBlueprint.swift */,
-				C40000000000000000000005 /* CityAssetCatalog.swift */,
+				D5835EE83D490DDA8757F0AB /* CityAssetCatalog.swift */,
+				0325BBC5924FF33AB9EF4002 /* CityMapBlueprint.swift */,
 				4E28EC484C7566BDF62A0D40 /* CityMapView.swift */,
 				D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */,
 				5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */,
 				2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */,
-				C40000000000000000000003 /* GridCitySceneView.swift */,
-				C40000000000000000000001 /* GridMapModels.swift */,
+				F38E41AEC301DF8AE2DB192A /* GridCitySceneView.swift */,
+				74048FF6EAF92884804658F0 /* GridMapModels.swift */,
+				8E07D130AD590D7940AA9B2E /* Iso25DSpriteCalibration.swift */,
 				9C4962730BFEBA5C186CD933 /* IsometricMapView.swift */,
-				C40000000000000000000006 /* LowPolyCityAssets.swift */,
-				B10000000000000000000002 /* MapAssetLibrary.swift */,
+				64E1B8228707BCC339AA429F /* LowPolyCityAssets.swift */,
 				04B96C4CD1B6B808F7892797 /* ManagementViews.swift */,
+				4DFFBF2A54F7A823FA4F1339 /* MapAssetLibrary.swift */,
 				FE73B5C41E1720C59FD0FACB /* Models.swift */,
 				F8B963E2680F1614B9C82085 /* OnboardingView.swift */,
 				412AFB3815F6E33D7B734156 /* OperationsViews.swift */,
@@ -127,7 +130,7 @@
 				7096782B05120F5807D91227 /* StoreCommandCenterView.swift */,
 				7E1FAE8B5F6C57CDB708261A /* Theme.swift */,
 				29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */,
-				C40000000000000000000002 /* ValidationCityMap.swift */,
+				F1939D96096665A1142FABCB /* ValidationCityMap.swift */,
 			);
 			path = UsedCarCity;
 			sourceTree = "<group>";
@@ -181,6 +184,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					E7B0C0E82CE54E4CEB103AEA = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -222,7 +226,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D6A336DCFEE02987CA024ACC /* GameEngineTests.swift in Sources */,
-				C30000000000000000000004 /* GridMapTests.swift in Sources */,
+				2F050F3BFF7469D85AF5EC4D /* GridMapTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -231,18 +235,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */,
-				B20000000000000000000001 /* CityMapBlueprint.swift in Sources */,
-				C30000000000000000000005 /* CityAssetCatalog.swift in Sources */,
+				986C38B0EF96B2249A269A48 /* CityAssetCatalog.swift in Sources */,
+				75A4F82A46602CA938878E0F /* CityMapBlueprint.swift in Sources */,
 				9040838EF619B02856AC5667 /* CityMapView.swift in Sources */,
 				8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */,
 				DEBF92653182B2B29EB44F42 /* FinanceViews.swift in Sources */,
 				8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */,
-				C30000000000000000000003 /* GridCitySceneView.swift in Sources */,
-				C30000000000000000000001 /* GridMapModels.swift in Sources */,
+				1AC84B5C81F75768AD6A0717 /* GridCitySceneView.swift in Sources */,
+				0E28654C0A46E76D3A3B40F8 /* GridMapModels.swift in Sources */,
+				0517F5BE16ECDAA56741B4DF /* Iso25DSpriteCalibration.swift in Sources */,
 				182561B56C4534E151B12769 /* IsometricMapView.swift in Sources */,
-				C30000000000000000000006 /* LowPolyCityAssets.swift in Sources */,
-				B20000000000000000000002 /* MapAssetLibrary.swift in Sources */,
+				6DA128FAED9F1F7355313BD8 /* LowPolyCityAssets.swift in Sources */,
 				1E54382B49F8B1DFC56E3C01 /* ManagementViews.swift in Sources */,
+				D6FBDB3571CC19D2428EF68F /* MapAssetLibrary.swift in Sources */,
 				DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */,
 				29DFFEE10959B681CCD3EEB6 /* OnboardingView.swift in Sources */,
 				DA3E3D58E395CEF2EEE95E21 /* OperationsViews.swift in Sources */,
@@ -251,7 +256,7 @@
 				F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */,
 				C12475F7972B43622615DBCE /* Theme.swift in Sources */,
 				DF9BE19281A9C7D295B9B99F /* UsedCarCityApp.swift in Sources */,
-				C30000000000000000000002 /* ValidationCityMap.swift in Sources */,
+				F637C309729A29AF5EF2CBC7 /* ValidationCityMap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -360,7 +365,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = J4SJR8W4AS;
+				DEVELOPMENT_TEAM = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -377,7 +382,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = J4SJR8W4AS;
+				DEVELOPMENT_TEAM = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
