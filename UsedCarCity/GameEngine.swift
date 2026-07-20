@@ -33,8 +33,7 @@ final class GameEngine: ObservableObject {
     @Published var tutorialMessage: String?
     @Published var tutorialStep: TutorialStep?
     @Published var tutorialPlotID: Int?
-    @Published var startupPlan: StartupPlan?
-    @Published var unlockedFeatures: Set<String> = ["仕入", "価格設定"]
+    @Published var unlockedFeatures: Set<String> = ["仕入", "価格設定", "出店"]
     @Published var regionalOperations: [RegionalOperation] = []
     @Published var intercityShipments: [IntercityShipment] = []
     @Published var nationalBrandStrength: Double = 0.48
@@ -82,7 +81,6 @@ final class GameEngine: ObservableObject {
         let priceWarChallenges: [PriceWarChallenge]
         let tutorialStep: TutorialStep?
         let tutorialPlotID: Int?
-        let startupPlan: StartupPlan?
         let financialDistressWeeks: Int
     }
 
@@ -119,7 +117,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v25"
+    private static let saveKey = "UsedCarCity.save.v26"
     private static let managerCandidates = [
         StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, marketingAbility: 84, serviceAbility: 71, monthlySalary: 56),
         StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, marketingAbility: 58, serviceAbility: 75, monthlySalary: 56),
@@ -162,17 +160,17 @@ final class GameEngine: ObservableObject {
         }
 #if DEBUG
         if CommandLine.arguments.contains("-demo-tutorial-purchase"), !hasStarted {
-            start(plan: .family)
-            if let plot = recommendedFoundingPlot {
+            startNewGame()
+            if let plot = foundingCandidatePlots.first(where: { $0.district == .suburb }) ?? recommendedFoundingPlot {
                 selectFoundingPlot(plot.id)
                 _ = buildStore(on: plot, type: .standard, mode: .lease, focus: .family, concept: .family, loanAmount: 0)
             }
             tutorialMessage = nil
         } else if CommandLine.arguments.contains("-demo-tutorial"), !hasStarted {
-            start(plan: .family)
+            startNewGame()
             tutorialMessage = nil
         } else if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-map-zoom") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-workshop") || CommandLine.arguments.contains("-demo-hq") || CommandLine.arguments.contains("-demo-goals") || CommandLine.arguments.contains("-demo-ending") || CommandLine.arguments.contains("-demo-competition") || CommandLine.arguments.contains("-demo-construction") || CommandLine.arguments.contains("-demo-national")) && !hasStarted {
-            prepareDemoCompany(plan: .family)
+            prepareDemoCompany()
             tutorialMessage = nil
         }
         if CommandLine.arguments.contains("-demo-goals") {
@@ -365,10 +363,7 @@ final class GameEngine: ObservableObject {
     }
 
     var recommendedFoundingPlot: LandPlot? {
-        guard let preferred = startupPlan?.recommendedDistrict else {
-            return foundingCandidatePlots.max { foundingPlotScore($0) < foundingPlotScore($1) }
-        }
-        return foundingCandidatePlots.first(where: { $0.district == preferred }) ?? foundingCandidatePlots.first
+        foundingCandidatePlots.max { foundingPlotScore($0) < foundingPlotScore($1) }
     }
 
     var saveSummary: String? {
@@ -385,17 +380,12 @@ final class GameEngine: ObservableObject {
     }
 
     func startNewGame() {
-        beginNewGame(plan: nil)
+        beginNewGame()
     }
 
-    func start(plan: StartupPlan) {
-        beginNewGame(plan: plan)
-    }
-
-    private func beginNewGame(plan: StartupPlan?) {
+    private func beginNewGame() {
         resetState(removeSave: true)
         hasStarted = true
-        startupPlan = plan
         cash = 6_500
         debt = 3_000
         companyValue = 3_500
@@ -439,8 +429,8 @@ final class GameEngine: ObservableObject {
         hasStarted = false
         year = 2030; month = 4; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
-        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; startupPlan = nil; tutorialMessage = nil
-        unlockedFeatures = ["仕入", "価格設定"]
+        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; tutorialMessage = nil
+        unlockedFeatures = ["仕入", "価格設定", "出店"]
         placeCompetitors()
         if removeSave {
             pendingSave = nil
@@ -482,7 +472,6 @@ final class GameEngine: ObservableObject {
         priceWarChallenges = saved.priceWarChallenges
         tutorialStep = saved.tutorialStep
         tutorialPlotID = saved.tutorialPlotID
-        startupPlan = saved.startupPlan
         financialDistressWeeks = saved.financialDistressWeeks
         lastReport = reports.first
     }
@@ -532,7 +521,7 @@ final class GameEngine: ObservableObject {
 
     func canPlanStore(on plot: LandPlot) -> Bool {
         if stores.isEmpty, tutorialStep == .buildStore { return tutorialPlotID == plot.id }
-        return unlockedFeatures.contains("出店")
+        return !stores.isEmpty
     }
 
     func estimatedVisitors(for plot: LandPlot) -> Int {
@@ -1128,32 +1117,54 @@ final class GameEngine: ObservableObject {
         save()
     }
 
+    func inventoryPurchaseCost(category: VehicleCategory, count: Int, storeID: UUID) -> Int? {
+        guard let store = stores.first(where: { $0.id == storeID }) else { return nil }
+        return inventoryPurchaseBatches(category: category, count: count, store: store)
+            .map { $0.reduce(0) { $0 + $1.averageCost } }
+    }
+
     func buyInventory(category: VehicleCategory, count: Int, storeID: UUID) -> Bool {
-        let totalCost = category.purchaseCost * count
-        guard cash >= totalCost, let index = stores.firstIndex(where: { $0.id == storeID }) else { return false }
+        guard count > 0,
+              let index = stores.firstIndex(where: { $0.id == storeID }),
+              let inventory = inventoryPurchaseBatches(category: category, count: count, store: stores[index]) else { return false }
+        let totalCost = inventory.reduce(0) { $0 + $1.averageCost }
+        guard cash >= totalCost else { return false }
         let freeCapacity = stores[index].type.capacity - stores[index].inventoryCount
         guard freeCapacity >= count else { return false }
         cash -= totalCost
-        for offset in 0..<count {
-            let model = vehicleModel(for: category, seed: turn * 101 + stores[index].plotID * 17 + offset * 29)
-            let profile = usedVehicleProfile(for: model, seed: turn * 131 + stores[index].plotID * 23 + offset * 31, maximumAge: 8)
-            stores[index].inventory.append(InventoryBatch(
-                modelID: model.id,
-                category: category,
-                count: 1,
-                averageCost: category.purchaseCost,
-                quality: profile.quality,
-                modelYear: profile.modelYear,
-                mileage: profile.mileage,
-                acquiredTurn: turn
-            ))
-        }
+        stores[index].inventory.append(contentsOf: inventory)
         if tutorialStep == .purchaseInventory, stores[index].plotID == tutorialPlotID {
             tutorialStep = .runFirstMonth
         }
         recalculateAssets()
         save()
         return true
+    }
+
+    private func inventoryPurchaseBatches(category: VehicleCategory, count: Int, store: Store) -> [InventoryBatch]? {
+        guard count > 0, let plot = plot(id: store.plotID) else { return nil }
+        return (0..<count).map { offset in
+            let model = vehicleModel(for: category, seed: turn * 101 + store.plotID * 17 + offset * 29)
+            let profile = usedVehicleProfile(for: model, seed: turn * 131 + store.plotID * 23 + offset * 31, maximumAge: 8)
+            let wholesale = vehicleWholesaleValue(
+                modelID: model.id,
+                category: category,
+                modelYear: profile.modelYear,
+                mileage: profile.mileage,
+                quality: profile.quality,
+                in: plot.district
+            )
+            return InventoryBatch(
+                modelID: model.id,
+                category: category,
+                count: 1,
+                averageCost: wholesale,
+                quality: profile.quality,
+                modelYear: profile.modelYear,
+                mileage: profile.mileage,
+                acquiredTurn: turn
+            )
+        }
     }
 
     func setTutorialPrice(storeID: UUID, priceIndex: Double) {
@@ -2680,7 +2691,6 @@ final class GameEngine: ObservableObject {
         case 1: unlockedFeatures.insert("広告"); notes.append("地区広告が解放されました")
         case 2: unlockedFeatures.insert("人員配置"); notes.append("採用と人員配置が解放されました")
         case 3: unlockedFeatures.insert("財務"); notes.append("PL・BS・CFの詳細が解放されました")
-        case 4: unlockedFeatures.insert("出店"); notes.append("土地取得と2店舗目の出店が解放されました")
         default: break
         }
     }
@@ -3713,7 +3723,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, startupPlan: startupPlan, financialDistressWeeks: financialDistressWeeks)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -3722,16 +3732,16 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func prepareDemoCompany(plan: StartupPlan) {
-        start(plan: plan)
-        guard let plot = recommendedFoundingPlot else { return }
+    private func prepareDemoCompany() {
+        startNewGame()
+        guard let plot = foundingCandidatePlots.first(where: { $0.district == .suburb }) ?? recommendedFoundingPlot else { return }
         selectFoundingPlot(plot.id)
         _ = buildStore(
             on: plot,
-            type: plan.recommendedStoreType,
+            type: .standard,
             mode: .lease,
-            focus: plan.recommendedFocus,
-            concept: plan.recommendedConcept,
+            focus: .family,
+            concept: .family,
             loanAmount: 0
         )
         if let store = stores.first {

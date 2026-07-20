@@ -389,9 +389,9 @@ private final class GridCitySceneController {
     func updateLayout(viewSize: CGSize) {
         guard viewSize.width > 0, viewSize.height > 0, viewSize != lastViewSize else { return }
         lastViewSize = viewSize
-        let mapBounds = map.metrics.worldBounds(of: map.size)
-        let projectedWidth = CGFloat(mapBounds.width + mapBounds.depth) / sqrt(2)
-        let projectedHeight = CGFloat(mapBounds.width + mapBounds.depth) * 0.58 / sqrt(2)
+        let contentBounds = map.cameraContentBounds
+        let projectedWidth = CGFloat(contentBounds.width + contentBounds.depth) / sqrt(2)
+        let projectedHeight = CGFloat(contentBounds.width + contentBounds.depth) * 0.58 / sqrt(2)
         let aspect = max(0.25, viewSize.width / viewSize.height)
         // Keep the whole city readable while using most of a phone's narrow
         // viewport. The fixed camera may reveal a small margin for panning.
@@ -421,7 +421,8 @@ private final class GridCitySceneController {
     }
 
     func resetCamera(animated: Bool) {
-        focusPoint = SCNVector3Zero
+        let cityCenter = map.cameraContentBounds.center
+        focusPoint = SCNVector3(cityCenter.x, 0, cityCenter.z)
         currentZoomStep = 0
         currentZoomFactor = GridCameraZoom.scaleFactors[0]
         updateFacilityVisibility()
@@ -1680,7 +1681,7 @@ private final class GridCitySceneController {
     }
 
     private func clampFocus() {
-        let bounds = map.metrics.worldBounds(of: map.size)
+        let bounds = map.cameraContentBounds
         let clamped = GridCameraFocusPolicy.clampedFocus(
             GridWorldPoint(x: focusPoint.x, z: focusPoint.z),
             in: bounds,

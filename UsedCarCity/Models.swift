@@ -1607,28 +1607,6 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     }
 }
 
-enum StartupPlan: String, Codable, CaseIterable, Identifiable {
-    case family, discount, quality, business
-    var id: String { rawValue }
-    var name: String {
-        switch self { case .family: "ファミリー重視"; case .discount: "低価格・回転重視"; case .quality: "品質・ブランド重視"; case .business: "法人・商用車重視" }
-    }
-    var tagline: String {
-        switch self {
-        case .family: "安定した家族需要をつかむ王道プラン"
-        case .discount: "低い固定費と価格競争力で勝負"
-        case .quality: "目利きと高粗利でブランドを育てる"
-        case .business: "法人案件と仕入れ網で商用車を計画販売"
-        }
-    }
-    var icon: String { switch self { case .family: "figure.2.and.child.holdinghands"; case .discount: "tag.fill"; case .quality: "sparkles"; case .business: "truck.box.fill" } }
-    var startingCash: Int { 6_500 }
-    var recommendedDistrict: DistrictKind { switch self { case .family: .suburb; case .discount: .station; case .quality: .downtown; case .business: .industrial } }
-    var recommendedStoreType: StoreType { switch self { case .family: .standard; case .discount: .small; case .quality: .small; case .business: .small } }
-    var recommendedFocus: CustomerFocus { switch self { case .family: .family; case .discount: .value; case .quality: .affluent; case .business: .business } }
-    var recommendedConcept: StoreConcept { switch self { case .family: .family; case .discount: .keiLocal; case .quality: .premium; case .business: .business } }
-}
-
 struct FinanceSnapshot: Codable, Hashable {
     var revenue: Int = 0
     var costOfSales: Int = 0

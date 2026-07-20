@@ -419,9 +419,9 @@ struct GridOrthographicCameraSpec: Hashable, Sendable {
 }
 
 enum GridCameraFocusPolicy {
-    /// At the fit-to-map level the focus is locked to the map center. Each
+    /// At the fit-to-bounds level the focus is locked to the bounds center. Each
     /// closer zoom level releases a proportional amount of pan range while
-    /// keeping the focus inside the map, preventing a blank-screen pan.
+    /// keeping the focus inside those bounds, preventing a blank-screen pan.
     static func clampedFocus(
         _ requested: GridWorldPoint,
         in bounds: GridWorldBounds,
@@ -520,6 +520,32 @@ enum GridTerrainFeature: String, Codable, Sendable {
 }
 
 struct GridCityMap: Hashable, Codable, Sendable {
+    /// The authored city footprint used by the camera, excluding scenery-only
+    /// map apron. A small gutter keeps edge parcels clear of the viewport.
+    var cameraContentBounds: GridWorldBounds {
+        let mapBounds = metrics.worldBounds(of: size)
+        guard let firstParcel = parcels.first else { return mapBounds }
+
+        var contentBounds = metrics.worldBounds(of: firstParcel.rect, mapSize: size)
+        for parcel in parcels.dropFirst() {
+            let parcelBounds = metrics.worldBounds(of: parcel.rect, mapSize: size)
+            contentBounds = GridWorldBounds(
+                minX: min(contentBounds.minX, parcelBounds.minX),
+                maxX: max(contentBounds.maxX, parcelBounds.maxX),
+                minZ: min(contentBounds.minZ, parcelBounds.minZ),
+                maxZ: max(contentBounds.maxZ, parcelBounds.maxZ)
+            )
+        }
+
+        let padding = metrics.cellSize * 2
+        return GridWorldBounds(
+            minX: max(mapBounds.minX, contentBounds.minX - padding),
+            maxX: min(mapBounds.maxX, contentBounds.maxX + padding),
+            minZ: max(mapBounds.minZ, contentBounds.minZ - padding),
+            maxZ: min(mapBounds.maxZ, contentBounds.maxZ + padding)
+        )
+    }
+
     let id: String
     let name: String
     let size: GridMapSize

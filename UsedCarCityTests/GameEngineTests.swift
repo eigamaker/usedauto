@@ -3,16 +3,54 @@ import XCTest
 
 @MainActor
 final class GameEngineTests: XCTestCase {
-    private func startPlayableGame(_ game: GameEngine, plan: StartupPlan = .family) {
-        game.start(plan: plan)
-        let plot = game.recommendedFoundingPlot!
+    private enum BusinessProfile: CaseIterable {
+        case family, discount, quality, business
+
+        var name: String {
+            switch self {
+            case .family: "ファミリー"
+            case .discount: "低価格"
+            case .quality: "品質"
+            case .business: "法人"
+            }
+        }
+        var district: DistrictKind {
+            switch self {
+            case .family: .suburb
+            case .discount: .station
+            case .quality: .downtown
+            case .business: .industrial
+            }
+        }
+        var storeType: StoreType { self == .family ? .standard : .small }
+        var focus: CustomerFocus {
+            switch self {
+            case .family: .family
+            case .discount: .value
+            case .quality: .affluent
+            case .business: .business
+            }
+        }
+        var concept: StoreConcept {
+            switch self {
+            case .family: .family
+            case .discount: .keiLocal
+            case .quality: .premium
+            case .business: .business
+            }
+        }
+    }
+
+    private func startPlayableGame(_ game: GameEngine, plan: BusinessProfile = .family) {
+        game.startNewGame()
+        let plot = game.foundingCandidatePlots.first(where: { $0.district == plan.district })!
         game.selectFoundingPlot(plot.id)
         XCTAssertTrue(game.buildStore(
             on: plot,
-            type: plan.recommendedStoreType,
+            type: plan.storeType,
             mode: .lease,
-            focus: plan.recommendedFocus,
-            concept: plan.recommendedConcept,
+            focus: plan.focus,
+            concept: plan.concept,
             loanAmount: 0
         ))
         let store = game.stores[0]
@@ -104,8 +142,8 @@ final class GameEngineTests: XCTestCase {
     func testStandardStoreCombinesTwoCellsAndDemolishesBothBuildings() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
-        let plot = game.recommendedFoundingPlot!
+        game.startNewGame()
+        let plot = game.foundingCandidatePlots.first(where: { $0.district == .suburb })!
         let footprint = game.footprintPlots(startingAt: plot, type: .standard)
 
         XCTAssertEqual(footprint.count, 2)
@@ -123,8 +161,8 @@ final class GameEngineTests: XCTestCase {
     func testMultiCellBreakEvenIncludesEveryOccupiedPlot() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
-        let plot = game.recommendedFoundingPlot!
+        game.startNewGame()
+        let plot = game.foundingCandidatePlots.first(where: { $0.district == .suburb })!
         let footprint = game.footprintPlots(startingAt: plot, type: .standard)
         XCTAssertEqual(footprint.count, StoreType.standard.requiredGridCells)
 
@@ -174,20 +212,53 @@ final class GameEngineTests: XCTestCase {
     func testStartupBeginsWithLocationSelectionOnMap() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .family)
+        game.startNewGame()
         XCTAssertTrue(game.hasStarted)
         XCTAssertEqual(game.stores.count, 0)
         XCTAssertEqual(game.totalInventory, 0)
         XCTAssertEqual(game.tutorialStep, .chooseLocation)
         XCTAssertEqual(game.foundingCandidatePlots.count, DistrictKind.allCases.count)
-        XCTAssertEqual(game.recommendedFoundingPlot?.district, .suburb)
+        XCTAssertTrue(game.recommendedFoundingPlot.map(game.isFoundingCandidate) == true)
+    }
+
+    func testFoundingLocationIsFreelySelectableAndExpansionIsAvailableImmediately() throws {
+        let game = GameEngine()
+        game.resetGame()
+        game.startNewGame()
+
+        for candidate in game.foundingCandidatePlots {
+            game.selectFoundingPlot(candidate.id)
+            XCTAssertEqual(game.tutorialPlotID, candidate.id)
+        }
+
+        let foundingPlot = try XCTUnwrap(
+            game.foundingCandidatePlots.first(where: { $0.district == .station })
+        )
+        game.selectFoundingPlot(foundingPlot.id)
+        XCTAssertTrue(game.buildStore(
+            on: foundingPlot,
+            type: .small,
+            mode: .lease,
+            focus: .young,
+            concept: .general,
+            loanAmount: 0
+        ))
+        XCTAssertEqual(game.turn, 0)
+        XCTAssertTrue(game.unlockedFeatures.contains("出店"))
+
+        let nextPlot = try XCTUnwrap(game.plots.first { plot in
+            guard plot.id != foundingPlot.id, plot.development == nil else { return false }
+            if case .available = plot.occupant { return true }
+            return false
+        })
+        XCTAssertTrue(game.canPlanStore(on: nextPlot))
     }
 
     func testTutorialPerformsBuildPurchaseAndFirstNegotiation() {
         let game = GameEngine()
         game.resetGame()
-        game.start(plan: .discount)
-        let plot = game.recommendedFoundingPlot!
+        game.startNewGame()
+        let plot = game.foundingCandidatePlots.first(where: { $0.district == .station })!
 
         game.selectFoundingPlot(plot.id)
         XCTAssertEqual(game.tutorialStep, .buildStore)
@@ -206,6 +277,48 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertEqual(game.tutorialStep, .completed)
         XCTAssertEqual(game.reports.count, 1)
+    }
+
+    func testFoundingInventoryUsesVehicleWholesaleValueAndStaysProfitableAcrossPlans() throws {
+        for plan in BusinessProfile.allCases {
+            for category in Array(GameEngine().recommendedCategories(for: plan.district).prefix(3)) {
+                let game = GameEngine()
+                game.resetGame()
+                game.startNewGame()
+                let plot = try XCTUnwrap(game.foundingCandidatePlots.first(where: { $0.district == plan.district }))
+                game.selectFoundingPlot(plot.id)
+                XCTAssertTrue(game.buildStore(
+                    on: plot,
+                    type: plan.storeType,
+                    mode: .lease,
+                    focus: plan.focus,
+                    concept: plan.concept,
+                    loanAmount: 0
+                ))
+                game.cash = 100_000
+                let storeID = try XCTUnwrap(game.stores.first?.id)
+                let quotedCost = try XCTUnwrap(game.inventoryPurchaseCost(category: category, count: 3, storeID: storeID))
+                let cashBeforePurchase = game.cash
+
+                XCTAssertTrue(game.buyInventory(category: category, count: 3, storeID: storeID))
+                XCTAssertEqual(cashBeforePurchase - game.cash, quotedCost)
+
+                for batch in game.stores[0].inventory {
+                    let expectedWholesale = game.vehicleWholesaleValue(
+                        modelID: batch.modelID,
+                        category: batch.category,
+                        modelYear: batch.modelYear,
+                        mileage: batch.mileage,
+                        quality: batch.quality,
+                        in: plot.district
+                    )
+                    XCTAssertEqual(batch.averageCost, expectedWholesale, "\(plan.name): \(batch.vehicleName)")
+                    let saleQuote = try XCTUnwrap(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id))
+                    let closeDealPrice = Int(Double(saleQuote.price) * (1 - SaleNegotiationStrategy.closeDeal.discountRate))
+                    XCTAssertGreaterThanOrEqual(closeDealPrice - batch.averageCost, 0, "\(plan.name): \(batch.vehicleName)")
+                }
+            }
+        }
     }
 
     func testAdvancingWeekCreatesReport() {

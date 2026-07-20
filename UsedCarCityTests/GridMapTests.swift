@@ -50,6 +50,23 @@ final class GridMapTests: XCTestCase {
         )
     }
 
+    func testCameraContentBoundsFitParcelsWithSceneryExcluded() {
+        let cameraBounds = map.cameraContentBounds
+        let mapBounds = map.metrics.worldBounds(of: map.size)
+
+        XCTAssertLessThan(cameraBounds.width, mapBounds.width)
+        XCTAssertLessThan(cameraBounds.depth, mapBounds.depth)
+        XCTAssertNotEqual(cameraBounds.center, mapBounds.center)
+
+        for parcel in map.parcels {
+            let parcelBounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            XCTAssertLessThanOrEqual(cameraBounds.minX, parcelBounds.minX)
+            XCTAssertGreaterThanOrEqual(cameraBounds.maxX, parcelBounds.maxX)
+            XCTAssertLessThanOrEqual(cameraBounds.minZ, parcelBounds.minZ)
+            XCTAssertGreaterThanOrEqual(cameraBounds.maxZ, parcelBounds.maxZ)
+        }
+    }
+
     func testRoadConnectionsAreReciprocalAndRemainInsideMap() {
         for road in map.roads.values {
             XCTAssertTrue(map.size.contains(road.coordinate))
@@ -577,12 +594,12 @@ final class GridMapTests: XCTestCase {
     }
 
     func testCameraFocusCannotPanOutsideAtAnyZoomLevel() {
-        let bounds = map.metrics.worldBounds(of: map.size)
+        let bounds = map.cameraContentBounds
         let requested = GridWorldPoint(x: bounds.maxX * 10, z: bounds.minZ * 10)
         let fit = GridCameraFocusPolicy.clampedFocus(requested, in: bounds, zoomFactor: 1)
         XCTAssertEqual(fit, bounds.center)
 
-        var previousMaximumX: Float = 0
+        var previousMaximumX = fit.x
         for factor in GridOrthographicCameraSpec.foundation.zoomScaleFactors {
             let clamped = GridCameraFocusPolicy.clampedFocus(requested, in: bounds, zoomFactor: factor)
             XCTAssertGreaterThanOrEqual(clamped.x, bounds.minX)

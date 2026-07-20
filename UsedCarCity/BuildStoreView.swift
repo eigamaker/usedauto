@@ -69,10 +69,9 @@ struct BuildStoreView: View {
                 }
             }
             .onAppear {
-                let plannedType = game.startupPlan?.recommendedStoreType ?? type
-                type = availableTypes.contains(plannedType) ? plannedType : (availableTypes.first ?? type)
-                concept = game.startupPlan?.recommendedConcept ?? game.recommendedConcept(for: plot.district)
-                focus = game.startupPlan?.recommendedFocus ?? recommendedFocus
+                type = availableTypes.contains(.standard) ? .standard : (availableTypes.first ?? type)
+                concept = game.recommendedConcept(for: plot.district)
+                focus = recommendedFocus
             }
             .onChange(of: mode) { _, _ in
                 if !availableTypes.contains(type), let fallback = availableTypes.first {

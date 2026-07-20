@@ -120,6 +120,8 @@ private struct FoundingInventoryTutorialPanel: View {
         VStack(alignment: .leading, spacing: 11) {
             SectionTitle(title: "最初の3台を選ぶ", subtitle: "\(plot.district.name)で需要の高い順")
             ForEach(Array(game.recommendedCategories(for: plot.district).prefix(3).enumerated()), id: \.element) { rank, category in
+                let purchaseCost = game.inventoryPurchaseCost(category: category, count: 3, storeID: store.id)
+                    ?? category.purchaseCost * 3
                 HStack(spacing: 10) {
                     Text("\(rank + 1)")
                         .font(.caption.weight(.black))
@@ -130,7 +132,7 @@ private struct FoundingInventoryTutorialPanel: View {
                     Image(systemName: category.icon).foregroundStyle(GameTheme.teal).frame(width: 25)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(category.name).font(.subheadline.bold())
-                        Text("地域需要 \(Int(game.vehicleDemand(category, in: plot.district) * 100)) / 仕入原価 \(category.purchaseCost.currency)/台")
+                        Text("地域需要 \(Int(game.vehicleDemand(category, in: plot.district) * 100)) / 3台の卸見積 \(purchaseCost.currency)")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -140,7 +142,7 @@ private struct FoundingInventoryTutorialPanel: View {
                     .font(.caption.bold())
                     .buttonStyle(.borderedProminent)
                     .tint(GameTheme.teal)
-                    .disabled(game.cash < category.purchaseCost * 3)
+                    .disabled(game.cash < purchaseCost)
                 }
             }
             Label("3台は個別在庫になり、商談・移動・出品は1台ずつ行います。", systemImage: "info.circle.fill")

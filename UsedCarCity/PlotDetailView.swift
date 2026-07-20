@@ -34,7 +34,7 @@ struct PlotDetailView: View {
                                         .foregroundStyle(.white).background(GameTheme.teal).clipShape(RoundedRectangle(cornerRadius: 15))
                                 }
                             } else {
-                                Label(game.stores.isEmpty ? "マップ上の出店候補地を選択してください" : "5週目の終了後に出店が解放されます", systemImage: "lock.fill")
+                                Label("マップ上で創業する土地を選択してください", systemImage: "location.fill")
                                     .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(15).background(.gray.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14))
                             }
                         case .unavailable:
