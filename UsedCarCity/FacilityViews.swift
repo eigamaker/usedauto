@@ -509,7 +509,8 @@ private struct WorkshopContent: View {
                                     }
                                     let restoration = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: .restoration)
                                     let customization = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: .customization)
-                                    if restoration != nil || customization != nil {
+                                    let camperConversion = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: .camperConversion)
+                                    if restoration != nil || customization != nil || camperConversion != nil {
                                         Menu {
                                             if let preview = restoration {
                                                 Button("レストア：\(preview.cost.currency)・\(preview.weeks)週・品質+\(preview.qualityGain)") {
@@ -522,6 +523,13 @@ private struct WorkshopContent: View {
                                                 Button("カスタム：\(preview.cost.currency)・\(preview.weeks)週・品質+\(preview.qualityGain)") {
                                                     message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: .customization)
                                                         ? "カスタム製作を開始しました。完成後の販売目安は\(preview.projectedSalePrice.currency)です。"
+                                                        : "現金が不足しています。"
+                                                }.disabled(game.cash < preview.cost)
+                                            }
+                                            if let preview = camperConversion {
+                                                Button("キャンピングカー改造：\(preview.cost.currency)・\(preview.weeks)週") {
+                                                    message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: .camperConversion)
+                                                        ? "キャンピングカー改造を開始しました。完成後の販売目安は\(preview.projectedSalePrice.currency)です。"
                                                         : "現金が不足しています。"
                                                 }.disabled(game.cash < preview.cost)
                                             }

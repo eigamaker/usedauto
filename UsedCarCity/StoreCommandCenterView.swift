@@ -216,6 +216,10 @@ private struct PurchaseCasesPanel: View {
                             VStack(alignment: .leading, spacing: 2) { Text(item.vehicleName).font(.subheadline.bold()); Text("\(item.category.name)・\(String(item.modelYear))年式・走行 \(item.mileage.formatted())km・状態 \(item.conditionScore)").font(.caption).foregroundStyle(.secondary) }
                             Spacer(); VStack(alignment: .trailing) { Text("希望 \(item.askingPrice.currency)").font(.caption.bold()); Text("粗利予測 \(item.expectedGrossProfit.currency)").font(.caption2).foregroundStyle(item.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
                         }
+                        if item.lotCount > 1 {
+                            Label("法人放出 \(item.lotCount)台一括・表示価格と整備費は1台あたり", systemImage: "building.2.fill")
+                                .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
+                        }
                         HStack { PurchaseMetric(title: "整備 +\(item.repairQualityGain)", value: item.repairCost.currency); PurchaseMetric(title: "整備後品質", value: "\(item.qualityAfterRepairScore)/100"); PurchaseMetric(title: "販売予測", value: item.expectedSaleAfterAppraisal.currency); PurchaseMetric(title: "査定精度", value: "\(item.appraisalAccuracy)%") }
                         if let issue = item.revealedIssue {
                             Label("要告知：\(issue.name) — \(issue.detail)。販売相場を\(Int(issue.disclosedValueFactor * 100))%で再計算済みです。", systemImage: "exclamationmark.triangle.fill")
@@ -282,8 +286,8 @@ private struct PurchaseCasesPanel: View {
                 switch game.negotiatePurchaseCase(item.id, offerPercent: percent) {
                 case let .purchased(price):
                     message = item.revealedIssue == nil
-                        ? "\(price.currency)で買取成立しました。整備費を含めて在庫へ追加しました。"
-                        : "\(price.currency)で買取成立しました。\(item.revealedIssue?.name ?? "問題歴")を告知する在庫として追加しました。"
+                        ? "\(item.lotCount)台を合計\(price.currency)で買取成立しました。整備費を含めて在庫へ追加しました。"
+                        : "\(item.lotCount)台を合計\(price.currency)で買取成立しました。\(item.revealedIssue?.name ?? "問題歴")を告知する在庫として追加しました。"
                 case let .rejected(walkedAway):
                     message = walkedAway
                         ? "提示を断られ、売主は帰りました。"

@@ -22,7 +22,13 @@ final class GameEngineTests: XCTestCase {
             case .business: .industrial
             }
         }
-        var storeType: StoreType { self == .family ? .standard : .small }
+        var storeType: StoreType {
+            switch self {
+            case .family: .standard
+            case .business: .service
+            case .discount, .quality: .small
+            }
+        }
         var focus: CustomerFocus {
             switch self {
             case .family: .family
@@ -34,8 +40,8 @@ final class GameEngineTests: XCTestCase {
         var concept: StoreConcept {
             switch self {
             case .family: .family
-            case .discount: .keiLocal
-            case .quality: .premium
+            case .discount: .localValue
+            case .quality: .affluent
             case .business: .business
             }
         }
@@ -43,7 +49,17 @@ final class GameEngineTests: XCTestCase {
 
     private func startPlayableGame(_ game: GameEngine, plan: BusinessProfile = .family) {
         game.startNewGame()
-        let plot = game.foundingCandidatePlots.first(where: { $0.district == plan.district })!
+        let preferred = game.foundingCandidatePlots.first(where: { $0.district == plan.district })
+        let candidates = ([preferred].compactMap { $0 } + game.plots.filter { $0.district == plan.district })
+        let plot = candidates.first { candidate in
+            guard candidate.district == plan.district, candidate.development == nil else { return false }
+            guard case .available = candidate.occupant else { return false }
+            return game.footprintPlots(startingAt: candidate, type: plan.storeType, mode: .lease).count == plan.storeType.requiredGridCells
+        }!
+        let footprint = game.footprintPlots(startingAt: plot, type: plan.storeType, mode: .lease)
+        let facilities = plan.concept.defaultFacilities
+        let totalBuildCost = game.totalBuildCost(for: footprint, type: plan.storeType, mode: .lease, facilities: facilities)
+        let loan = plan == .business ? totalBuildCost : max(0, totalBuildCost - game.cash)
         game.selectFoundingPlot(plot.id)
         XCTAssertTrue(game.buildStore(
             on: plot,
@@ -51,7 +67,7 @@ final class GameEngineTests: XCTestCase {
             mode: .lease,
             focus: plan.focus,
             concept: plan.concept,
-            loanAmount: 0
+            loanAmount: loan
         ))
         let store = game.stores[0]
         for category in game.recommendedCategories(for: plot.district).prefix(2) {
@@ -262,7 +278,7 @@ final class GameEngineTests: XCTestCase {
 
         game.selectFoundingPlot(plot.id)
         XCTAssertEqual(game.tutorialStep, .buildStore)
-        XCTAssertTrue(game.buildStore(on: plot, type: .small, mode: .lease, focus: .value, concept: .custom, loanAmount: 0))
+        XCTAssertTrue(game.buildStore(on: plot, type: .small, mode: .lease, focus: .value, concept: .localValue, loanAmount: 0))
         XCTAssertEqual(game.tutorialStep, .purchaseInventory)
         XCTAssertTrue(game.stores[0].isOperational)
         XCTAssertEqual(game.totalInventory, 0)
@@ -285,7 +301,16 @@ final class GameEngineTests: XCTestCase {
                 let game = GameEngine()
                 game.resetGame()
                 game.startNewGame()
-                let plot = try XCTUnwrap(game.foundingCandidatePlots.first(where: { $0.district == plan.district }))
+                let preferred = game.foundingCandidatePlots.first(where: { $0.district == plan.district })
+                let candidates = ([preferred].compactMap { $0 } + game.plots.filter { $0.district == plan.district })
+                let plot = try XCTUnwrap(candidates.first { candidate in
+                    guard candidate.district == plan.district, candidate.development == nil else { return false }
+                    guard case .available = candidate.occupant else { return false }
+                    return game.footprintPlots(startingAt: candidate, type: plan.storeType, mode: .lease).count == plan.storeType.requiredGridCells
+                })
+                let footprint = game.footprintPlots(startingAt: plot, type: plan.storeType, mode: .lease)
+                let facilities = plan.concept.defaultFacilities
+                let loan = max(0, game.totalBuildCost(for: footprint, type: plan.storeType, mode: .lease, facilities: facilities) - game.cash)
                 game.selectFoundingPlot(plot.id)
                 XCTAssertTrue(game.buildStore(
                     on: plot,
@@ -293,7 +318,7 @@ final class GameEngineTests: XCTestCase {
                     mode: .lease,
                     focus: plan.focus,
                     concept: plan.concept,
-                    loanAmount: 0
+                    loanAmount: loan
                 ))
                 game.cash = 100_000
                 let storeID = try XCTUnwrap(game.stores.first?.id)
@@ -337,13 +362,73 @@ final class GameEngineTests: XCTestCase {
         let downtown = game.plots.first(where: { $0.district == .downtown })!
 
         XCTAssertGreaterThan(
-            game.estimatedSales(for: industrial, concept: .custom).upperBound,
-            game.estimatedSales(for: industrial, concept: .premium).upperBound
+            game.estimatedSales(for: industrial, concept: .outdoor).upperBound,
+            game.estimatedSales(for: industrial, concept: .affluent).upperBound
         )
         XCTAssertGreaterThan(
-            game.estimatedSales(for: downtown, focus: .affluent, concept: .premium).upperBound,
-            game.estimatedSales(for: downtown, focus: .affluent, concept: .custom).upperBound
+            game.estimatedSales(for: downtown, focus: .affluent, concept: .affluent).upperBound,
+            game.estimatedSales(for: downtown, focus: .affluent, concept: .outdoor).upperBound
         )
+    }
+
+    func testSegmentFootprintsAndSignatureFacilitiesAreEnforced() throws {
+        let game = GameEngine()
+        game.resetGame()
+        game.startNewGame()
+        let plot = try XCTUnwrap(game.foundingCandidatePlots.first(where: { $0.district == .suburb }))
+        game.selectFoundingPlot(plot.id)
+
+        XCTAssertFalse(game.buildStore(
+            on: plot,
+            type: .small,
+            mode: .lease,
+            focus: .family,
+            concept: .family,
+            loanAmount: 0
+        ))
+        XCTAssertTrue(game.buildStore(
+            on: plot,
+            type: .standard,
+            mode: .lease,
+            focus: .family,
+            concept: .family,
+            loanAmount: 0
+        ))
+        let store = try XCTUnwrap(game.stores.first)
+        XCTAssertEqual(store.plotIDs.count, 2)
+        XCTAssertTrue(store.facilities.contains(.kidsSpace))
+        XCTAssertEqual(store.facilityInvestment, StoreFacility.kidsSpace.installationCost)
+    }
+
+    func testBusinessSegmentTargetsCorporateBuyersAndSourcesFleetCars() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .business)
+        let store = game.stores[0]
+
+        XCTAssertTrue(store.facilities.contains(.corporateDesk))
+        XCTAssertGreaterThan(
+            game.buyerAttractionFactor(for: store, category: .commercial),
+            game.buyerAttractionFactor(for: store, category: .compact)
+        )
+        XCTAssertGreaterThan(
+            game.sellerAttractionFactor(for: store, category: .compact),
+            game.sellerAttractionFactor(for: Store(
+                name: "比較店", plotID: store.plotID, type: .standard, acquisition: .lease,
+                focus: .value, concept: .general, inventory: []
+            ), category: .compact)
+        )
+        XCTAssertTrue((2...4).contains(game.procurementLotSize(for: store, category: .kei, seed: 11)))
+        XCTAssertEqual(game.procurementLotSize(for: store, category: .imported, seed: 11), 1)
+    }
+
+    func testUpdatedCatalogUsesHighPriceImportsAndSixHundredClassSUVs() {
+        let imports = VehicleCatalog.all.filter { $0.category == .imported && !$0.isRareClassic }
+        let suvs = VehicleCatalog.all.filter { $0.category == .suv }
+
+        XCTAssertEqual(VehicleCategory.allCases.count, 7)
+        XCTAssertGreaterThanOrEqual(imports.map(\.referenceRetailPrice).min() ?? 0, 800)
+        XCTAssertGreaterThanOrEqual(suvs.map(\.referenceRetailPrice).max() ?? 0, 600)
     }
 
     func testCustomerPurchaseCaseCanBecomeInventory() {
@@ -398,6 +483,7 @@ final class GameEngineTests: XCTestCase {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
+        game.cash = 100_000
         let listing = game.auctionListings.first!
         let store = game.stores[0]
         let cash = game.cash
@@ -448,6 +534,7 @@ final class GameEngineTests: XCTestCase {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
+        game.cash = 100_000
         let store = game.stores[0]
 
         XCTAssertTrue(game.orderDealerTrade(category: .compact, count: 3, storeID: store.id))
@@ -465,7 +552,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertGreaterThan(game.vehicleDemand(.commercial, in: .industrial), 1.5)
         XCTAssertGreaterThan(game.vehicleSupply(.commercial, in: .industrial), game.vehicleSupply(.commercial, in: .suburb))
         XCTAssertGreaterThan(game.vehicleSupply(.pickup, in: .highway), game.vehicleSupply(.pickup, in: .downtown))
-        XCTAssertNotEqual(game.vehicleDemand(.premium, in: .downtown), game.vehicleSupply(.premium, in: .downtown))
+        XCTAssertNotEqual(game.vehicleDemand(.imported, in: .downtown), game.vehicleSupply(.imported, in: .downtown))
     }
 
     func testPickupCanAlwaysBeSourcedAtARegionalScarcityPremium() {
@@ -763,7 +850,7 @@ final class GameEngineTests: XCTestCase {
             type: .small,
             mode: .lease,
             focus: .value,
-            concept: .keiLocal,
+            concept: .localValue,
             loanAmount: 100_000
         ))
         let newStore = game.store(at: plot.id)!
@@ -1237,7 +1324,7 @@ final class GameEngineTests: XCTestCase {
             if case .available = plot.occupant { return true }
             return false
         }!
-        XCTAssertTrue(game.buildStore(on: secondPlot, type: .small, mode: .lease, focus: .value, concept: .custom, loanAmount: 0))
+        XCTAssertTrue(game.buildStore(on: secondPlot, type: .small, mode: .lease, focus: .value, concept: .localValue, loanAmount: 0))
         XCTAssertEqual(game.store(at: secondPlot.id)?.inventoryCount, 0)
 
         XCTAssertEqual(game.weeklyBuyerPool(in: district), buyerPool)
@@ -1448,9 +1535,9 @@ final class GameEngineTests: XCTestCase {
 
     func testEveryManufacturerReleasesOneAnnualModelEachGameYear() {
         let annualModels = VehicleCatalog.all.filter { $0.id.hasPrefix("annual-") }
-        let expectedMakers: Set<String> = ["アオバ", "ホシノ", "コーヨー", "セイカ", "ヒノデ", "ホクト", "ミカド", "ヤマト", "ノルド", "ヴォルトラ", "ロッサ"]
+        let expectedMakers: Set<String> = ["アオバ", "ホシノ", "コーヨー", "セイカ", "ヒノデ", "ホクト", "ヤマト", "ノルド", "ヴォルトラ", "ロッサ"]
 
-        XCTAssertEqual(annualModels.count, 110)
+        XCTAssertEqual(annualModels.count, 100)
         for yearIndex in 0..<10 {
             let releases = annualModels.filter { ($0.launchTurn / 48) == yearIndex }
             XCTAssertEqual(releases.count, expectedMakers.count)
@@ -1500,7 +1587,7 @@ final class GameEngineTests: XCTestCase {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
-        let model = VehicleCatalog.all.first(where: { $0.category == .premium })!
+        let model = VehicleCatalog.all.first(where: { $0.category == .imported })!
 
         let downtown = game.catalogRetailPrice(for: model, in: .downtown)
         let industrial = game.catalogRetailPrice(for: model, in: .industrial)
@@ -1676,7 +1763,7 @@ final class GameEngineTests: XCTestCase {
         startPlayableGame(game)
 
         let classics = game.auctionListings.filter { VehicleCatalog.entry(id: $0.modelID)?.isRareClassic == true }
-        XCTAssertEqual(VehicleCatalog.rareClassics.count, 4)
+        XCTAssertEqual(VehicleCatalog.rareClassics.count, 3)
         XCTAssertEqual(classics.count, 1, "希少旧車は通常18台の出品枠に常時並ばない")
         let listing = try! XCTUnwrap(classics.first)
         let model = try! XCTUnwrap(VehicleCatalog.entry(id: listing.modelID))
@@ -1693,6 +1780,7 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         startPlayableGame(game)
         game.cash = 100_000
+        game.stores[0].facilities.insert(.customWorkshop)
         let storeID = game.stores[0].id
         let normal = InventoryBatch(modelID: "hokuto-ridge", category: .suv, count: 1, averageCost: 180, quality: 0.62, modelYear: 2024, mileage: 72_000, acquiredTurn: game.turn)
         let classic = InventoryBatch(modelID: "hokuto-trailclassic", category: .pickup, count: 1, averageCost: 500, quality: 0.50, modelYear: 1985, mileage: 128_000, acquiredTurn: game.turn)
@@ -1715,6 +1803,7 @@ final class GameEngineTests: XCTestCase {
         game.resetGame()
         startPlayableGame(game)
         game.cash = 100_000
+        game.stores[0].facilities.insert(.customWorkshop)
         let storeID = game.stores[0].id
         let batch = InventoryBatch(modelID: "hokuto-ridge", category: .suv, count: 1, averageCost: 180, quality: 0.68, modelYear: 2025, mileage: 58_000, acquiredTurn: game.turn)
         game.stores[0].inventory.append(batch)
@@ -1736,6 +1825,26 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(Int((completed.quality * 100).rounded()), preview.resultingQuality)
         XCTAssertEqual(completed.averageCost, batch.averageCost + preview.cost)
         XCTAssertGreaterThan(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id)?.price ?? 0, stockQuote.price)
+    }
+
+    func testCamperConversionRequiresWorkshopAndMinivan() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let minivan = InventoryBatch(
+            modelID: "hinode-familia", category: .minivan, count: 1,
+            averageCost: 180, quality: 0.76, modelYear: 2026,
+            mileage: 42_000, acquiredTurn: game.turn
+        )
+        game.stores[0].inventory.append(minivan)
+
+        XCTAssertNil(game.workshopProjectPreview(storeID: storeID, inventoryID: minivan.id, kind: .camperConversion))
+        game.stores[0].facilities.insert(.customWorkshop)
+        let preview = game.workshopProjectPreview(storeID: storeID, inventoryID: minivan.id, kind: .camperConversion)
+        XCTAssertNotNil(preview)
+        XCTAssertEqual(preview?.weeks, 5)
     }
 
     func testCustomAndClassicDemandIsConcentratedInSpecificDistricts() {
@@ -1811,7 +1920,7 @@ final class GameEngineTests: XCTestCase {
     func testCatalogModelsDepreciateAndContinueLaunchingAcrossGame() {
         let game = GameEngine()
         game.resetGame()
-        let original = VehicleCatalog.all.first(where: { $0.id == "mikado-celest" })!
+        let original = VehicleCatalog.all.first(where: { $0.id == "nord-velar" })!
         let initialPrice = game.catalogRetailPrice(for: original, in: .downtown)
 
         game.turn = 240
@@ -1839,6 +1948,7 @@ final class GameEngineTests: XCTestCase {
         }!
         let purchase = PurchaseCase(
             id: UUID(), storeID: storeID, modelID: model.id, category: model.category,
+            lotCount: 1,
             modelYear: modelYear, mileage: mileage,
             exterior: 72, interior: 74, mechanical: 68,
             askingPrice: 80, appraisedPrice: 96, repairCost: 12,

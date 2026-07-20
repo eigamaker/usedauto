@@ -156,9 +156,12 @@ struct CityAssetLODVisibility: Equatable, Sendable {
 
 enum CityAssetLODPolicy {
     static func visibility(zoomFactor: CGFloat) -> CityAssetLODVisibility {
-        CityAssetLODVisibility(
-            showsNearDetails: zoomFactor <= GridCameraZoom.scaleFactors[1] + 0.02,
-            showsProps: zoomFactor <= GridCameraZoom.scaleFactors[2] + 0.02
+        // The new baseline is already as close as the former inspection view,
+        // so its architectural details and props should remain visible.
+        let baseline = GridCameraZoom.scaleFactors.first ?? 0.22
+        return CityAssetLODVisibility(
+            showsNearDetails: zoomFactor <= baseline + 0.02,
+            showsProps: zoomFactor <= baseline + 0.02
         )
     }
 }

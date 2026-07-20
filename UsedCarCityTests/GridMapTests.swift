@@ -587,7 +587,7 @@ final class GridMapTests: XCTestCase {
         let positionBefore = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size).center
 
         XCTAssertEqual(spec.azimuthDegrees, 45, accuracy: 0.001)
-        XCTAssertEqual(spec.orthographicScale(baseScale: 2_000, zoomStep: 0), 2_000, accuracy: 0.001)
+        XCTAssertEqual(spec.orthographicScale(baseScale: 2_000, zoomStep: 0), 440, accuracy: 0.001)
         XCTAssertLessThan(spec.orthographicScale(baseScale: 2_000, zoomStep: 3), 2_000)
         XCTAssertEqual(spec.cameraOffset(groundDistance: 1_200), offsetBefore)
         XCTAssertEqual(map.metrics.worldBounds(of: parcel.rect, mapSize: map.size).center, positionBefore)
@@ -611,14 +611,15 @@ final class GridMapTests: XCTestCase {
         }
     }
 
-    func testAllFiveDebugZoomLevelsCanBeSelectedDeterministically() {
-        for step in 0...4 {
+    func testAllSevenDebugZoomLevelsCanBeSelectedDeterministically() {
+        for step in 0...6 {
             XCTAssertEqual(
                 GridCameraZoom.demoInitialStep(arguments: ["app", "-demo-map-zoom-step=\(step)"]),
                 step
             )
         }
-        XCTAssertEqual(GridCameraZoom.demoInitialStep(arguments: ["app", "-demo-map-zoom-step=99"]), 4)
+        XCTAssertEqual(GridCameraZoom.demoInitialStep(arguments: ["app", "-demo-map-zoom-step=99"]), 6)
+        XCTAssertEqual((0...6).map(GridCameraZoom.percentage), [100, 200, 300, 400, 500, 600, 700])
         XCTAssertEqual(
             GridCameraZoom.demoFocusPlotID(arguments: ["app", "-demo-map-focus-plot=36"]),
             36
@@ -674,14 +675,14 @@ final class GridMapTests: XCTestCase {
         XCTAssertEqual(definition.selectionVolume(facing: .east).footprint, GridSize(width: 3, depth: 2))
     }
 
-    func testAssetLODPolicyPreservesSilhouetteAndProgressivelyRevealsDetails() {
+    func testAssetLODPolicyShowsInspectionDetailsThroughoutNewZoomRange() {
         XCTAssertEqual(
             CityAssetLODPolicy.visibility(zoomFactor: GridCameraZoom.scaleFactors[0]),
-            CityAssetLODVisibility(showsNearDetails: false, showsProps: false)
+            CityAssetLODVisibility(showsNearDetails: true, showsProps: true)
         )
         XCTAssertEqual(
             CityAssetLODPolicy.visibility(zoomFactor: GridCameraZoom.scaleFactors[1]),
-            CityAssetLODVisibility(showsNearDetails: true, showsProps: false)
+            CityAssetLODVisibility(showsNearDetails: true, showsProps: true)
         )
         XCTAssertEqual(
             CityAssetLODPolicy.visibility(zoomFactor: GridCameraZoom.scaleFactors[2]),

@@ -213,8 +213,21 @@ struct StoreSettingsView: View {
                             Slider(value: store.priceIndex, in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
                             HStack { Text("割安・販売量↑").font(.caption).foregroundStyle(.secondary); Spacer(); Text("高値・粗利↑").font(.caption).foregroundStyle(.secondary) }
                             Picker("狙う客層", selection: store.focus) { ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
-                            Picker("店舗コンセプト", selection: store.concept) { ForEach(StoreConcept.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
+                            Picker("店舗コンセプト", selection: store.concept) {
+                                ForEach(StoreConcept.allCases.filter { $0.minimumGridCells <= store.wrappedValue.plotIDs.count }) {
+                                    Text($0.name).tag($0)
+                                }
+                            }.pickerStyle(.menu)
                             Text(store.wrappedValue.concept.summary).font(.caption).foregroundStyle(.secondary)
+                            Label("使用区画 (store.wrappedValue.plotIDs.count)・必要 (store.wrappedValue.concept.minimumGridCells)", systemImage: "square.grid.2x2.fill")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if !store.wrappedValue.facilities.isEmpty {
+                                Divider()
+                                ForEach(store.wrappedValue.facilities.sorted(by: { $0.name < $1.name })) { facility in
+                                    Label("\(facility.name)・月\(facility.monthlyCost.currency)", systemImage: facility.icon)
+                                        .font(.caption.bold()).foregroundStyle(GameTheme.teal)
+                                }
+                            }
                             if store.wrappedValue.hasManager && (store.wrappedValue.delegatePricing || store.wrappedValue.delegateProcurement) {
                                 Label("販売価格または仕入れは店長へ委任中です。週間処理で実行されます。", systemImage: "person.crop.circle.badge.checkmark")
                                     .font(.caption).foregroundStyle(GameTheme.teal)
@@ -242,6 +255,7 @@ struct StoreSettingsView: View {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
                                 MetricView(title: "営業枠", value: "週\((store.wrappedValue.staff + 1) * 7)回")
+                                MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
                             Text("採用・解雇・研修・昇給は店舗画面の「店員」で行います。店員は自分では判断せず、オーナーの操作または店長への委任が必要です。")
                                 .font(.caption).foregroundStyle(.secondary)

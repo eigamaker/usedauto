@@ -155,7 +155,8 @@ enum GridCameraZoom {
     }
 
     static func percentage(for step: Int) -> Int {
-        Int((1 / scaleFactors[clamped(step)] * 100).rounded())
+        guard let baseline = scaleFactors.first else { return 100 }
+        return Int((baseline / scaleFactors[clamped(step)] * 100).rounded())
     }
 
     static func nearestStep(to factor: CGFloat) -> Int {
@@ -413,7 +414,7 @@ private final class GridCitySceneController {
     func setContinuousZoomFactor(_ factor: CGFloat) {
         currentZoomFactor = min(
             GridCameraZoom.scaleFactors.first ?? 1,
-            max(GridCameraZoom.scaleFactors.last ?? 0.22, factor)
+            max(GridCameraZoom.scaleFactors.last ?? 0.0314286, factor)
         )
         updateFacilityVisibility()
         updateAssetLODVisibility()
@@ -1598,7 +1599,7 @@ private final class GridCitySceneController {
     }
 
     private func updateFacilityVisibility() {
-        let showsSecondaryFacilities = currentZoomFactor <= GridCameraZoom.scaleFactors[2] + 0.02
+        let showsSecondaryFacilities = currentZoomFactor <= (GridCameraZoom.scaleFactors.first ?? 0.22) + 0.02
         for (facility, node) in facilityNodes {
             node.isHidden = !facility.isPrimary && !showsSecondaryFacilities
         }

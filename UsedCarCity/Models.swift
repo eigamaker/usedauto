@@ -111,7 +111,7 @@ enum TutorialStep: String, Codable, CaseIterable, Identifiable {
 }
 
 enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
-    case kei, compact, minivan, suv, premium, imported, pickup, commercial
+    case kei, compact, minivan, suv, imported, pickup, commercial
     var id: String { rawValue }
 
     var name: String {
@@ -120,7 +120,6 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .compact: "コンパクト"
         case .minivan: "ミニバン"
         case .suv: "SUV"
-        case .premium: "高級車"
         case .imported: "輸入車"
         case .pickup: "ピックアップトラック"
         case .commercial: "商用車"
@@ -130,7 +129,6 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .commercial: "truck.box.fill"
-        case .premium: "sparkles"
         case .imported: "globe.europe.africa.fill"
         case .pickup: "truck.pickup.side.fill"
         default: "car.side.fill"
@@ -142,9 +140,8 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .kei: 75
         case .compact: 105
         case .minivan: 180
-        case .suv: 205
-        case .premium: 430
-        case .imported: 365
+        case .suv: 330
+        case .imported: 720
         case .pickup: 235
         case .commercial: 145
         }
@@ -256,18 +253,14 @@ enum VehicleCatalog {
         VehicleCatalogEntry(id: "yamato-grandia", maker: "ヤマト", modelName: "GRANDIA", category: .minivan, baseWholesalePrice: 193, referenceRetailPrice: 274, qualityBaseline: 0.83, popularity: 0.96, launchTurn: 0),
         VehicleCatalogEntry(id: "hinode-familia2", maker: "ヒノデ", modelName: "FAMILIA II", category: .minivan, baseWholesalePrice: 206, referenceRetailPrice: 298, qualityBaseline: 0.88, popularity: 1.16, launchTurn: 20),
 
-        VehicleCatalogEntry(id: "hokuto-ridge", maker: "ホクト", modelName: "RIDGE", category: .suv, baseWholesalePrice: 192, referenceRetailPrice: 276, qualityBaseline: 0.79, popularity: 1.10, launchTurn: 0),
-        VehicleCatalogEntry(id: "seika-terra", maker: "セイカ", modelName: "TERRA", category: .suv, baseWholesalePrice: 218, referenceRetailPrice: 315, qualityBaseline: 0.84, popularity: 1.02, launchTurn: 0, powertrain: .hybrid),
-        VehicleCatalogEntry(id: "hokuto-ridgex", maker: "ホクト", modelName: "RIDGE X", category: .suv, baseWholesalePrice: 236, referenceRetailPrice: 342, qualityBaseline: 0.89, popularity: 1.18, launchTurn: 24),
+        VehicleCatalogEntry(id: "hokuto-ridge", maker: "ホクト", modelName: "RIDGE", category: .suv, baseWholesalePrice: 280, referenceRetailPrice: 410, qualityBaseline: 0.79, popularity: 1.10, launchTurn: 0),
+        VehicleCatalogEntry(id: "seika-terra", maker: "セイカ", modelName: "TERRA", category: .suv, baseWholesalePrice: 360, referenceRetailPrice: 540, qualityBaseline: 0.84, popularity: 1.02, launchTurn: 0, powertrain: .hybrid),
+        VehicleCatalogEntry(id: "hokuto-ridgex", maker: "ホクト", modelName: "RIDGE X", category: .suv, baseWholesalePrice: 410, referenceRetailPrice: 600, qualityBaseline: 0.89, popularity: 1.18, launchTurn: 24),
 
-        VehicleCatalogEntry(id: "mikado-celest", maker: "ミカド", modelName: "CELEST", category: .premium, baseWholesalePrice: 408, referenceRetailPrice: 585, qualityBaseline: 0.86, popularity: 1.05, launchTurn: 0, powertrain: .hybrid),
-        VehicleCatalogEntry(id: "yamato-imperial", maker: "ヤマト", modelName: "IMPERIAL", category: .premium, baseWholesalePrice: 438, referenceRetailPrice: 632, qualityBaseline: 0.89, popularity: 0.98, launchTurn: 0),
-        VehicleCatalogEntry(id: "mikado-celestgt", maker: "ミカド", modelName: "CELEST GT", category: .premium, baseWholesalePrice: 505, referenceRetailPrice: 748, qualityBaseline: 0.94, popularity: 1.17, launchTurn: 32),
-
-        VehicleCatalogEntry(id: "nord-velar", maker: "ノルド", modelName: "VELAR", category: .imported, baseWholesalePrice: 318, referenceRetailPrice: 468, qualityBaseline: 0.84, popularity: 1.04, launchTurn: 0),
-        VehicleCatalogEntry(id: "voltra-aurex", maker: "ヴォルトラ", modelName: "AUREX", category: .imported, baseWholesalePrice: 462, referenceRetailPrice: 680, qualityBaseline: 0.91, popularity: 0.94, launchTurn: 0, powertrain: .electric),
-        VehicleCatalogEntry(id: "rossa-luce", maker: "ロッサ", modelName: "LUCE", category: .imported, baseWholesalePrice: 376, referenceRetailPrice: 548, qualityBaseline: 0.88, popularity: 1.08, launchTurn: 0),
-        VehicleCatalogEntry(id: "voltra-aurexs", maker: "ヴォルトラ", modelName: "AUREX S", category: .imported, baseWholesalePrice: 510, referenceRetailPrice: 748, qualityBaseline: 0.93, popularity: 1.17, launchTurn: 30, powertrain: .electric, usedMarketDelayWeeks: 24),
+        VehicleCatalogEntry(id: "nord-velar", maker: "ノルド", modelName: "VELAR", category: .imported, baseWholesalePrice: 600, referenceRetailPrice: 880, qualityBaseline: 0.84, popularity: 1.04, launchTurn: 0),
+        VehicleCatalogEntry(id: "voltra-aurex", maker: "ヴォルトラ", modelName: "AUREX", category: .imported, baseWholesalePrice: 720, referenceRetailPrice: 1_080, qualityBaseline: 0.91, popularity: 0.94, launchTurn: 0, powertrain: .electric),
+        VehicleCatalogEntry(id: "rossa-luce", maker: "ロッサ", modelName: "LUCE", category: .imported, baseWholesalePrice: 660, referenceRetailPrice: 980, qualityBaseline: 0.88, popularity: 1.08, launchTurn: 0),
+        VehicleCatalogEntry(id: "voltra-aurexs", maker: "ヴォルトラ", modelName: "AUREX S", category: .imported, baseWholesalePrice: 920, referenceRetailPrice: 1_380, qualityBaseline: 0.93, popularity: 1.17, launchTurn: 30, powertrain: .electric, usedMarketDelayWeeks: 24),
 
         VehicleCatalogEntry(id: "hokuto-trail", maker: "ホクト", modelName: "TRAIL", category: .pickup, baseWholesalePrice: 225, referenceRetailPrice: 318, qualityBaseline: 0.79, popularity: 1.06, launchTurn: 0),
         VehicleCatalogEntry(id: "yamato-ranger", maker: "ヤマト", modelName: "RANGER", category: .pickup, baseWholesalePrice: 248, referenceRetailPrice: 352, qualityBaseline: 0.82, popularity: 0.98, launchTurn: 0, powertrain: .diesel),
@@ -280,7 +273,6 @@ enum VehicleCatalog {
         // Very rare collector cars. Their prices represent the collector market,
         // not the price when they were new, and they only enter normal play rarely.
         VehicleCatalogEntry(id: "aoba-sprint70", maker: "アオバ", modelName: "SPRINT 70", category: .compact, baseWholesalePrice: 410, referenceRetailPrice: 680, qualityBaseline: 0.55, popularity: 0.58, launchTurn: 0),
-        VehicleCatalogEntry(id: "yamato-falconrs", maker: "ヤマト", modelName: "FALCON RS", category: .premium, baseWholesalePrice: 760, referenceRetailPrice: 1_180, qualityBaseline: 0.51, popularity: 0.62, launchTurn: 0),
         VehicleCatalogEntry(id: "hokuto-trailclassic", maker: "ホクト", modelName: "TRAIL CLASSIC", category: .pickup, baseWholesalePrice: 530, referenceRetailPrice: 860, qualityBaseline: 0.57, popularity: 0.66, launchTurn: 0),
         VehicleCatalogEntry(id: "rossa-stellagt", maker: "ロッサ", modelName: "STELLA GT", category: .imported, baseWholesalePrice: 920, referenceRetailPrice: 1_480, qualityBaseline: 0.49, popularity: 0.60, launchTurn: 0),
 
@@ -288,17 +280,15 @@ enum VehicleCatalog {
         VehicleCatalogEntry(id: "aoba-pico3", maker: "アオバ", modelName: "PICO III", category: .kei, baseWholesalePrice: 96, referenceRetailPrice: 139, qualityBaseline: 0.88, popularity: 1.16, launchTurn: 52),
         VehicleCatalogEntry(id: "koyo-linog", maker: "コーヨー", modelName: "LINO G", category: .compact, baseWholesalePrice: 132, referenceRetailPrice: 188, qualityBaseline: 0.89, popularity: 1.15, launchTurn: 78),
         VehicleCatalogEntry(id: "hinode-familia3", maker: "ヒノデ", modelName: "FAMILIA III", category: .minivan, baseWholesalePrice: 224, referenceRetailPrice: 326, qualityBaseline: 0.90, popularity: 1.17, launchTurn: 104),
-        VehicleCatalogEntry(id: "hokuto-ridgez", maker: "ホクト", modelName: "RIDGE Z", category: .suv, baseWholesalePrice: 258, referenceRetailPrice: 376, qualityBaseline: 0.91, popularity: 1.19, launchTurn: 130),
-        VehicleCatalogEntry(id: "mikado-celest2", maker: "ミカド", modelName: "CELEST II", category: .premium, baseWholesalePrice: 548, referenceRetailPrice: 812, qualityBaseline: 0.95, popularity: 1.18, launchTurn: 156),
-        VehicleCatalogEntry(id: "nord-velar2", maker: "ノルド", modelName: "VELAR II", category: .imported, baseWholesalePrice: 426, referenceRetailPrice: 628, qualityBaseline: 0.93, popularity: 1.16, launchTurn: 182),
+        VehicleCatalogEntry(id: "hokuto-ridgez", maker: "ホクト", modelName: "RIDGE Z", category: .suv, baseWholesalePrice: 420, referenceRetailPrice: 610, qualityBaseline: 0.91, popularity: 1.19, launchTurn: 130),
+        VehicleCatalogEntry(id: "nord-velar2", maker: "ノルド", modelName: "VELAR II", category: .imported, baseWholesalePrice: 820, referenceRetailPrice: 1_220, qualityBaseline: 0.93, popularity: 1.16, launchTurn: 182),
         VehicleCatalogEntry(id: "yamato-ranger2", maker: "ヤマト", modelName: "RANGER II", category: .pickup, baseWholesalePrice: 294, referenceRetailPrice: 426, qualityBaseline: 0.90, popularity: 1.15, launchTurn: 208),
         VehicleCatalogEntry(id: "koyo-worka2", maker: "コーヨー", modelName: "WORKA II", category: .commercial, baseWholesalePrice: 184, referenceRetailPrice: 262, qualityBaseline: 0.89, popularity: 1.14, launchTurn: 234),
         VehicleCatalogEntry(id: "aoba-picoev", maker: "アオバ", modelName: "PICO EV", category: .kei, baseWholesalePrice: 112, referenceRetailPrice: 164, qualityBaseline: 0.91, popularity: 1.18, launchTurn: 260, powertrain: .electric, usedMarketDelayWeeks: 24),
         VehicleCatalogEntry(id: "seika-comet2", maker: "セイカ", modelName: "COMET II", category: .compact, baseWholesalePrice: 146, referenceRetailPrice: 208, qualityBaseline: 0.91, popularity: 1.16, launchTurn: 286),
         VehicleCatalogEntry(id: "hinode-familiaev", maker: "ヒノデ", modelName: "FAMILIA EV", category: .minivan, baseWholesalePrice: 252, referenceRetailPrice: 368, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 312, powertrain: .electric, usedMarketDelayWeeks: 26),
-        VehicleCatalogEntry(id: "seika-terrae", maker: "セイカ", modelName: "TERRA E", category: .suv, baseWholesalePrice: 286, referenceRetailPrice: 418, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 338, powertrain: .electric, usedMarketDelayWeeks: 28),
-        VehicleCatalogEntry(id: "yamato-imperial2", maker: "ヤマト", modelName: "IMPERIAL II", category: .premium, baseWholesalePrice: 594, referenceRetailPrice: 884, qualityBaseline: 0.96, popularity: 1.17, launchTurn: 364),
-        VehicleCatalogEntry(id: "rossa-luce2", maker: "ロッサ", modelName: "LUCE II", category: .imported, baseWholesalePrice: 448, referenceRetailPrice: 658, qualityBaseline: 0.94, popularity: 1.17, launchTurn: 390),
+        VehicleCatalogEntry(id: "seika-terrae", maker: "セイカ", modelName: "TERRA E", category: .suv, baseWholesalePrice: 440, referenceRetailPrice: 640, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 338, powertrain: .electric, usedMarketDelayWeeks: 28),
+        VehicleCatalogEntry(id: "rossa-luce2", maker: "ロッサ", modelName: "LUCE II", category: .imported, baseWholesalePrice: 960, referenceRetailPrice: 1_440, qualityBaseline: 0.94, popularity: 1.17, launchTurn: 390),
         VehicleCatalogEntry(id: "hokuto-trailpro", maker: "ホクト", modelName: "TRAIL PRO", category: .pickup, baseWholesalePrice: 326, referenceRetailPrice: 472, qualityBaseline: 0.92, popularity: 1.16, launchTurn: 416),
         VehicleCatalogEntry(id: "yamato-porter3", maker: "ヤマト", modelName: "PORTER III", category: .commercial, baseWholesalePrice: 204, referenceRetailPrice: 292, qualityBaseline: 0.91, popularity: 1.15, launchTurn: 442)
     ]
@@ -336,8 +326,7 @@ enum VehicleCatalog {
             AnnualLine(makerID: "seika", maker: "セイカ", names: ["COMET", "TERRA"], categories: [.compact, .suv], initialPowertrain: .hybrid, electrificationYear: 3),
             AnnualLine(makerID: "hinode", maker: "ヒノデ", names: ["FAMILIA", "CIVIA"], categories: [.minivan, .compact], initialPowertrain: .hybrid, electrificationYear: 4),
             AnnualLine(makerID: "hokuto", maker: "ホクト", names: ["RIDGE", "TRAIL"], categories: [.suv, .pickup], initialPowertrain: .gasoline, electrificationYear: 7),
-            AnnualLine(makerID: "mikado", maker: "ミカド", names: ["CELEST", "REGALIA"], categories: [.premium], initialPowertrain: .hybrid, electrificationYear: 4),
-            AnnualLine(makerID: "yamato", maker: "ヤマト", names: ["GRANDIA", "RANGER", "PORTER", "IMPERIAL"], categories: [.minivan, .pickup, .commercial, .premium], initialPowertrain: .diesel, electrificationYear: 6),
+            AnnualLine(makerID: "yamato", maker: "ヤマト", names: ["GRANDIA", "RANGER", "PORTER"], categories: [.minivan, .pickup, .commercial], initialPowertrain: .diesel, electrificationYear: 6),
             AnnualLine(makerID: "nord", maker: "ノルド", names: ["VELAR", "ARCTIC"], categories: [.imported], initialPowertrain: .hybrid, electrificationYear: 3),
             AnnualLine(makerID: "voltra", maker: "ヴォルトラ", names: ["AUREX", "ION"], categories: [.imported], initialPowertrain: .electric, electrificationYear: 0),
             AnnualLine(makerID: "rossa", maker: "ロッサ", names: ["LUCE", "STELLA"], categories: [.imported], initialPowertrain: .gasoline, electrificationYear: 8)
@@ -361,10 +350,10 @@ enum VehicleCatalog {
                 }
                 let year = 2030 + yearIndex
                 let inflation = 1.0 + Double(yearIndex) * 0.024
-                let segmentPremium: Double = category == .premium || category == .imported ? 1.16 : 1.0
+                let segmentPremium: Double = category == .imported ? 1.16 : 1.0
                 let technologyPremium: Double = powertrain == .electric ? 1.14 : powertrain == .hybrid ? 1.07 : 1.0
                 let wholesale = max(45, Int(Double(category.purchaseCost) * 1.06 * inflation * segmentPremium * technologyPremium))
-                let retail = Int(Double(wholesale) * (category == .premium || category == .imported ? 1.48 : 1.40))
+                let retail = Int(Double(wholesale) * (category == .imported ? 1.48 : 1.40))
                 let popularity = 0.94 + Double((makerIndex * 7 + yearIndex * 11) % 25) / 100.0
                 let delay = 14 + (makerIndex * 3 + yearIndex * 5) % 19 + (powertrain == .electric ? 6 : 0)
                 models.append(VehicleCatalogEntry(
@@ -627,16 +616,16 @@ enum CustomerFocus: String, Codable, CaseIterable, Identifiable {
 }
 
 enum StoreConcept: String, Codable, CaseIterable, Identifiable {
-    case general, keiLocal, family, custom, premium, business
+    case general, localValue, family, outdoor, affluent, business
     var id: String { rawValue }
 
     var name: String {
         switch self {
         case .general: "総合中古車店"
-        case .keiLocal: "軽・地域密着"
+        case .localValue: "地域・価格重視"
         case .family: "ファミリー専門"
-        case .custom: "カスタム専門"
-        case .premium: "プレミアム専門"
+        case .outdoor: "アウトドア専門"
+        case .affluent: "輸入車・富裕層専門"
         case .business: "商用車・法人専門"
         }
     }
@@ -644,10 +633,10 @@ enum StoreConcept: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .general: "car.2.fill"
-        case .keiLocal: "car.side.fill"
+        case .localValue: "car.side.fill"
         case .family: "figure.2.and.child.holdinghands"
-        case .custom: "wrench.adjustable.fill"
-        case .premium: "sparkles"
+        case .outdoor: "tent.fill"
+        case .affluent: "sparkles"
         case .business: "truck.box.fill"
         }
     }
@@ -655,11 +644,101 @@ enum StoreConcept: String, Codable, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .general: "幅広い需要に対応。突出した強みは少ない"
-        case .keiLocal: "住宅街で日常の足と低維持費を訴求"
-        case .family: "ミニバン・SUVと保証で家族需要を獲得"
-        case .custom: "工場設備を活かして改造による付加価値を作る"
-        case .premium: "都心の所得・ブランド需要を高粗利へ変える"
-        case .business: "工場・幹線道路の事業者へ稼働率を販売"
+        case .localValue: "軽・コンパクトを素早く査定し、地域の買い替え需要を回す"
+        case .family: "家族が滞在しやすい店舗で軽からSUVまで比較販売する"
+        case .outdoor: "ミニバン・SUV・ピックアップに改造価値を加える"
+        case .affluent: "少数の富裕層へ高額輸入車と一部SUVを提案する"
+        case .business: "法人へ商用車を販売し、営業車の一括放出も仕入れる"
+        }
+    }
+
+    var targetCategories: Set<VehicleCategory> {
+        switch self {
+        case .general: Set(VehicleCategory.allCases)
+        case .localValue: [.kei, .compact]
+        case .family: [.kei, .compact, .minivan, .suv]
+        case .outdoor: [.minivan, .suv, .pickup]
+        case .affluent: [.imported, .suv]
+        case .business: [.commercial, .pickup]
+        }
+    }
+
+    var minimumGridCells: Int {
+        switch self {
+        case .family, .outdoor, .business: 2
+        case .general, .localValue, .affluent: 1
+        }
+    }
+
+    var defaultFacilities: Set<StoreFacility> {
+        switch self {
+        case .general: []
+        case .localValue: [.quickAppraisal]
+        case .family: [.kidsSpace]
+        case .outdoor: [.customWorkshop]
+        case .affluent: [.importLounge]
+        case .business: [.corporateDesk]
+        }
+    }
+}
+
+enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
+    case quickAppraisal
+    case kidsSpace
+    case corporateDesk
+    case importLounge
+    case customWorkshop
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .quickAppraisal: "クイック査定場"
+        case .kidsSpace: "キッズスペース"
+        case .corporateDesk: "法人営業窓口"
+        case .importLounge: "輸入車商談ラウンジ"
+        case .customWorkshop: "カスタム工房"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .quickAppraisal: "checkmark.seal.fill"
+        case .kidsSpace: "figure.2.and.child.holdinghands"
+        case .corporateDesk: "briefcase.fill"
+        case .importLounge: "sparkles"
+        case .customWorkshop: "wrench.and.screwdriver.fill"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .quickAppraisal: "地域の買取客を増やし、査定精度を補助"
+        case .kidsSpace: "家族が落ち着いて比較でき、ファミリー商談を後押し"
+        case .corporateDesk: "法人客と営業車・リース満了車の一括取引を開拓"
+        case .importLounge: "富裕層の紹介と高額輸入車の商談を後押し"
+        case .customWorkshop: "カスタムとキャンピングカー改造を可能にする"
+        }
+    }
+    var installationCost: Int {
+        switch self {
+        case .quickAppraisal: 320
+        case .kidsSpace: 480
+        case .corporateDesk: 650
+        case .importLounge: 900
+        case .customWorkshop: 1_400
+        }
+    }
+    var monthlyCost: Int {
+        switch self {
+        case .quickAppraisal: 12
+        case .kidsSpace: 18
+        case .corporateDesk: 24
+        case .importLounge: 36
+        case .customWorkshop: 48
+        }
+    }
+    var minimumGridCells: Int {
+        switch self {
+        case .kidsSpace, .corporateDesk, .customWorkshop: 2
+        case .quickAppraisal, .importLounge: 1
         }
     }
 }
@@ -672,7 +751,7 @@ enum StoreType: String, Codable, CaseIterable, Identifiable {
         case .small: "小型販売店"
         case .standard: "標準店"
         case .roadside: "大型ロードサイド店"
-        case .premium: "高級車ショールーム"
+        case .premium: "輸入車ショールーム"
         case .service: "整備併設店"
         }
     }
@@ -971,10 +1050,23 @@ enum VehicleProductState: String, Codable, Hashable {
 enum WorkshopProjectKind: String, Codable, Hashable, CaseIterable, Identifiable {
     case restoration
     case customization
+    case camperConversion
 
     var id: String { rawValue }
-    var name: String { self == .restoration ? "商品化・レストア" : "カスタム製作" }
-    var icon: String { self == .restoration ? "wrench.and.screwdriver.fill" : "paintbrush.pointed.fill" }
+    var name: String {
+        switch self {
+        case .restoration: "商品化・レストア"
+        case .customization: "カスタム製作"
+        case .camperConversion: "キャンピングカー改造"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .restoration: "wrench.and.screwdriver.fill"
+        case .customization: "paintbrush.pointed.fill"
+        case .camperConversion: "tent.fill"
+        }
+    }
 }
 
 struct VehicleWorkshopProject: Codable, Hashable {
@@ -1093,7 +1185,7 @@ enum AuctionVenue: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .east: "軽・コンパクト"
         case .port: "商用車・SUV・ピックアップ"
-        case .premium: "高級車・輸入車"
+        case .premium: "輸入車・高価格SUV"
         }
     }
     var fee: Int { switch self { case .east: 7; case .port: 9; case .premium: 16 } }
@@ -1281,6 +1373,7 @@ struct Store: Identifiable, Codable, Hashable {
     var acquisition: AcquisitionMode
     var focus: CustomerFocus
     var concept: StoreConcept
+    var facilities: Set<StoreFacility>
     var inventory: [InventoryBatch]
     var employees: [StoreEmployee]
     var advertising: Int
@@ -1308,8 +1401,9 @@ struct Store: Identifiable, Codable, Hashable {
     var pendingPurchaseNegotiations: Int
     var weeklyBuyerArrivals: Int
     var weeklySellerArrivals: Int
+    var loyalCustomers: Int
 
-    init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
+    init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, facilities: Set<StoreFacility>? = nil, inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
         id = UUID()
         self.name = name
         self.plotID = plotID
@@ -1318,6 +1412,7 @@ struct Store: Identifiable, Codable, Hashable {
         self.acquisition = acquisition
         self.focus = focus
         self.concept = concept
+        self.facilities = facilities ?? concept.defaultFacilities
         self.inventory = inventory
         self.employees = employees
         advertising = 80
@@ -1345,11 +1440,14 @@ struct Store: Identifiable, Codable, Hashable {
         pendingPurchaseNegotiations = 0
         weeklyBuyerArrivals = 0
         weeklySellerArrivals = 0
+        loyalCustomers = 0
     }
 
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
     var staff: Int { employees.count }
     var employeeMonthlyPayroll: Int { employees.reduce(0) { $0 + $1.monthlySalary } }
+    var facilityMonthlyCost: Int { facilities.reduce(0) { $0 + $1.monthlyCost } }
+    var facilityInvestment: Int { facilities.reduce(0) { $0 + $1.installationCost } }
     var averageSalesSkill: Double? {
         employees.isEmpty ? nil : Double(employees.reduce(0) { $0 + $1.salesSkill }) / Double(employees.count)
     }
@@ -1576,6 +1674,7 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let storeID: UUID
     let modelID: String
     let category: VehicleCategory
+    let lotCount: Int
     let modelYear: Int
     let mileage: Int
     var exterior: Int
@@ -1597,7 +1696,7 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
         guard let revealedIssue else { return expectedSalePrice }
         return Int(Double(expectedSalePrice) * revealedIssue.disclosedValueFactor)
     }
-    var expectedGrossProfit: Int { expectedSaleAfterAppraisal - askingPrice - repairCost }
+    var expectedGrossProfit: Int { (expectedSaleAfterAppraisal - askingPrice - repairCost) * lotCount }
     var conditionScore: Int { (exterior + interior + mechanical) / 3 }
     var repairQualityGain: Int { conditionScore < 75 ? 4 : 3 }
     var qualityAfterRepairScore: Int { min(94, conditionScore + repairQualityGain) }
