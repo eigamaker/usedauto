@@ -396,9 +396,13 @@ struct GridOrthographicCameraSpec: Hashable, Sendable {
     static let foundation = GridOrthographicCameraSpec(
         azimuthDegrees: 45,
         elevationDegrees: 38.16,
-        // The former roughly 400% view (0.22) is the new 100% baseline.
-        // Each following step adds another 100%, up to 700%.
+        // The former roughly 400% view (0.22) remains the 100% baseline.
+        // Wider overview steps sit before it, while closer inspection steps
+        // continue through 700% without changing the camera angle.
         zoomScaleFactors: [
+            0.88,
+            0.44,
+            0.2933333,
             0.22,
             0.11,
             0.0733333,

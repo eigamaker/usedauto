@@ -55,7 +55,7 @@ struct GridCityMapSurface: View {
                             zoomStep = GridCameraZoom.clamped(zoomStep - 1)
                         }
                         GridCameraButton(icon: "scope", label: "街の中心に戻す") {
-                            zoomStep = 0
+                            zoomStep = GridCameraZoom.defaultStep
                             cameraCommand = .reset()
                         }
                         GridCameraButton(
@@ -148,6 +148,8 @@ private struct GridCameraButton: View {
 
 enum GridCameraZoom {
     static let scaleFactors = GridOrthographicCameraSpec.foundation.zoomScaleFactors.map(CGFloat.init)
+    static let defaultStep = 3
+    static var baselineFactor: CGFloat { scaleFactors[clamped(defaultStep)] }
     static let demoFocusRequestID = UUID()
 
     static func clamped(_ step: Int) -> Int {
@@ -155,8 +157,7 @@ enum GridCameraZoom {
     }
 
     static func percentage(for step: Int) -> Int {
-        guard let baseline = scaleFactors.first else { return 100 }
-        return Int((baseline / scaleFactors[clamped(step)] * 100).rounded())
+        Int((baselineFactor / scaleFactors[clamped(step)] * 100).rounded())
     }
 
     static func nearestStep(to factor: CGFloat) -> Int {
@@ -170,7 +171,7 @@ enum GridCameraZoom {
            let value = Int(argument.split(separator: "=").last ?? "") {
             return clamped(value)
         }
-        return arguments.contains("-demo-map-zoom") ? 2 : 0
+        return arguments.contains("-demo-map-zoom") ? clamped(defaultStep + 2) : defaultStep
     }
 
     static func demoFocusPlotID(arguments: [String] = CommandLine.arguments) -> Int? {
@@ -253,7 +254,7 @@ private struct GridSceneRepresentable: UIViewRepresentable {
         if context.coordinator.lastFocusRequestID != focusRequestID {
             context.coordinator.lastFocusRequestID = focusRequestID
             if let focusPlotID {
-                let focusedZoomStep = max(zoomStep, 2)
+                let focusedZoomStep = max(zoomStep, GridCameraZoom.defaultStep + 1)
                 controller.focus(onLegacyPlotID: focusPlotID, animated: true)
                 if focusedZoomStep != zoomStep { onZoomStepChanged(focusedZoomStep) }
             }
@@ -359,6 +360,7 @@ private final class GridCitySceneController {
     private var vacantMarkerNodes: [String: SCNNode] = [:]
     private var runtimeStoreNodes: [UUID: SCNNode] = [:]
     private var runtimeStoreSignatures: [UUID: String] = [:]
+    private var competitorLabelNodes: [Int: SCNNode] = [:]
     private var interactionPlotIDs: [ObjectIdentifier: Int] = [:]
     private var interactionFacilities: [ObjectIdentifier: MapFacility] = [:]
     private var facilityNodes: [MapFacility: SCNNode] = [:]
@@ -368,8 +370,8 @@ private final class GridCitySceneController {
     private var focusPoint = SCNVector3Zero
     private var panStartFocus = SCNVector3Zero
     private var baseOrthographicScale: CGFloat = 1
-    private var currentZoomStep = 0
-    private var currentZoomFactor: CGFloat = 1
+    private var currentZoomStep = GridCameraZoom.defaultStep
+    private var currentZoomFactor = GridCameraZoom.baselineFactor
     private var lastViewSize = CGSize.zero
     private lazy var assetFactory = CityBuildingFactory(cellSize: map.metrics.cellSize)
 
@@ -408,6 +410,7 @@ private final class GridCitySceneController {
         currentZoomFactor = GridCameraZoom.scaleFactors[clamped]
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: animated)
     }
 
@@ -418,16 +421,18 @@ private final class GridCitySceneController {
         )
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: false)
     }
 
     func resetCamera(animated: Bool) {
         let cityCenter = map.cameraContentBounds.center
         focusPoint = SCNVector3(cityCenter.x, 0, cityCenter.z)
-        currentZoomStep = 0
-        currentZoomFactor = GridCameraZoom.scaleFactors[0]
+        currentZoomStep = GridCameraZoom.defaultStep
+        currentZoomFactor = GridCameraZoom.baselineFactor
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: animated)
     }
 
@@ -435,12 +440,14 @@ private final class GridCitySceneController {
         guard let parcel = map.parcel(legacyPlotID: plotID) else { return }
         let center = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size).center
         focusPoint = SCNVector3(center.x, 0, center.z)
-        if currentZoomStep < 2 {
-            currentZoomStep = 2
-            currentZoomFactor = GridCameraZoom.scaleFactors[2]
+        let focusStep = GridCameraZoom.defaultStep + 1
+        if currentZoomStep < focusStep {
+            currentZoomStep = focusStep
+            currentZoomFactor = GridCameraZoom.scaleFactors[focusStep]
         }
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: animated)
     }
 
@@ -544,6 +551,7 @@ private final class GridCitySceneController {
             stores: game.stores,
             plotByID: Dictionary(uniqueKeysWithValues: game.plots.map { ($0.id, $0) })
         )
+        updateCompetitorLabels(game: game)
         sceneView?.setNeedsDisplay()
     }
 
@@ -1361,6 +1369,16 @@ private final class GridCitySceneController {
             badge.position.y = 14.5
             root.addChildNode(badge)
 
+            let label = makeSemanticMapLabel(
+                text: facility == .auction ? "オークション会場" : facility.name,
+                iconName: facility.icon,
+                color: facilityColor(facility)
+            )
+            if facility == .auction { label.renderingOrder = 150 }
+            label.position.y = 25
+            interactionFacilities[ObjectIdentifier(label)] = facility
+            root.addChildNode(label)
+
             facilityNodes[facility] = root
             scene.rootNode.addChildNode(root)
         }
@@ -1452,7 +1470,7 @@ private final class GridCitySceneController {
             let parcelSignature = store.plotIDs.sorted().map { plotID in
                 "\(plotID):\(plotByID[plotID].map(parcelUseSignature) ?? "missing")"
             }.joined(separator: ",")
-            let signature = "\(store.type.rawValue)-\(store.pendingType?.rawValue ?? "none")-\(parcelSignature)"
+            let signature = "\(store.name)-\(store.type.rawValue)-\(store.pendingType?.rawValue ?? "none")-\(parcelSignature)"
             if runtimeStoreSignatures[store.id] == signature { continue }
             if let oldNode = runtimeStoreNodes[store.id] {
                 interactionPlotIDs[ObjectIdentifier(oldNode)] = nil
@@ -1516,7 +1534,48 @@ private final class GridCitySceneController {
                 : "player-store-parking:\(store.id.uuidString):\(placement.plotID)"
             root.addChildNode(node)
         }
+        if let parcel = map.parcel(legacyPlotID: store.plotID) {
+            let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            let label = makeSemanticMapLabel(
+                text: "自店舗｜\(store.name)",
+                iconName: "star.fill",
+                color: UIColor(red: 0.06, green: 0.58, blue: 0.55, alpha: 1)
+            )
+            label.renderingOrder = 160
+            label.position = SCNVector3(bounds.center.x, 32, bounds.center.z)
+            setInteractionMetadata(on: label, parcel: parcel)
+            root.addChildNode(label)
+        }
         return root
+    }
+
+    private func updateCompetitorLabels(game: GameEngine) {
+        let rivals: [(plot: LandPlot, name: String)] = game.plots.compactMap { plot in
+            guard case .competitor(let name) = plot.occupant else { return nil }
+            return (plot, name)
+        }
+        let activePlotIDs = Set(rivals.map { $0.plot.id })
+        for plotID in Array(competitorLabelNodes.keys) where !activePlotIDs.contains(plotID) {
+            competitorLabelNodes[plotID]?.removeFromParentNode()
+            competitorLabelNodes[plotID] = nil
+        }
+        for rival in rivals where competitorLabelNodes[rival.plot.id] == nil {
+            guard let parcel = map.parcel(legacyPlotID: rival.plot.id) else { continue }
+            let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            let root = SCNNode()
+            root.name = "competitor-label:\(rival.plot.id)"
+            root.position = SCNVector3(bounds.center.x, 32, bounds.center.z)
+            setInteractionMetadata(on: root, parcel: parcel)
+            let label = makeSemanticMapLabel(
+                text: "競合｜\(rival.name)",
+                iconName: "flag.fill",
+                color: UIColor(red: 0.91, green: 0.38, blue: 0.12, alpha: 1)
+            )
+            setInteractionMetadata(on: label, parcel: parcel)
+            root.addChildNode(label)
+            competitorLabelNodes[rival.plot.id] = root
+            scene.rootNode.addChildNode(root)
+        }
     }
 
     private func parcelUseSignature(_ plot: LandPlot) -> String {
@@ -1599,9 +1658,71 @@ private final class GridCitySceneController {
     }
 
     private func updateFacilityVisibility() {
-        let showsSecondaryFacilities = currentZoomFactor <= (GridCameraZoom.scaleFactors.first ?? 0.22) + 0.02
+        // In a wide overview, reserve label space for the player's store,
+        // competitors and the auction route that drives procurement. Other
+        // service locations return at 75% and closer zoom levels.
+        let showsSecondaryServices = currentZoomFactor < GridCameraZoom.scaleFactors[2] + 0.001
         for (facility, node) in facilityNodes {
-            node.isHidden = !facility.isPrimary && !showsSecondaryFacilities
+            node.isHidden = !facility.isPrimary && !showsSecondaryServices
+        }
+    }
+
+    private func makeSemanticMapLabel(text: String, iconName: String, color: UIColor) -> SCNNode {
+        let imageSize = CGSize(width: 900, height: 200)
+        let renderer = UIGraphicsImageRenderer(size: imageSize)
+        let image = renderer.image { _ in
+            let cardRect = CGRect(x: 4, y: 4, width: imageSize.width - 8, height: imageSize.height - 8)
+            UIColor(white: 0.99, alpha: 0.96).setFill()
+            UIBezierPath(roundedRect: cardRect, cornerRadius: 46).fill()
+            color.setStroke()
+            let border = UIBezierPath(roundedRect: cardRect, cornerRadius: 46)
+            border.lineWidth = 10
+            border.stroke()
+
+            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 92, weight: .bold)
+            let symbol = UIImage(systemName: iconName, withConfiguration: symbolConfiguration)?
+                .withTintColor(color, renderingMode: .alwaysOriginal)
+            symbol?.draw(in: CGRect(x: 34, y: 52, width: 96, height: 96))
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail
+            paragraph.alignment = .left
+            (text as NSString).draw(
+                in: CGRect(x: 158, y: 47, width: 700, height: 110),
+                withAttributes: [
+                    .font: UIFont.systemFont(ofSize: 88, weight: .bold),
+                    .foregroundColor: UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1),
+                    .paragraphStyle: paragraph
+                ]
+            )
+        }
+
+        let plane = SCNPlane(width: 145, height: 32)
+        let labelMaterial = SCNMaterial()
+        labelMaterial.diffuse.contents = image
+        labelMaterial.lightingModel = .constant
+        labelMaterial.isDoubleSided = true
+        labelMaterial.transparencyMode = .aOne
+        labelMaterial.readsFromDepthBuffer = false
+        labelMaterial.writesToDepthBuffer = false
+        plane.firstMaterial = labelMaterial
+
+        let node = SCNNode(geometry: plane)
+        node.name = "semantic-map-label"
+        node.renderingOrder = 120
+        let billboard = SCNBillboardConstraint()
+        billboard.influenceFactor = 1
+        node.constraints = [billboard]
+        let scale = Float(currentZoomFactor / GridCameraZoom.baselineFactor)
+        node.scale = SCNVector3(scale, scale, scale)
+        return node
+    }
+
+    private func updateSemanticMapLabelScale() {
+        let scale = Float(currentZoomFactor / GridCameraZoom.baselineFactor)
+        scene.rootNode.enumerateChildNodes { node, _ in
+            guard node.name == "semantic-map-label" else { return }
+            node.scale = SCNVector3(scale, scale, scale)
         }
     }
 

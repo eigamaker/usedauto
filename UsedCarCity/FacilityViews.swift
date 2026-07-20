@@ -274,6 +274,9 @@ private struct AuctionContent: View {
             }.gameCard()
             VStack(alignment: .leading, spacing: 11) {
                 SectionTitle(title: "出品車両・上限入札", subtitle: "今週は上限額を予約し、落札結果は翌週に確定します")
+                Label("業者間落札相場はAAでの落札目安、店頭販売参考は選択店舗の立地で販売する場合の目安です。", systemImage: "info.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 if let store = selectedStore {
                     ForEach(listings.prefix(7)) { listing in
                         AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
@@ -340,6 +343,18 @@ private struct AuctionBidRow: View {
 
     private var reservation: BidReservation? { game.bidReservations.first { $0.listingID == listing.id } }
     private var reserved: Bool { reservation != nil }
+    private var retailReferencePrice: Int? {
+        guard let store = game.stores.first(where: { $0.id == storeID }),
+              let plot = game.plot(id: store.plotID) else { return nil }
+        return game.vehicleRetailValue(
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            quality: listing.quality,
+            in: plot.district
+        )
+    }
 
     var body: some View {
         VStack(spacing: 7) {
@@ -351,13 +366,25 @@ private struct AuctionBidRow: View {
                         if VehicleCatalog.entry(id: listing.modelID)?.isRareClassic == true {
                             Text("希少旧車").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(GameTheme.orange).clipShape(Capsule())
                         }
+                        if let model = VehicleCatalog.entry(id: listing.modelID), model.category == .imported {
+                            Text("指名需要 \(Int((model.customerDemandIndex * 100).rounded()))")
+                                .font(.caption2.bold())
+                                .foregroundStyle(listing.venue.tint)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(listing.venue.tint.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
                     }
                     Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・評価\(Int(listing.quality * 100))・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
                     Text("開始 \(listing.reservePrice.currency)").font(.caption.bold())
-                    Text("相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                    Text("業者間落札相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                    if let retailReferencePrice {
+                        Text("店頭販売参考 \(retailReferencePrice.currency)").font(.caption2).foregroundStyle(GameTheme.teal)
+                    }
                     Text("諸費用 +\((listing.venue.fee + listing.venue.shippingCost).currency)").font(.caption2).foregroundStyle(GameTheme.orange)
                 }
             }

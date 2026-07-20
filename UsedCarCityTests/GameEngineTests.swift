@@ -425,10 +425,79 @@ final class GameEngineTests: XCTestCase {
     func testUpdatedCatalogUsesHighPriceImportsAndSixHundredClassSUVs() {
         let imports = VehicleCatalog.all.filter { $0.category == .imported && !$0.isRareClassic }
         let suvs = VehicleCatalog.all.filter { $0.category == .suv }
+        let game = GameEngine()
+        game.resetGame()
+        game.startNewGame()
+        let currentImportRetailValues = imports.filter { $0.launchTurn == 0 }.map {
+            game.vehicleRetailValue(
+                modelID: $0.id,
+                category: .imported,
+                modelYear: 2028,
+                mileage: 32_000,
+                quality: 0.86,
+                in: .downtown
+            )
+        }
 
         XCTAssertEqual(VehicleCategory.allCases.count, 7)
         XCTAssertGreaterThanOrEqual(imports.map(\.referenceRetailPrice).min() ?? 0, 800)
+        XCTAssertGreaterThanOrEqual(currentImportRetailValues.min() ?? 0, 800)
         XCTAssertGreaterThanOrEqual(suvs.map(\.referenceRetailPrice).max() ?? 0, 600)
+    }
+
+    func testPremiumAuctionKeepsImportedCarsInTheirHighValueWholesaleBand() throws {
+        let game = GameEngine()
+        game.resetGame()
+        game.startNewGame()
+        let imports = game.auctionListings.filter { $0.venue == .premium && $0.category == .imported }
+
+        XCTAssertFalse(imports.isEmpty)
+        for listing in imports {
+            let model = try XCTUnwrap(VehicleCatalog.entry(id: listing.modelID))
+            XCTAssertGreaterThanOrEqual(listing.marketPrice, Int(Double(model.baseWholesalePrice) * 0.75))
+            XCTAssertGreaterThan(listing.reservePrice, 250)
+        }
+    }
+
+    func testDealerTradeUsesTheQuotedModelAndItsOwnMarketPrice() throws {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .quality)
+        game.cash = 100_000
+        let store = try XCTUnwrap(game.stores.first)
+        let quote = try XCTUnwrap(game.dealerTradeQuote(category: .imported, count: 3, storeID: store.id))
+        let modelID = try XCTUnwrap(quote.modelID)
+        let model = try XCTUnwrap(VehicleCatalog.entry(id: modelID))
+
+        XCTAssertEqual(quote.vehicleName, model.fullName)
+        XCTAssertGreaterThanOrEqual(quote.unitCost, Int(Double(model.baseWholesalePrice) * 0.78))
+        XCTAssertTrue(game.orderDealerTrade(category: .imported, count: 3, storeID: store.id))
+        XCTAssertEqual(game.inboundShipments.last?.modelID, modelID)
+    }
+
+    func testImportedBuyerStronglyPrefersTheRequestedMakerAndModel() throws {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game, plan: .quality)
+        let storeID = try XCTUnwrap(game.stores.first?.id)
+        let exactModel = try XCTUnwrap(VehicleCatalog.entry(id: "nord-velar"))
+        let otherModel = try XCTUnwrap(VehicleCatalog.entry(id: "rossa-luce"))
+        let exact = InventoryBatch(modelID: exactModel.id, category: .imported, count: 1, averageCost: 520, quality: 0.88, modelYear: 2028, mileage: 24_000, acquiredTurn: game.turn)
+        let other = InventoryBatch(modelID: otherModel.id, category: .imported, count: 1, averageCost: 560, quality: 0.88, modelYear: 2028, mileage: 24_000, acquiredTurn: game.turn)
+        game.stores[0].inventory.append(contentsOf: [exact, other])
+        let lead = BuyerLead(
+            id: UUID(), storeID: storeID, preference: .exactModel(exactModel.id),
+            budget: 2_000, minimumQuality: 0.82, minimumModelYear: 2026,
+            maximumMileage: 50_000, priceSensitivity: 0.8, generatedTurn: game.turn
+        )
+        game.buyerLeads = [lead]
+
+        let exactPreview = try XCTUnwrap(game.saleNegotiationPreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: exact.id, strategy: .smallDiscount))
+        let otherPreview = try XCTUnwrap(game.saleNegotiationPreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: other.id, strategy: .smallDiscount))
+
+        XCTAssertTrue(game.inventoryMatchesBuyer(exact, lead: lead, storeID: storeID))
+        XCTAssertFalse(game.inventoryMatchesBuyer(other, lead: lead, storeID: storeID))
+        XCTAssertGreaterThan(exactPreview.closeChance, otherPreview.closeChance + 0.45)
     }
 
     func testCustomerPurchaseCaseCanBecomeInventory() {

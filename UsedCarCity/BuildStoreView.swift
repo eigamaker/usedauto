@@ -72,9 +72,7 @@ struct BuildStoreView: View {
             }
             .onAppear {
                 type = availableTypes.contains(.standard) ? .standard : (availableTypes.first ?? type)
-                concept = game.recommendedConcept(for: plot.district)
                 facilities = concept.defaultFacilities
-                focus = recommendedFocus
                 ensureCompatibleStoreType()
             }
             .onChange(of: mode) { _, _ in
@@ -124,7 +122,7 @@ struct BuildStoreView: View {
             Label("大きい店舗ほど隣接する同一サイズのセルを多く使用します", systemImage: "square.grid.3x3.fill")
                 .font(.caption).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 10) {
-                SectionTitle(title: "商売の方針", subtitle: "立地と仕入れ網に合う客層・専門性を選択")
+                SectionTitle(title: "商売の方針", subtitle: "業態と客層は自由に選択。立地は需要・供給の傾向として反映")
                 Picker("狙う客層", selection: $focus) {
                     ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) }
                 }
@@ -212,14 +210,6 @@ struct BuildStoreView: View {
         }
     }
 
-    private var recommendedFocus: CustomerFocus {
-        switch plot.district {
-        case .downtown: .affluent
-        case .industrial, .highway: .business
-        case .station: .young
-        case .suburb, .emerging: .family
-        }
-    }
 }
 
 private struct ChoiceCard: View {

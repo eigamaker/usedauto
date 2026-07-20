@@ -158,7 +158,7 @@ enum CityAssetLODPolicy {
     static func visibility(zoomFactor: CGFloat) -> CityAssetLODVisibility {
         // The new baseline is already as close as the former inspection view,
         // so its architectural details and props should remain visible.
-        let baseline = GridCameraZoom.scaleFactors.first ?? 0.22
+        let baseline = GridCameraZoom.baselineFactor
         return CityAssetLODVisibility(
             showsNearDetails: zoomFactor <= baseline + 0.02,
             showsProps: zoomFactor <= baseline + 0.02

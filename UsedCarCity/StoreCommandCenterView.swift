@@ -353,7 +353,7 @@ private struct ManualSalesPanel: View {
                             .clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(lead.preference.customerDescription).font(.subheadline.bold())
-                                Text("予算 \(lead.budget.currency)・希望品質 \(Int(lead.minimumQuality * 100))以上")
+                                Text("予算 \(lead.budget.currency)・\(lead.vehicleRequirementDescription)")
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                                 if let tradeIn = lead.tradeInVehicle {
                                     Text("下取り希望：\(tradeIn.vehicleName)・査定 \(tradeIn.appraisedValue.currency)")
@@ -431,20 +431,15 @@ private struct ManualSalesPanel: View {
     }
 
     private func fittingInventoryCount(for lead: BuyerLead) -> Int {
-        store.inventory.filter { batch in
-            guard batch.count > 0, !batch.isInWorkshop else { return false }
-            switch lead.preference {
-            case .category(let category):
-                return batch.category == category
-            case .budgetFirst:
-                return (game.manualSaleQuote(storeID: store.id, inventoryID: batch.id)?.price ?? Int.max) <= lead.budget
-            }
-        }.reduce(0) { $0 + $1.count }
+        store.inventory.filter { game.inventoryMatchesBuyer($0, lead: lead, storeID: store.id) }
+            .reduce(0) { $0 + $1.count }
     }
 
     private func noMatchingInventoryMessage(for lead: BuyerLead) -> String {
         switch lead.preference {
-        case .category: "希望車種なし・代替提案は成約率が大幅に下がります"
+        case .category: "希望車種・年式・走行距離に合う在庫がありません"
+        case .maker: "指定メーカーと条件に合う在庫がありません"
+        case .exactModel: "指名車種と条件に合う在庫がありません"
         case .budgetFirst: "予算内の在庫なし・値引きか仕入れ構成の見直しが必要です"
         }
     }
@@ -485,6 +480,8 @@ private struct VehicleProposalSheet: View {
                             MetricView(title: "予算", value: lead.budget.currency)
                             MetricView(title: "希望品質", value: "\(Int(lead.minimumQuality * 100))以上")
                         }
+                        Text(lead.vehicleRequirementDescription)
+                            .font(.caption.bold()).foregroundStyle(.secondary)
                     }
                     .gameCard()
 
@@ -527,7 +524,7 @@ private struct VehicleProposalSheet: View {
                                 }
                                 Spacer()
                                 if proposalFits(batch) {
-                                    Text(lead.preference == .budgetFirst ? "予算内" : "希望一致").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(GameTheme.teal).clipShape(Capsule())
+                                    Text("条件一致").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 5).background(GameTheme.teal).clipShape(Capsule())
                                 }
                             }
 
@@ -594,10 +591,7 @@ private struct VehicleProposalSheet: View {
     }
 
     private func proposalFits(_ batch: InventoryBatch) -> Bool {
-        switch lead.preference {
-        case .category(let category): batch.category == category
-        case .budgetFirst: proposalPrice(batch) <= lead.budget
-        }
+        game.inventoryMatchesBuyer(batch, lead: lead, storeID: storeID)
     }
 
     private func proposalTint(_ batch: InventoryBatch) -> Color {
@@ -1773,13 +1767,13 @@ private struct ProcurementPanel: View {
 
             if let quote = dealerQuote {
                 ProcurementRouteRow(
-                    title: "業者間探索・3台",
+                    title: "業者間探索・\(quote.vehicleName) 3台",
                     quote: quote,
-                    detail: "カテゴリ指定。希少地域では割高・納期延長",
+                    detail: "車種を確定して探索。メーカー・モデル相場と地域の希少性を反映",
                     disabled: isDelegated || game.cash < quote.totalCost || freeCapacity < quote.count
                 ) {
                     message = game.orderDealerTrade(category: category, count: quote.count, storeID: store.id)
-                        ? "\(category.name)3台を手配しました。\(quote.weeks)週間後に入庫します。"
+                        ? "\(quote.vehicleName)3台を手配しました。\(quote.weeks)週間後に入庫します。"
                         : "現金または展示枠が不足しています。"
                 }
             }
@@ -1832,7 +1826,7 @@ private struct ProcurementRouteRow: View {
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.bold())
-                Text("\(quote.availabilityLabel)・\(quote.weeks)週・総額\(quote.totalCost.currency)")
+                Text("\(quote.availabilityLabel)・1台\(quote.unitCost.currency)・\(quote.weeks)週・総額\(quote.totalCost.currency)")
                     .font(.caption.bold()).foregroundStyle(.secondary)
                 Text(detail).font(.caption2).foregroundStyle(.secondary)
             }
@@ -1964,6 +1958,13 @@ private struct CatalogVehicleRow: View {
                             Text("希少旧車").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())
                         } else if model.isPopularCustomBase {
                             Text("カスタム人気").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(Color.purple).clipShape(Capsule())
+                        }
+                        if model.category == .imported {
+                            Text("指名需要 \(Int(model.customerDemandIndex * 100))")
+                                .font(.system(size: 8, weight: .black)).foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 3)
+                                .background(model.customerDemandIndex >= 1.12 ? GameTheme.teal : Color.gray)
+                                .clipShape(Capsule())
                         }
                         if !model.isRareClassic && game.turn - model.usedMarketTurn <= 3 {
                             Text("中古流入").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())

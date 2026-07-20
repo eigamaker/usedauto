@@ -204,6 +204,19 @@ struct VehicleCatalogEntry: Identifiable, Codable, Hashable {
     var usedMarketTurn: Int { launchTurn + usedMarketDelayWeeks }
     var isEV: Bool { powertrain == .electric }
 
+    /// 輸入車ではメーカー自体の指名力も需要に影響する。
+    var marqueAppeal: Double {
+        guard category == .imported else { return 1 }
+        return switch maker {
+        case "ロッサ": 1.10
+        case "ヴォルトラ": 1.06
+        case "ノルド": 1.00
+        default: 0.96
+        }
+    }
+
+    var customerDemandIndex: Double { popularity * marqueAppeal }
+
     var classicProductionYears: ClosedRange<Int>? {
         switch id {
         case "aoba-sprint70": 1972...1979
@@ -257,10 +270,10 @@ enum VehicleCatalog {
         VehicleCatalogEntry(id: "seika-terra", maker: "セイカ", modelName: "TERRA", category: .suv, baseWholesalePrice: 360, referenceRetailPrice: 540, qualityBaseline: 0.84, popularity: 1.02, launchTurn: 0, powertrain: .hybrid),
         VehicleCatalogEntry(id: "hokuto-ridgex", maker: "ホクト", modelName: "RIDGE X", category: .suv, baseWholesalePrice: 410, referenceRetailPrice: 600, qualityBaseline: 0.89, popularity: 1.18, launchTurn: 24),
 
-        VehicleCatalogEntry(id: "nord-velar", maker: "ノルド", modelName: "VELAR", category: .imported, baseWholesalePrice: 600, referenceRetailPrice: 880, qualityBaseline: 0.84, popularity: 1.04, launchTurn: 0),
-        VehicleCatalogEntry(id: "voltra-aurex", maker: "ヴォルトラ", modelName: "AUREX", category: .imported, baseWholesalePrice: 720, referenceRetailPrice: 1_080, qualityBaseline: 0.91, popularity: 0.94, launchTurn: 0, powertrain: .electric),
-        VehicleCatalogEntry(id: "rossa-luce", maker: "ロッサ", modelName: "LUCE", category: .imported, baseWholesalePrice: 660, referenceRetailPrice: 980, qualityBaseline: 0.88, popularity: 1.08, launchTurn: 0),
-        VehicleCatalogEntry(id: "voltra-aurexs", maker: "ヴォルトラ", modelName: "AUREX S", category: .imported, baseWholesalePrice: 920, referenceRetailPrice: 1_380, qualityBaseline: 0.93, popularity: 1.17, launchTurn: 30, powertrain: .electric, usedMarketDelayWeeks: 24),
+        VehicleCatalogEntry(id: "nord-velar", maker: "ノルド", modelName: "VELAR", category: .imported, baseWholesalePrice: 680, referenceRetailPrice: 980, qualityBaseline: 0.84, popularity: 1.04, launchTurn: 0),
+        VehicleCatalogEntry(id: "voltra-aurex", maker: "ヴォルトラ", modelName: "AUREX", category: .imported, baseWholesalePrice: 780, referenceRetailPrice: 1_180, qualityBaseline: 0.91, popularity: 0.94, launchTurn: 0, powertrain: .electric),
+        VehicleCatalogEntry(id: "rossa-luce", maker: "ロッサ", modelName: "LUCE", category: .imported, baseWholesalePrice: 720, referenceRetailPrice: 1_080, qualityBaseline: 0.88, popularity: 1.08, launchTurn: 0),
+        VehicleCatalogEntry(id: "voltra-aurexs", maker: "ヴォルトラ", modelName: "AUREX S", category: .imported, baseWholesalePrice: 980, referenceRetailPrice: 1_480, qualityBaseline: 0.93, popularity: 1.17, launchTurn: 30, powertrain: .electric, usedMarketDelayWeeks: 24),
 
         VehicleCatalogEntry(id: "hokuto-trail", maker: "ホクト", modelName: "TRAIL", category: .pickup, baseWholesalePrice: 225, referenceRetailPrice: 318, qualityBaseline: 0.79, popularity: 1.06, launchTurn: 0),
         VehicleCatalogEntry(id: "yamato-ranger", maker: "ヤマト", modelName: "RANGER", category: .pickup, baseWholesalePrice: 248, referenceRetailPrice: 352, qualityBaseline: 0.82, popularity: 0.98, launchTurn: 0, powertrain: .diesel),
@@ -469,11 +482,15 @@ struct TradeInSalePreview {
 
 enum BuyerVehiclePreference: Codable, Hashable {
     case category(VehicleCategory)
+    case maker(category: VehicleCategory, maker: String)
+    case exactModel(String)
     case budgetFirst
 
     var name: String {
         switch self {
         case .category(let category): category.name
+        case .maker(_, let maker): "\(maker)指定"
+        case .exactModel(let modelID): VehicleCatalog.entry(id: modelID)?.fullName ?? "車種指定"
         case .budgetFirst: "予算優先"
         }
     }
@@ -481,6 +498,8 @@ enum BuyerVehiclePreference: Codable, Hashable {
     var icon: String {
         switch self {
         case .category(let category): category.icon
+        case .maker(let category, _): category.icon
+        case .exactModel(let modelID): VehicleCatalog.entry(id: modelID)?.category.icon ?? "car.side.fill"
         case .budgetFirst: "yensign.circle.fill"
         }
     }
@@ -488,13 +507,31 @@ enum BuyerVehiclePreference: Codable, Hashable {
     var customerDescription: String {
         switch self {
         case .category(let category): "\(category.name)を探しているお客様"
+        case .maker(let category, let maker): "\(maker)の\(category.name)を指名するお客様"
+        case .exactModel(let modelID): "\(VehicleCatalog.entry(id: modelID)?.fullName ?? modelID)を指名するお客様"
         case .budgetFirst: "予算内の車を探しているお客様"
         }
     }
 
     var category: VehicleCategory? {
-        guard case .category(let category) = self else { return nil }
-        return category
+        switch self {
+        case .category(let category), .maker(let category, _): category
+        case .exactModel(let modelID): VehicleCatalog.entry(id: modelID)?.category
+        case .budgetFirst: nil
+        }
+    }
+
+    var preferredMaker: String? {
+        switch self {
+        case .maker(_, let maker): maker
+        case .exactModel(let modelID): VehicleCatalog.entry(id: modelID)?.maker
+        case .category, .budgetFirst: nil
+        }
+    }
+
+    var preferredModelID: String? {
+        guard case .exactModel(let modelID) = self else { return nil }
+        return modelID
     }
 }
 
@@ -504,22 +541,32 @@ struct BuyerLead: Identifiable, Codable, Hashable {
     let preference: BuyerVehiclePreference
     let budget: Int
     let minimumQuality: Double
+    let minimumModelYear: Int
+    let maximumMileage: Int
     let priceSensitivity: Double
     let generatedTurn: Int
     let tradeInVehicle: TradeInVehicle?
 
-    init(id: UUID, storeID: UUID, preference: BuyerVehiclePreference, budget: Int, minimumQuality: Double, priceSensitivity: Double, generatedTurn: Int, tradeInVehicle: TradeInVehicle? = nil) {
+    init(id: UUID, storeID: UUID, preference: BuyerVehiclePreference, budget: Int, minimumQuality: Double, minimumModelYear: Int = 0, maximumMileage: Int = .max, priceSensitivity: Double, generatedTurn: Int, tradeInVehicle: TradeInVehicle? = nil) {
         self.id = id
         self.storeID = storeID
         self.preference = preference
         self.budget = budget
         self.minimumQuality = minimumQuality
+        self.minimumModelYear = minimumModelYear
+        self.maximumMileage = maximumMileage
         self.priceSensitivity = priceSensitivity
         self.generatedTurn = generatedTurn
         self.tradeInVehicle = tradeInVehicle
     }
 
     var desiredCategory: VehicleCategory? { preference.category }
+
+    var vehicleRequirementDescription: String {
+        let yearText = minimumModelYear > 0 ? "\(minimumModelYear)年式以降" : "年式不問"
+        let mileageText = maximumMileage < Int.max ? "走行\(maximumMileage.formatted())km以下" : "走行距離不問"
+        return "\(yearText)・\(mileageText)・品質\(Int(minimumQuality * 100))以上"
+    }
 }
 
 enum PurchaseNegotiationOutcome {
@@ -1282,6 +1329,7 @@ struct InboundShipment: Identifiable, Codable, Hashable {
 
 struct ProcurementQuote: Hashable {
     let source: ProcurementSource
+    let modelID: String?
     let category: VehicleCategory
     let count: Int
     let unitCost: Int
@@ -1291,6 +1339,10 @@ struct ProcurementQuote: Hashable {
     let availabilityLabel: String
 
     var totalCost: Int { unitCost * count + fee }
+    var vehicleName: String {
+        guard let modelID else { return category.name }
+        return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 struct AuctionConsignment: Identifiable, Codable, Hashable {
