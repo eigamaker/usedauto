@@ -229,7 +229,7 @@ private struct StoreDetailCard: View {
             }
             HStack {
                 MetricView(title: "在庫", value: "\(store.inventoryCount) / \(store.type.capacity)台")
-                MetricView(title: "顧客満足度", value: "\(store.satisfaction)")
+                MetricView(title: "来店客レビュー", value: store.reviewRatingText, detail: "\(store.reviewCount)件")
                 MetricView(title: "店員", value: "\(store.staff)名")
             }
             if !store.causes.isEmpty {

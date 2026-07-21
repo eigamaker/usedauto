@@ -156,7 +156,7 @@ private struct StoreOperatingCard: View {
             }
             HStack(spacing: 10) {
                 Label("在庫 \(store.inventoryCount)/\(store.type.capacity)", systemImage: "car.2.fill")
-                Label("満足度 \(store.satisfaction)", systemImage: "hand.thumbsup.fill")
+                Label("口コミ \(store.reviewRatingText)（\(store.reviewCount)件）", systemImage: "hand.thumbsup.fill")
                 Label("店員 \(store.staff)", systemImage: "person.2.fill")
             }
             .font(.caption.bold()).foregroundStyle(.secondary)

@@ -925,7 +925,7 @@ struct DevelopmentProject: Codable, Hashable {
 }
 
 enum CityEventKind: String, Codable, Hashable {
-    case development, competitorEntry, competitorExit, priceWar, competitorAcquisition, landPrice, demand, fuelPrice, storeGrowth, auction, expansion, customerClaim, staffPoaching, milestone
+    case development, competitorEntry, competitorExit, priceWar, competitorAcquisition, landPrice, demand, fuelPrice, economy, storeGrowth, auction, expansion, customerClaim, staffPoaching, milestone
 
     var icon: String {
         switch self {
@@ -937,6 +937,7 @@ enum CityEventKind: String, Codable, Hashable {
         case .landPrice: "yensign.arrow.trianglehead.counterclockwise.rotate.90"
         case .demand: "person.3.fill"
         case .fuelPrice: "fuelpump.fill"
+        case .economy: "chart.line.uptrend.xyaxis"
         case .storeGrowth: "storefront.fill"
         case .auction: "gavel.fill"
         case .expansion: "globe.asia.australia.fill"
@@ -944,6 +945,93 @@ enum CityEventKind: String, Codable, Hashable {
         case .staffPoaching: "person.crop.circle.badge.minus"
         case .milestone: "trophy.fill"
         }
+    }
+}
+
+enum MarketShockKind: String, Codable, Hashable, CaseIterable {
+    case war
+    case oilDemandSurge
+    case oilProductionHalt
+    case economicBoom
+    case financialCrisis
+
+    var title: String {
+        switch self {
+        case .war: "産油地域で戦争が発生"
+        case .oilDemandSurge: "世界の石油需要が急増"
+        case .oilProductionHalt: "原油採掘が停止"
+        case .economicBoom: "世界景気が拡大"
+        case .financialCrisis: "金融市場が急落"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .war: "供給不安でガソリン価格が大幅に上昇し、株式市場と自動車需要にも下押し圧力がかかります"
+        case .oilDemandSurge: "世界的な需要増で原油が不足し、ガソリン価格の上昇が続きます"
+        case .oilProductionHalt: "主要油田の操業停止により供給が細り、ガソリン価格が急騰します"
+        case .economicBoom: "企業業績と消費意欲が上向き、日経平均と中古車需要が大きく伸びます"
+        case .financialCrisis: "株価と消費意欲が急速に冷え込み、中古車の来店需要も落ち込みます"
+        }
+    }
+
+    var durationWeeks: Int {
+        switch self {
+        case .war: 8
+        case .oilDemandSurge, .oilProductionHalt, .financialCrisis: 7
+        case .economicBoom: 8
+        }
+    }
+
+    var gasolineWeeklyChange: Double {
+        switch self {
+        case .war: 3.6
+        case .oilDemandSurge: 3.0
+        case .oilProductionHalt: 4.2
+        case .economicBoom: 0.4
+        case .financialCrisis: -1.2
+        }
+    }
+
+    var nikkeiWeeklyChange: Double {
+        switch self {
+        case .war: -2_800
+        case .oilDemandSurge: 350
+        case .oilProductionHalt: -900
+        case .economicBoom: 3_200
+        case .financialCrisis: -4_200
+        }
+    }
+
+    var demandWeeklyChange: Double {
+        switch self {
+        case .war: -0.009
+        case .oilDemandSurge: 0.002
+        case .oilProductionHalt: -0.004
+        case .economicBoom: 0.010
+        case .financialCrisis: -0.018
+        }
+    }
+
+    var eventKind: CityEventKind {
+        switch self {
+        case .war, .oilDemandSurge, .oilProductionHalt: .fuelPrice
+        case .economicBoom, .financialCrisis: .economy
+        }
+    }
+
+    var isPositive: Bool { self == .economicBoom }
+}
+
+struct ActiveMarketShock: Identifiable, Codable, Hashable {
+    let id: UUID
+    let kind: MarketShockKind
+    var remainingWeeks: Int
+
+    init(id: UUID = UUID(), kind: MarketShockKind, remainingWeeks: Int? = nil) {
+        self.id = id
+        self.kind = kind
+        self.remainingWeeks = remainingWeeks ?? kind.durationWeeks
     }
 }
 
@@ -1168,6 +1256,7 @@ struct VehicleIssueRecord: Codable, Hashable {
 
 struct PendingCustomerClaim: Identifiable, Codable, Hashable {
     let id: UUID
+    let customerID: UUID
     let storeID: UUID
     let vehicleName: String
     let issue: VehicleIssueKind
@@ -1657,6 +1746,62 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
     }
 }
 
+enum CustomerReviewChannel: String, Codable, Hashable {
+    case buyer
+    case seller
+
+    var name: String {
+        switch self {
+        case .buyer: "販売客"
+        case .seller: "買取客"
+        }
+    }
+}
+
+enum CustomerReviewMetric: Hashable {
+    case salesPrice
+    case vehicle
+    case purchaseOffer
+    case service
+}
+
+struct CustomerReview: Identifiable, Codable, Hashable {
+    let id: UUID
+    let customerID: UUID
+    let createdTurn: Int
+    let channel: CustomerReviewChannel
+    let salesPriceScore: Int?
+    let vehicleScore: Int?
+    let purchaseOfferScore: Int?
+    let serviceScore: Int
+    let overallScore: Int
+    let comment: String
+
+    init(
+        id: UUID = UUID(),
+        customerID: UUID,
+        createdTurn: Int,
+        channel: CustomerReviewChannel,
+        salesPriceScore: Int? = nil,
+        vehicleScore: Int? = nil,
+        purchaseOfferScore: Int? = nil,
+        serviceScore: Int,
+        overallScore: Int,
+        comment: String
+    ) {
+        self.id = id
+        self.customerID = customerID
+        self.createdTurn = createdTurn
+        self.channel = channel
+        self.salesPriceScore = salesPriceScore
+        self.vehicleScore = vehicleScore
+        self.purchaseOfferScore = purchaseOfferScore
+        self.serviceScore = serviceScore
+        self.overallScore = overallScore
+        self.comment = comment
+    }
+}
+
 struct Store: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -1703,6 +1848,7 @@ struct Store: Identifiable, Codable, Hashable {
     var weeklyBuyerArrivals: Int
     var weeklySellerArrivals: Int
     var loyalCustomers: Int
+    var customerReviews: [CustomerReview]
 
     init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, focus: CustomerFocus, concept: StoreConcept = .general, facilities: Set<StoreFacility>? = nil, inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
         id = UUID()
@@ -1736,7 +1882,7 @@ struct Store: Identifiable, Codable, Hashable {
         lastSales = 0
         lastRevenue = 0
         lastProfit = 0
-        satisfaction = 70
+        satisfaction = 0
         causes = []
         self.openingMonthsRemaining = openingMonthsRemaining
         pendingType = nil
@@ -1750,6 +1896,7 @@ struct Store: Identifiable, Codable, Hashable {
         weeklyBuyerArrivals = 0
         weeklySellerArrivals = 0
         loyalCustomers = 0
+        customerReviews = []
     }
 
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
@@ -1768,6 +1915,60 @@ struct Store: Identifiable, Codable, Hashable {
     var weeklyVisitorCount: Int { buyerArrivalsThisWeek + sellerArrivalsThisWeek }
     var trafficLevel: StoreTrafficLevel { .from(visitorCount: weeklyVisitorCount) }
     var usedOpportunitiesThisWeek: Int { manualNegotiationsThisWeek + purchaseNegotiationsThisWeek }
+    var reviewCount: Int { customerReviews.count }
+    var averageReviewScore: Int? {
+        guard !customerReviews.isEmpty else { return nil }
+        return Int((Double(customerReviews.reduce(0) { $0 + $1.overallScore }) / Double(customerReviews.count)).rounded())
+    }
+    var reviewRating: Double? { averageReviewScore.map { Double($0) / 20 } }
+    var reviewRatingText: String { reviewRating.map { String(format: "%.1f", $0) } ?? "未評価" }
+
+    func reviewScore(for metric: CustomerReviewMetric) -> Int? {
+        let values: [Int] = customerReviews.compactMap { review in
+            switch metric {
+            case .salesPrice: review.salesPriceScore
+            case .vehicle: review.vehicleScore
+            case .purchaseOffer: review.purchaseOfferScore
+            case .service: review.serviceScore
+            }
+        }
+        guard !values.isEmpty else { return nil }
+        return Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
+    }
+
+    func customerReviewAttraction(for channel: CustomerReviewChannel) -> Double {
+        let reviews = customerReviews.filter { $0.channel == channel }
+        guard !reviews.isEmpty else { return 1 }
+        let average = Double(reviews.reduce(0) { $0 + $1.overallScore }) / Double(reviews.count)
+        let confidence = min(1, Double(reviews.count) / 10)
+        return min(1.28, max(0.68, 1 + (average - 70) / 100 * confidence))
+    }
+
+    var reviewManagementAdvice: String {
+        guard !customerReviews.isEmpty else {
+            return "まだ来店客の評価はありません。最初の接客・査定・価格提示が店舗の評判を作ります"
+        }
+        let salesPrice = reviewScore(for: .salesPrice)
+        let vehicle = reviewScore(for: .vehicle)
+        let purchase = reviewScore(for: .purchaseOffer)
+        let service = reviewScore(for: .service)
+        if let purchase, purchase >= 85, lastProfit < 0 {
+            return "高額買取で買取客の評判は高い一方、利益を圧迫しています。査定精度と買取上限を見直しましょう"
+        }
+        if let salesPrice, salesPrice < 60 {
+            return "販売価格への低評価が客足を下げています。価格指数・値引き方針・付加価値のバランスを見直しましょう"
+        }
+        if let vehicle, vehicle < 60 {
+            return "車両品質・品揃えへの不満が目立ちます。整備品質と地域需要に合う在庫を優先しましょう"
+        }
+        if let service, service < 60 {
+            return "接客・未対応への不満が客足を下げています。担当者配置と週間対応枠を増やしましょう"
+        }
+        if let purchase, purchase < 60 {
+            return "買取価格への評価が低く、売却客を競合へ逃しています。採算を守りつつ提示条件を改善しましょう"
+        }
+        return "口コミは安定しています。高評価項目を維持しながら、最も低い項目を次の改善対象にしましょう"
+    }
     var visualTier: Int {
         let profitTier = lastProfit >= 500 ? 2 : lastProfit >= 120 ? 1 : 0
         let reputationTier = reputation >= 0.95 ? 1 : 0
@@ -2039,4 +2240,25 @@ struct FourWeekForecast: Hashable {
     let inventoryCapital: Int
     let estimatedInventoryMarketValue: Int
     let bottleneck: String
+}
+
+/// A store-specific view of the market. This is derived from the live market
+/// state, so it deliberately is not part of saved-game data.
+struct MarketIntelligenceReport: Hashable {
+    let horizonWeeks: Int
+    let accuracyPercent: Int
+    let gasolineRange: ClosedRange<Int>
+    let nikkeiRange: ClosedRange<Int>
+    let demandRange: ClosedRange<Int>
+    let shortTermOutlook: String
+    let longTermOutlook: String
+    let recommendedAction: String
+    let upcomingEvent: MarketShockKind?
+}
+
+struct VehicleMarketForecast: Hashable {
+    let horizonWeeks: Int
+    let retailPriceRange: ClosedRange<Int>
+    let auctionPriceRange: ClosedRange<Int>
+    let directionPercent: Int
 }

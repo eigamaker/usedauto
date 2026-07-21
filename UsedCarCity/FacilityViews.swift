@@ -178,6 +178,7 @@ private struct CompanyDashboardContent: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack { MetricView(title: "企業価値", value: game.companyValue.currency, tint: GameTheme.teal); MetricView(title: "店舗", value: "\(game.stores.count)店"); MetricView(title: "在庫", value: "\(game.totalInventory)台") }.gameCard()
+            MarketEnvironmentCard()
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(title: "全社ダッシュボード", subtitle: "会社全体のPL・BS・資金繰り")
                 FacilityRow("売上高", game.finance.revenue.currency)
@@ -192,6 +193,30 @@ private struct CompanyDashboardContent: View {
             }.gameCard()
             StoreNetworkContent()
         }
+    }
+}
+
+private struct MarketEnvironmentCard: View {
+    @EnvironmentObject private var game: GameEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            SectionTitle(title: "市場環境", subtitle: "通常時は緩やかなトレンド、世界情勢のイベント時は大きく変動")
+            HStack {
+                MetricView(title: "ガソリン", value: "\(game.gasolinePricePerLiter)円/L", detail: "基準155円")
+                MetricView(title: "日経平均", value: "\(game.nikkeiAverageYen.formatted())円", detail: "基準60,000円")
+            }
+            HStack {
+                MetricView(title: "中古車需要", value: "\(game.marketDemandPercentage)%", detail: "100%が平常")
+                MetricView(title: "来店指数", value: "\(game.customerTrafficPercentage)%", detail: "景気と需要を反映", tint: GameTheme.teal)
+            }
+            ForEach(game.activeMarketShocks) { shock in
+                Label("\(shock.kind.title)・残り\(shock.remainingWeeks)週間", systemImage: shock.kind.eventKind.icon)
+                    .font(.caption.bold())
+                    .foregroundStyle(shock.kind.isPositive ? GameTheme.teal : GameTheme.orange)
+            }
+        }
+        .gameCard()
     }
 }
 
@@ -377,6 +402,13 @@ private struct AuctionBidRow: View {
             in: plot.district
         )
     }
+    private var bidStep: Int { game.auctionBidStep(for: listing) }
+    private var bidUpperBound: Int {
+        max(listing.reservePrice + bidStep, listing.marketPrice * 8 / 5, (retailReferencePrice ?? 0) * 11 / 10)
+    }
+    private var marketForecast: ClosedRange<Int> {
+        game.auctionMarketForecast(for: listing, storeID: storeID)
+    }
 
     var body: some View {
         VStack(spacing: 7) {
@@ -404,6 +436,7 @@ private struct AuctionBidRow: View {
                 VStack(alignment: .trailing) {
                     Text("開始 \(listing.reservePrice.currency)").font(.caption.bold())
                     Text("業者間落札相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(game.marketForecastHorizon(for: storeID))週後AA予測 \(marketForecast.lowerBound.currency)〜\(marketForecast.upperBound.currency)").font(.caption2).foregroundStyle(.blue)
                     if let retailReferencePrice {
                         Text("店頭販売参考 \(retailReferencePrice.currency)").font(.caption2).foregroundStyle(GameTheme.teal)
                     }
@@ -411,7 +444,7 @@ private struct AuctionBidRow: View {
                 }
             }
             HStack {
-                Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...max(listing.reservePrice + 10, listing.marketPrice * 13 / 10), step: 5)
+                Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
                     .font(.caption.bold())
                 Text("落札見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
                     .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.venue.tint)
@@ -552,7 +585,7 @@ private struct WorkshopContent: View {
                             } else {
                                 HStack(spacing: 6) {
                                     if let preview = game.servicePreview(storeID: store.id, inventoryID: batch.id) {
-                                        Button("軽整備 +\(preview.qualityGain)・\(preview.cost.currency)") {
+                                        Button(preview.cost == 0 ? "社内軽整備 +\(preview.qualityGain)・0万円" : "軽整備 +\(preview.qualityGain)・\(preview.cost.currency)") {
                                             message = game.serviceInventory(storeID: store.id, inventoryID: batch.id)
                                                 ? "\(batch.vehicleName)を整備し、品質が\(preview.resultingQuality)になりました。"
                                                 : "現金が不足しています。"
@@ -656,7 +689,7 @@ private struct CityHallContent: View {
             Label("中古車品質認証：有効", systemImage: "checkmark.seal.fill").foregroundStyle(GameTheme.teal)
             Label("整備設備導入補助金：申請可能", systemImage: "yensign.circle.fill").foregroundStyle(.blue)
             Label("次回法人税納付：12週間後", systemImage: "calendar").foregroundStyle(.secondary)
-            Text("燃料価格とEV普及率は毎年変化します。充電設備補助や環境規制は今後の市場イベントに影響します。").font(.caption).foregroundStyle(.secondary)
+            Text("ガソリン価格・日経平均・中古車需要は毎週緩やかに変化します。戦争や原油供給、金融市場のイベント時は大きく動きます。").font(.caption).foregroundStyle(.secondary)
         }.gameCard()
     }
 }

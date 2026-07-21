@@ -214,14 +214,21 @@ private struct PurchaseCasesPanel: View {
                         HStack {
                             Image(systemName: item.category.icon).font(.title3).foregroundStyle(GameTheme.teal).frame(width: 40, height: 40).background(GameTheme.teal.opacity(0.1)).clipShape(Circle())
                             VStack(alignment: .leading, spacing: 2) { Text(item.vehicleName).font(.subheadline.bold()); Text("\(item.category.name)・\(String(item.modelYear))年式・走行 \(item.mileage.formatted())km・状態 \(item.conditionScore)").font(.caption).foregroundStyle(.secondary) }
-                            Spacer(); VStack(alignment: .trailing) { Text("希望 \(item.askingPrice.currency)").font(.caption.bold()); Text("粗利予測 \(item.expectedGrossProfit.currency)").font(.caption2).foregroundStyle(item.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
+                            let grossProfit = game.purchaseExpectedGrossProfit(for: item)
+                            Spacer(); VStack(alignment: .trailing) { Text("希望 \(item.askingPrice.currency)").font(.caption.bold()); Text("粗利予測 \(grossProfit.currency)").font(.caption2).foregroundStyle(grossProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
                         }
                         if item.lotCount > 1 {
                             Label("法人放出 \(item.lotCount)台一括・表示価格と整備費は1台あたり", systemImage: "building.2.fill")
                                 .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
                         }
                         let saleRange = game.marketForecastRange(value: item.expectedSaleAfterAppraisal, storeID: storeID)
-                        HStack { PurchaseMetric(title: "整備 +\(item.repairQualityGain)", value: item.repairCost.currency); PurchaseMetric(title: "整備後品質", value: "\(item.qualityAfterRepairScore)/100"); PurchaseMetric(title: "販売予測", value: "\(saleRange.lowerBound.currency)〜\(saleRange.upperBound.currency)"); PurchaseMetric(title: "査定精度", value: "\(item.appraisalAccuracy)%") }
+                        let repairCost = game.purchaseRepairCost(for: item)
+                        HStack { PurchaseMetric(title: repairCost == 0 ? "社内整備 +\(item.repairQualityGain)" : "整備 +\(item.repairQualityGain)", value: repairCost.currency); PurchaseMetric(title: "整備後品質", value: "\(item.qualityAfterRepairScore)/100"); PurchaseMetric(title: "販売予測", value: "\(saleRange.lowerBound.currency)〜\(saleRange.upperBound.currency)"); PurchaseMetric(title: "査定精度", value: "\(item.appraisalAccuracy)%") }
+                        if let advice = game.procurementAppraisalAdvice(for: item.id) {
+                            Label(advice, systemImage: advice.contains("見送り") ? "hand.raised.fill" : "checkmark.shield.fill")
+                                .font(.caption2.bold())
+                                .foregroundStyle(advice.contains("見送り") ? GameTheme.danger : GameTheme.teal)
+                        }
                         if let issue = item.revealedIssue {
                             Label("要告知：\(issue.name) — \(issue.detail)。販売相場を\(Int(issue.disclosedValueFactor * 100))%で再計算済みです。", systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption2.bold())
@@ -485,6 +492,7 @@ private struct VehicleProposalSheet: View {
                     .gameCard()
 
                     if let tradeIn = lead.tradeInVehicle {
+                        let repairCost = game.tradeInRepairCost(for: tradeIn, storeID: storeID)
                         VStack(alignment: .leading, spacing: 9) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
@@ -497,7 +505,7 @@ private struct VehicleProposalSheet: View {
                                     .font(.subheadline.bold().monospacedDigit()).foregroundStyle(GameTheme.teal)
                             }
                             HStack {
-                                ProposalMetric(title: "商品化整備", value: tradeIn.repairCost.currency)
+                                ProposalMetric(title: repairCost == 0 ? "社内商品化" : "商品化整備", value: repairCost.currency)
                                 ProposalMetric(title: "整備後品質", value: "\(Int((tradeIn.qualityAfterRepair * 100).rounded()))/100")
                                 ProposalMetric(title: "下取り効果", value: "成約率を改善")
                             }
@@ -682,9 +690,9 @@ private struct StoreInventoryPanel: View {
                                 Label("\(project.kind.name) あと\(project.remainingWeeks)週", systemImage: project.kind.icon)
                                     .font(.caption2.bold()).foregroundStyle(.purple)
                             } else if let preview = game.servicePreview(storeID: store.id, inventoryID: batch.id) {
-                                Button("整備 +\(preview.qualityGain)・\(preview.cost.currency)") {
+                                Button(preview.cost == 0 ? "社内整備 +\(preview.qualityGain)・0万円" : "整備 +\(preview.qualityGain)・\(preview.cost.currency)") {
                                     message = game.serviceInventory(storeID: store.id, inventoryID: batch.id)
-                                        ? "整備費\(preview.cost.currency)を支払い、品質が\(preview.resultingQuality)/100になりました。"
+                                        ? (preview.cost == 0 ? "整備担当が社内整備を行い、品質が\(preview.resultingQuality)/100になりました。" : "整備費\(preview.cost.currency)を支払い、品質が\(preview.resultingQuality)/100になりました。")
                                         : "整備を実行できませんでした。"
                                 }
                                 .font(.caption2.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
@@ -788,7 +796,7 @@ private struct StoreSceneHeader: View {
             HStack {
                 MetricView(title: "今週来店", value: "\(store.buyerArrivalsThisWeek + store.sellerArrivalsThisWeek)人", tint: .white)
                 MetricView(title: "販売", value: "\(store.lastSales)台", tint: .white)
-                MetricView(title: "満足度", value: "\(store.satisfaction)", tint: .white)
+                MetricView(title: "口コミ", value: store.reviewRatingText, detail: "\(store.reviewCount)件", tint: .white)
                 MetricView(title: "営業利益", value: store.lastProfit.currency, tint: store.lastProfit >= 0 ? GameTheme.mint : .red)
             }
             .padding(13).background(GameTheme.navy)
@@ -802,7 +810,7 @@ private struct StoreSceneHeader: View {
         if let remaining = store.renovationMonthsRemaining { return "営業を続けながら改装中。あと\(remaining)週間です" }
         if store.inventoryCount < 5 { return "在庫が少なく、販売機会を逃しています" }
         if store.lastProfit < 0 { return "今週は赤字です。価格と広告を見直しましょう" }
-        if store.satisfaction >= 80 { return "口コミが好調です。この流れを維持しましょう" }
+        if (store.averageReviewScore ?? 0) >= 80 { return "口コミが好調です。この流れを維持しましょう" }
         return store.hasManager ? "今週もお客様の動きを確認していきましょう" : "仕入れと販売はオーナーが操作します"
     }
 
@@ -1398,19 +1406,46 @@ private struct StoreOverviewPanel: View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    SectionTitle(title: "お客様レビュー", subtitle: "直近の来店・購入者評価")
+                    SectionTitle(title: "お客様レビュー", subtitle: "実際に来店した販売客・買取客のみ")
                     Spacer()
-                    Text(String(format: "%.1f", Double(store.satisfaction) / 20)).font(.system(size: 32, weight: .black, design: .rounded)).foregroundStyle(GameTheme.orange)
+                    Text(store.reviewRatingText).font(.system(size: 32, weight: .black, design: .rounded)).foregroundStyle(GameTheme.orange)
                 }
                 HStack(spacing: 4) {
-                    ForEach(1...5, id: \.self) { star in Image(systemName: Double(star) <= Double(store.satisfaction) / 20 ? "star.fill" : "star").foregroundStyle(GameTheme.orange) }
-                    Text("\(store.satisfaction * 6)件の評価").font(.caption).foregroundStyle(.secondary).padding(.leading, 5)
+                    ForEach(1...5, id: \.self) { star in
+                        Image(systemName: Double(star) <= (store.reviewRating ?? 0) ? "star.fill" : "star")
+                            .foregroundStyle(store.reviewCount == 0 ? .secondary : GameTheme.orange)
+                    }
+                    Text(store.reviewCount == 0 ? "レビューはまだありません" : "\(store.reviewCount)件の来店客評価")
+                        .font(.caption).foregroundStyle(.secondary).padding(.leading, 5)
                 }
                 HStack {
-                    ReviewMetric(name: "価格", value: 100 - Int(max(0, store.priceIndex - 0.85) * 130))
-                    ReviewMetric(name: "商品", value: min(98, 48 + store.inventoryCount * 2))
-                    ReviewMetric(name: "接客", value: store.satisfaction)
-                    ReviewMetric(name: "立地", value: Int((plot.visibility + plot.access) * 42))
+                    ReviewMetric(name: "販売価格", value: store.reviewScore(for: .salesPrice))
+                    ReviewMetric(name: "車両・商品", value: store.reviewScore(for: .vehicle))
+                    ReviewMetric(name: "買取価格", value: store.reviewScore(for: .purchaseOffer))
+                    ReviewMetric(name: "接客", value: store.reviewScore(for: .service))
+                }
+                Label(store.reviewManagementAdvice, systemImage: "signpost.right.and.left.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(GameTheme.navy)
+                if !store.customerReviews.isEmpty {
+                    Divider()
+                    ForEach(Array(store.customerReviews.prefix(3))) { review in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(review.channel.name)
+                                .font(.caption2.bold())
+                                .foregroundStyle(review.channel == .buyer ? .blue : GameTheme.teal)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background((review.channel == .buyer ? Color.blue : GameTheme.teal).opacity(0.10))
+                                .clipShape(Capsule())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(review.comment).font(.caption)
+                                Text("評価 \(String(format: "%.1f", Double(review.overallScore) / 20))・\(review.createdTurn + 1)週目")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
                 }
             }
             .gameCard()
@@ -1436,14 +1471,16 @@ private struct StoreOverviewPanel: View {
 
 private struct ReviewMetric: View {
     let name: String
-    let value: Int
+    let value: Int?
     var body: some View {
         VStack(spacing: 5) {
             Text(name).font(.caption2).foregroundStyle(.secondary)
             ZStack {
                 Circle().stroke(GameTheme.navy.opacity(0.1), lineWidth: 5)
-                Circle().trim(from: 0, to: min(1, Double(value) / 100)).stroke(GameTheme.teal, style: StrokeStyle(lineWidth: 5, lineCap: .round)).rotationEffect(.degrees(-90))
-                Text("\(value)").font(.caption.bold().monospacedDigit())
+                Circle().trim(from: 0, to: min(1, Double(value ?? 0) / 100))
+                    .stroke((value ?? 70) < 60 ? GameTheme.orange : GameTheme.teal, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text(value.map(String.init) ?? "—").font(.caption.bold().monospacedDigit())
             }.frame(width: 45, height: 45)
         }.frame(maxWidth: .infinity)
     }
@@ -1832,8 +1869,19 @@ private struct MarketPanel: View {
             }.gameCard()
             VStack(alignment: .leading, spacing: 12) {
                 SectionTitle(title: "マーケティング施策", subtitle: "オーナーが広告予算を指示します")
-                Label("調査担当：\(game.marketResearcherName(for: store.id))・予測誤差 ±\(Int((game.marketForecastErrorRate(for: store.id) * 100).rounded()))%・広告効率 \(Int((game.employeeMarketingEfficiency(for: store.id, buyers: true) * 100).rounded()))%", systemImage: "chart.line.uptrend.xyaxis")
+                let intelligence = game.marketIntelligence(for: store.id)
+                Label("調査担当：\(game.marketResearcherName(for: store.id))・\(intelligence.horizonWeeks)週先・精度 \(intelligence.accuracyPercent)%・広告効率 \(Int((game.employeeMarketingEfficiency(for: store.id, buyers: true) * 100).rounded()))%", systemImage: "chart.line.uptrend.xyaxis")
                     .font(.caption.bold()).foregroundStyle(GameTheme.teal)
+                HStack {
+                    ProposalMetric(title: "燃料予測", value: "\(intelligence.gasolineRange.lowerBound)〜\(intelligence.gasolineRange.upperBound)円")
+                    ProposalMetric(title: "日経予測", value: "\(intelligence.nikkeiRange.lowerBound.formatted())〜\(intelligence.nikkeiRange.upperBound.formatted())")
+                    ProposalMetric(title: "需要予測", value: "\(intelligence.demandRange.lowerBound)〜\(intelligence.demandRange.upperBound)%")
+                }
+                Label(intelligence.shortTermOutlook, systemImage: intelligence.upcomingEvent == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.caption.bold()).foregroundStyle(intelligence.upcomingEvent == nil ? GameTheme.teal : GameTheme.orange)
+                Text(intelligence.longTermOutlook).font(.caption2).foregroundStyle(.secondary)
+                Label(intelligence.recommendedAction, systemImage: "lightbulb.max.fill")
+                    .font(.caption2.bold()).foregroundStyle(GameTheme.navy)
                 HStack(spacing: 10) {
                     CampaignCard(title: "地域SNS広告", detail: "+60万円/月", icon: "wifi", color: .blue) { campaign(60, "地域SNS広告を開始しました") }
                     CampaignCard(title: "ロードサイド看板", detail: "+100万円/月", icon: "signpost.right.fill", color: GameTheme.orange) { campaign(100, "幹線道路に大型看板を設置しました") }
@@ -1979,7 +2027,7 @@ private struct VehicleCatalogPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "車両市場カタログ", subtitle: "新車発売から中古流通まで、需要・相場・自店在庫を追跡")
             HStack {
-                ProposalMetric(title: "燃料価格", value: "指数 \(Int(game.fuelPriceIndex * 100))")
+                ProposalMetric(title: "ガソリン", value: "\(game.gasolinePricePerLiter)円/L")
                 ProposalMetric(title: "EV人気", value: "指数 \(game.electricTrendIndex(in: district))")
                 ProposalMetric(title: "中古EV比率", value: "\(game.usedMarketEVShare)%")
             }
@@ -2047,6 +2095,7 @@ private struct CatalogVehicleRow: View {
 
     private var marketIndex: Double { game.catalogMarketIndex(for: model, in: district) }
     private var trend: Int { game.catalogPriceTrendPercent(for: model, in: district) }
+    private var forecast: VehicleMarketForecast { game.vehicleMarketForecast(for: model, in: district, storeID: store.id) }
     private var color: Color { marketIndex >= 1.12 ? GameTheme.teal : marketIndex >= 0.82 ? .blue : GameTheme.orange }
     private var powertrainColor: Color {
         switch model.powertrain {
@@ -2105,6 +2154,9 @@ private struct CatalogVehicleRow: View {
                 ProposalMetric(title: "販売参考", value: game.catalogRetailPrice(for: model, in: district).currency)
                 ProposalMetric(title: "自店在庫", value: "\(game.inventoryCount(modelID: model.id, storeID: store.id))台")
             }
+            Label("\(forecast.horizonWeeks)週後：販売 \(forecast.retailPriceRange.lowerBound.currency)〜\(forecast.retailPriceRange.upperBound.currency)／AA \(forecast.auctionPriceRange.lowerBound.currency)〜\(forecast.auctionPriceRange.upperBound.currency)（\(forecast.directionPercent >= 0 ? "+" : "")\(forecast.directionPercent)%）", systemImage: "waveform.path.ecg")
+                .font(.caption2.bold())
+                .foregroundStyle(forecast.directionPercent >= 0 ? GameTheme.teal : GameTheme.orange)
             if model.launchTurn > 0 {
                 Label("中古流通量 \(Int(game.usedMarketSupplyFactor(for: model) * 100))%（発売から\(max(0, game.turn - model.launchTurn))週）", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption2).foregroundStyle(.secondary)

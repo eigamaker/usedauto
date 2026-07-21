@@ -38,8 +38,10 @@ final class GameEngine: ObservableObject {
     @Published var regionalOperations: [RegionalOperation] = []
     @Published var intercityShipments: [IntercityShipment] = []
     @Published var nationalBrandStrength: Double = 0.48
-    @Published var economicIndex: Double = 1.0
-    @Published var fuelPriceIndex: Double = 1.0
+    @Published private(set) var gasolinePrice: Double = 155
+    @Published private(set) var nikkeiAverage: Double = 60_000
+    @Published private(set) var marketDemandIndex: Double = 1.0
+    @Published var activeMarketShocks: [ActiveMarketShock] = []
     @Published var careerStatistics = CareerStatistics()
     @Published var priceWarChallenges: [PriceWarChallenge] = []
     @Published var financialDistressWeeks = 0
@@ -77,8 +79,16 @@ final class GameEngine: ObservableObject {
         let regionalOperations: [RegionalOperation]
         let intercityShipments: [IntercityShipment]
         let nationalBrandStrength: Double
-        let economicIndex: Double
-        let fuelPriceIndex: Double
+        let gasolinePrice: Double
+        let nikkeiAverage: Double
+        let marketDemandIndex: Double
+        let gasolineTrendTarget: Double
+        let nikkeiTrendTarget: Double
+        let demandTrendTarget: Double
+        let gasolineMomentum: Double
+        let nikkeiMomentum: Double
+        let demandMomentum: Double
+        let activeMarketShocks: [ActiveMarketShock]
         let careerStatistics: CareerStatistics
         let priceWarChallenges: [PriceWarChallenge]
         let tutorialStep: TutorialStep?
@@ -120,7 +130,17 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v30"
+    private static let saveKey = "UsedCarCity.save.v32"
+    private static let gasolineBaseline = 155.0
+    private static let gasolineRange = 105.0...205.0
+    private static let nikkeiBaseline = 60_000.0
+    private static let nikkeiRange = 15_000.0...120_000.0
+    private var gasolineTrendTarget = 155.0
+    private var nikkeiTrendTarget = 60_000.0
+    private var demandTrendTarget = 1.0
+    private var gasolineMomentum = 0.0
+    private var nikkeiMomentum = 0.0
+    private var demandMomentum = 0.0
     private static let managerCandidates = [
         StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, procurementAbility: 72, marketingAbility: 84, serviceAbility: 71, monthlySalary: 58),
         StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, procurementAbility: 81, marketingAbility: 58, serviceAbility: 75, monthlySalary: 59),
@@ -245,6 +265,37 @@ final class GameEngine: ObservableObject {
 
     var progress: Double { Double(turn) / Double(maxTurns) }
     var totalInventory: Int { stores.reduce(0) { $0 + $1.inventoryCount } }
+    var gasolinePricePerLiter: Int { Int(gasolinePrice.rounded()) }
+    var nikkeiAverageYen: Int { Int(nikkeiAverage.rounded()) }
+    var marketDemandPercentage: Int { Int((marketDemandIndex * 100).rounded()) }
+    var customerTrafficIndex: Double { marketDemandIndex * (0.45 + economicIndex * 0.55) }
+    var customerTrafficPercentage: Int { Int((customerTrafficIndex * 100).rounded()) }
+
+    /// Existing vehicle-demand calculations continue to consume a normalized
+    /// value while the player sees the familiar yen-per-litre market price.
+    var fuelPriceIndex: Double {
+        get { gasolinePrice / Self.gasolineBaseline }
+        set { gasolinePrice = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound, newValue * Self.gasolineBaseline)) }
+    }
+
+    /// Maps the visible Nikkei average onto the deliberately narrower gameplay
+    /// range used by pricing, financing and customer simulations.
+    var economicIndex: Double {
+        get {
+            if nikkeiAverage <= Self.nikkeiBaseline {
+                return 0.72 + (nikkeiAverage - Self.nikkeiRange.lowerBound) / (Self.nikkeiBaseline - Self.nikkeiRange.lowerBound) * 0.28
+            }
+            return 1.0 + (nikkeiAverage - Self.nikkeiBaseline) / (Self.nikkeiRange.upperBound - Self.nikkeiBaseline) * 0.28
+        }
+        set {
+            let normalized = min(1.28, max(0.72, newValue))
+            if normalized <= 1 {
+                nikkeiAverage = Self.nikkeiRange.lowerBound + (normalized - 0.72) / 0.28 * (Self.nikkeiBaseline - Self.nikkeiRange.lowerBound)
+            } else {
+                nikkeiAverage = Self.nikkeiBaseline + (normalized - 1) / 0.28 * (Self.nikkeiRange.upperBound - Self.nikkeiBaseline)
+            }
+        }
+    }
     var availableVehicleCatalog: [VehicleCatalogEntry] {
         VehicleCatalog.available(through: turn).sorted {
             if $0.launchTurn != $1.launchTurn { return $0.launchTurn > $1.launchTurn }
@@ -439,7 +490,19 @@ final class GameEngine: ObservableObject {
         hasStarted = false
         year = 2026; month = 1; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
-        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; tutorialMessage = nil
+        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []
+        nationalBrandStrength = 0.48
+        gasolinePrice = Self.gasolineBaseline
+        nikkeiAverage = Self.nikkeiBaseline
+        marketDemandIndex = 1.0
+        gasolineTrendTarget = Self.gasolineBaseline
+        nikkeiTrendTarget = Self.nikkeiBaseline
+        demandTrendTarget = 1.0
+        gasolineMomentum = 0
+        nikkeiMomentum = 0
+        demandMomentum = 0
+        activeMarketShocks = []
+        careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; tutorialMessage = nil
         unlockedFeatures = ["仕入", "価格設定", "出店"]
         placeCompetitors()
         if removeSave {
@@ -477,8 +540,16 @@ final class GameEngine: ObservableObject {
         regionalOperations = saved.regionalOperations
         intercityShipments = saved.intercityShipments
         nationalBrandStrength = saved.nationalBrandStrength
-        economicIndex = saved.economicIndex
-        fuelPriceIndex = saved.fuelPriceIndex
+        gasolinePrice = saved.gasolinePrice
+        nikkeiAverage = saved.nikkeiAverage
+        marketDemandIndex = saved.marketDemandIndex
+        gasolineTrendTarget = saved.gasolineTrendTarget
+        nikkeiTrendTarget = saved.nikkeiTrendTarget
+        demandTrendTarget = saved.demandTrendTarget
+        gasolineMomentum = saved.gasolineMomentum
+        nikkeiMomentum = saved.nikkeiMomentum
+        demandMomentum = saved.demandMomentum
+        activeMarketShocks = saved.activeMarketShocks
         careerStatistics = saved.careerStatistics
         priceWarChallenges = saved.priceWarChallenges
         tutorialStep = saved.tutorialStep
@@ -544,8 +615,7 @@ final class GameEngine: ObservableObject {
     func weeklyBuyerPool(in kind: DistrictKind) -> Int {
         guard let district = districts.first(where: { $0.kind == kind }) else { return 0 }
         let season = [3, 9].contains(month) ? 1.12 : ([1, 8].contains(month) ? 0.92 : 1.0)
-        let economy = 0.45 + economicIndex * 0.55
-        let base = Double(district.population) / 6_500.0 * district.trafficIndex * season * economy
+        let base = Double(district.population) / 6_500.0 * district.trafficIndex * season * customerTrafficIndex
         let index = DistrictKind.allCases.firstIndex(of: kind) ?? 0
         return max(0, Int((base * weeklyMarketShock(seed: turn * 149 + index * 37 + 11)).rounded()))
     }
@@ -953,9 +1023,10 @@ final class GameEngine: ObservableObject {
         let location = plot.visibility * plot.access * plot.traffic
         let advertisingLift = min(0.42, Double(store.advertising) / 520.0)
         return [
-            ResultCause("景気指数 \(Int(economicIndex * 100))", (economicIndex - 1) * 5.0),
+            ResultCause("日経平均 \(nikkeiAverageYen.formatted())円", (economicIndex - 1) * 5.0),
+            ResultCause("中古車需要 \(marketDemandPercentage)%", (marketDemandIndex - 1) * 5.0),
             ResultCause("地域人口 \(district.population.formatted())人", (Double(district.population) / 70_000.0 - 1) * 3.0),
-            ResultCause("店舗の評判", (store.reputation - 0.65) * 5.5),
+            ResultCause("販売客の口コミ", (store.customerReviewAttraction(for: .buyer) - 1) * 8.0),
             ResultCause("立地・交通", (location - 1) * 3.0),
             ResultCause("広告・認知", (advertisingLift - 0.15) * 3.0),
             ResultCause(stocked.isEmpty ? "希望車種の在庫なし" : "地域需要と在庫", (inventoryDemand - 1) * 4.0),
@@ -998,7 +1069,8 @@ final class GameEngine: ObservableObject {
         let marketing = (0.82 + min(0.38, Double(store.advertising) / 550.0))
             * employeeMarketingEfficiency(for: store.id, buyers: true)
         let priceAppeal = max(0.62, 1.72 - store.priceIndex * 0.72)
-        return max(0.08, inventoryFit * facilityMarketFactor(store) * location * marketing * priceAppeal * competitiveStoreMarketFactor(in: plot.district))
+        let reviews = store.customerReviewAttraction(for: .buyer)
+        return max(0.08, inventoryFit * facilityMarketFactor(store) * location * marketing * priceAppeal * reviews * competitiveStoreMarketFactor(in: plot.district))
     }
 
     private func competitorMarketWeight(_ competitor: Competitor, plot: LandPlot) -> Double {
@@ -1237,15 +1309,19 @@ final class GameEngine: ObservableObject {
     }
 
     func auctionBidWinChance(for listing: AuctionListing, maxPrice: Int) -> Double {
-        if maxPrice >= listing.marketPrice * 3 / 2 { return 1.0 }
-        let spread = max(1, listing.marketPrice - listing.reservePrice)
-        if maxPrice <= listing.reservePrice { return 0.18 }
-        if maxPrice <= listing.marketPrice {
-            let progress = Double(maxPrice - listing.reservePrice) / Double(spread)
-            return min(0.50, 0.18 + progress * 0.32)
+        let sampleCount = 120
+        var wins = 0
+        let baseSeed = turn * 277 + listing.modelYear * 19 + listing.mileage / 500 + categoryIndex(listing.category) * 43
+        for sample in 0..<sampleCount {
+            let rival = competitorAuctionBid(for: listing, seed: baseSeed + sample * 7_919)
+            if maxPrice >= (rival?.maxPrice ?? listing.reservePrice) { wins += 1 }
         }
-        let premium = Double(maxPrice - listing.marketPrice) / Double(max(1, listing.marketPrice))
-        return min(0.76, 0.50 + premium * 1.30)
+        return Double(wins) / Double(sampleCount)
+    }
+
+    func auctionBidStep(for listing: AuctionListing) -> Int {
+        let rawStep = max(5, listing.marketPrice / 40)
+        return max(5, Int((Double(rawStep) / 5).rounded()) * 5)
     }
 
     @discardableResult
@@ -1492,7 +1568,29 @@ final class GameEngine: ObservableObject {
     func employeeAppraisalAccuracyBonus(for storeID: UUID) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
         let facilityBonus = store.facilities.contains(.quickAppraisal) ? 5 : 0
-        return facilityBonus
+        let employeeBonus = store.employees
+            .filter { $0.assignment == .procurement }
+            .map(employeeAppraisalAccuracyBonus)
+            .max() ?? 0
+        return facilityBonus + employeeBonus
+    }
+
+    func hasServiceTechnician(storeID: UUID) -> Bool {
+        stores.first(where: { $0.id == storeID })?.employees.contains {
+            $0.assignment == .service
+        } ?? false
+    }
+
+    func purchaseRepairCost(for item: PurchaseCase) -> Int {
+        hasServiceTechnician(storeID: item.storeID) ? 0 : item.repairCost
+    }
+
+    func purchaseExpectedGrossProfit(for item: PurchaseCase) -> Int {
+        (item.expectedSaleAfterAppraisal - item.askingPrice - purchaseRepairCost(for: item)) * item.lotCount
+    }
+
+    func tradeInRepairCost(for tradeIn: TradeInVehicle, storeID: UUID) -> Int {
+        hasServiceTechnician(storeID: storeID) ? 0 : tradeIn.repairCost
     }
 
     func assignedEmployees(storeID: UUID, assignment: EmployeeAssignment) -> [StoreEmployee] {
@@ -1556,16 +1654,106 @@ final class GameEngine: ObservableObject {
     }
 
     func marketForecastErrorRate(for storeID: UUID) -> Double {
-        interpolatedEmployeeEffect(score: marketResearchScore(for: storeID), low: 0.30, high: 0.02)
+        guard hasMarketResearcher(storeID: storeID) else { return 0.35 }
+        return interpolatedEmployeeEffect(score: marketResearchScore(for: storeID), low: 0.30, high: 0.02)
     }
 
     func marketForecastRange(value: Int, storeID: UUID) -> ClosedRange<Int> {
-        let error = marketForecastErrorRate(for: storeID)
-        let seed = turn * 401 + (stores.first(where: { $0.id == storeID })?.plotID ?? 0)
+        forecastRange(value: value, storeID: storeID, horizonWeeks: 1, seedSalt: 0)
+    }
+
+    private func forecastRange(value: Int, storeID: UUID, horizonWeeks: Int, seedSalt: Int) -> ClosedRange<Int> {
+        let horizonPenalty = 1 + Double(max(0, horizonWeeks - 1)) * 0.08
+        let error = min(0.42, marketForecastErrorRate(for: storeID) * horizonPenalty)
+        let seed = turn * 401 + (stores.first(where: { $0.id == storeID })?.plotID ?? 0) + seedSalt
         let centerError = (transactionRoll(seed: seed) - 0.5) * error
         let center = Double(value) * (1 + centerError)
         let halfWidth = Double(value) * error / 2
         return max(0, Int((center - halfWidth).rounded()))...max(0, Int((center + halfWidth).rounded()))
+    }
+
+    func marketForecastHorizon(for storeID: UUID) -> Int {
+        guard hasMarketResearcher(storeID: storeID) else { return 1 }
+        return marketResearchScore(for: storeID) >= 70 ? 3 : 2
+    }
+
+    func marketIntelligence(for storeID: UUID) -> MarketIntelligenceReport {
+        let horizon = marketForecastHorizon(for: storeID)
+        let projection = projectedMarketState(weeks: horizon)
+        let error = marketForecastErrorRate(for: storeID)
+        let gasoline = forecastRange(value: Int(projection.gasoline.rounded()), storeID: storeID, horizonWeeks: horizon, seedSalt: 17)
+        let nikkei = forecastRange(value: Int(projection.nikkei.rounded()), storeID: storeID, horizonWeeks: horizon, seedSalt: 29)
+        let demand = forecastRange(value: Int((projection.demand * 100).rounded()), storeID: storeID, horizonWeeks: horizon, seedSalt: 43)
+        let event = upcomingMarketShock(within: horizon)
+        let shortTerm: String
+        if let event {
+            if !hasMarketResearcher(storeID: storeID) {
+                shortTerm = "市場変動の兆候あり。専門担当なら発生要因まで先読みできます"
+            } else if marketResearchScore(for: storeID) >= 70 {
+                shortTerm = "\(horizon)週以内：\(event.title)の可能性が高い"
+            } else {
+                shortTerm = event.eventKind == .fuelPrice
+                    ? "2週以内：燃料相場を大きく動かす供給・需要イベントの兆候"
+                    : "2週以内：景気を大きく動かすイベントの兆候"
+            }
+        } else {
+            shortTerm = "\(horizon)週先まで大型イベントの兆候なし"
+        }
+
+        let gasDirection = gasolineTrendTarget - gasolinePrice
+        let nikkeiDirection = nikkeiTrendTarget - nikkeiAverage
+        let demandDirection = demandTrendTarget - marketDemandIndex
+        let longTerm = "長期：燃料\(trendWord(gasDirection, threshold: 4))・日経\(trendWord(nikkeiDirection, threshold: 4_000))・需要\(trendWord(demandDirection, threshold: 0.04))"
+
+        let action: String
+        if projection.demand >= marketDemandIndex + 0.015 {
+            action = "需要増に備え、回転の速い車種を先行確保。欠品前にAA・業販の上限を見直す"
+        } else if projection.demand <= marketDemandIndex - 0.015 {
+            action = "需要減に備え、長期在庫を値下げ・AA出品。仕入れ量と固定費を絞る"
+        } else if projection.gasoline >= gasolinePrice + 3 {
+            action = "燃料高に備え、軽・コンパクト・ハイブリッドを確保。燃費重視の業態へ寄せる"
+        } else if projection.nikkei >= nikkeiAverage + 2_000 {
+            action = "景気上向きに備え、高品質SUV・輸入車の在庫を厚くする"
+        } else {
+            action = "相場は安定。現在の在庫回転を維持し、不採算車だけを処分する"
+        }
+        return MarketIntelligenceReport(
+            horizonWeeks: horizon,
+            accuracyPercent: Int(((1 - error) * 100).rounded()),
+            gasolineRange: gasoline,
+            nikkeiRange: nikkei,
+            demandRange: demand,
+            shortTermOutlook: shortTerm,
+            longTermOutlook: longTerm,
+            recommendedAction: action,
+            upcomingEvent: event
+        )
+    }
+
+    func vehicleMarketForecast(for model: VehicleCatalogEntry, in district: DistrictKind, storeID: UUID) -> VehicleMarketForecast {
+        let horizon = marketForecastHorizon(for: storeID)
+        let projection = projectedMarketState(weeks: horizon)
+        let currentRetail = catalogRetailPrice(for: model, in: district)
+        let currentAuction = catalogWholesalePrice(for: model, in: district)
+        let factor = projectedVehiclePriceFactor(powertrain: model.powertrain, projection: projection)
+        let projectedRetail = max(1, Int((Double(currentRetail) * factor).rounded()))
+        let projectedAuction = max(1, Int((Double(currentAuction) * (1 + (factor - 1) * 0.82)).rounded()))
+        let stableSeed = model.id.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0x7fff }
+        return VehicleMarketForecast(
+            horizonWeeks: horizon,
+            retailPriceRange: forecastRange(value: projectedRetail, storeID: storeID, horizonWeeks: horizon, seedSalt: stableSeed),
+            auctionPriceRange: forecastRange(value: projectedAuction, storeID: storeID, horizonWeeks: horizon, seedSalt: stableSeed + 97),
+            directionPercent: Int(((factor - 1) * 100).rounded())
+        )
+    }
+
+    func auctionMarketForecast(for listing: AuctionListing, storeID: UUID) -> ClosedRange<Int> {
+        let horizon = marketForecastHorizon(for: storeID)
+        let projection = projectedMarketState(weeks: horizon)
+        let powertrain = VehicleCatalog.entry(id: listing.modelID)?.powertrain ?? .gasoline
+        let factor = projectedVehiclePriceFactor(powertrain: powertrain, projection: projection)
+        let projected = max(1, Int((Double(listing.marketPrice) * (1 + (factor - 1) * 0.82)).rounded()))
+        return forecastRange(value: projected, storeID: storeID, horizonWeeks: horizon, seedSalt: listing.modelYear + listing.mileage / 1_000)
     }
 
     func marketResearcherName(for storeID: UUID) -> String {
@@ -1933,6 +2121,157 @@ final class GameEngine: ObservableObject {
         return budgetRatio <= 1 ? 0.10 : -min(0.48, (budgetRatio - 1) * 1.35 * lead.priceSensitivity)
     }
 
+    private func clampedReviewScore(_ value: Int) -> Int {
+        min(100, max(10, value))
+    }
+
+    private func recordCustomerReview(_ review: CustomerReview, storeIndex: Int) {
+        guard stores.indices.contains(storeIndex) else { return }
+        if let existing = stores[storeIndex].customerReviews.firstIndex(where: { $0.customerID == review.customerID }) {
+            stores[storeIndex].customerReviews[existing] = review
+        } else {
+            stores[storeIndex].customerReviews.insert(review, at: 0)
+        }
+        stores[storeIndex].customerReviews.sort {
+            $0.createdTurn == $1.createdTurn ? $0.id.uuidString > $1.id.uuidString : $0.createdTurn > $1.createdTurn
+        }
+        if stores[storeIndex].customerReviews.count > 120 {
+            stores[storeIndex].customerReviews.removeLast(stores[storeIndex].customerReviews.count - 120)
+        }
+        refreshReviewStanding(for: storeIndex)
+    }
+
+    private func refreshReviewStanding(for storeIndex: Int) {
+        guard stores.indices.contains(storeIndex),
+              let average = stores[storeIndex].averageReviewScore else {
+            if stores.indices.contains(storeIndex) { stores[storeIndex].satisfaction = 0 }
+            return
+        }
+        stores[storeIndex].satisfaction = average
+        let confidence = min(1, Double(stores[storeIndex].reviewCount) / 12)
+        let reviewReputation = 0.65 + (Double(average) - 70) / 55 * 0.32 * confidence
+        stores[storeIndex].reputation = min(1.15, max(0.40, reviewReputation))
+    }
+
+    private func recordBuyerReview(
+        lead: BuyerLead,
+        batch: InventoryBatch,
+        offerPrice: Int,
+        succeeded: Bool,
+        serviceScore: Int
+    ) {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == lead.storeID }),
+              let plot = plot(id: stores[storeIndex].plotID) else { return }
+        var fairPrice = vehicleRetailValue(
+            modelID: batch.modelID,
+            category: batch.category,
+            modelYear: batch.modelYear,
+            mileage: batch.mileage,
+            quality: batch.quality,
+            in: plot.district
+        )
+        if let issue = batch.disclosedIssue {
+            fairPrice = Int((Double(fairPrice) * issue.disclosedValueFactor).rounded())
+        }
+        let priceRatio = Double(offerPrice) / Double(max(1, fairPrice))
+        let rawPriceScore = 88
+            - Int((max(0, priceRatio - 0.95) * 170).rounded())
+            + Int((max(0, 0.95 - priceRatio) * 45).rounded())
+        let priceScore = clampedReviewScore(rawPriceScore)
+        let matchAdjustment = inventoryPreferenceMatches(batch, preference: lead.preference) ? 9 : -18
+        let issueAdjustment = batch.disclosedIssue == nil ? 0 : -12
+        let vehicleScore = clampedReviewScore(Int((batch.quality * 100).rounded()) + matchAdjustment + issueAdjustment)
+        let service = clampedReviewScore(serviceScore)
+        let overall = clampedReviewScore(Int((Double(priceScore) * 0.40 + Double(vehicleScore) * 0.35 + Double(service) * 0.25).rounded()))
+        let comment: String
+        if priceScore < 55 {
+            comment = "店頭価格が相場より高く感じました"
+        } else if vehicleScore < 55 {
+            comment = "希望条件に合う車や品質の説明が物足りませんでした"
+        } else if service < 50 {
+            comment = "来店しましたが、十分な対応を受けられませんでした"
+        } else if succeeded {
+            comment = "価格と車両説明に納得して購入できました"
+        } else {
+            comment = "提案は受けましたが、今回は条件が合いませんでした"
+        }
+        recordCustomerReview(CustomerReview(
+            customerID: lead.id,
+            createdTurn: turn,
+            channel: .buyer,
+            salesPriceScore: priceScore,
+            vehicleScore: vehicleScore,
+            serviceScore: service,
+            overallScore: overall,
+            comment: comment
+        ), storeIndex: storeIndex)
+    }
+
+    private func recordSellerReview(
+        item: PurchaseCase,
+        offerPercent: Int?,
+        succeeded: Bool,
+        serviceScore: Int,
+        declinedByStore: Bool = false
+    ) {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == item.storeID }) else { return }
+        let purchaseScore = offerPercent.map { clampedReviewScore(20 + ($0 - 80) * 4) }
+        let service = clampedReviewScore(serviceScore)
+        let overall = purchaseScore.map {
+            clampedReviewScore(Int((Double($0) * 0.75 + Double(service) * 0.25).rounded()))
+        } ?? service
+        let comment: String
+        if declinedByStore {
+            comment = "査定後に買取を見送られました"
+        } else if let purchaseScore, purchaseScore >= 88, succeeded {
+            comment = "希望額に近い高額買取で満足しました"
+        } else if let purchaseScore, purchaseScore < 55 {
+            comment = "査定額が期待より低く感じました"
+        } else if succeeded {
+            comment = "説明のある査定で、提示条件に納得しました"
+        } else {
+            comment = "査定は受けましたが、提示条件が合いませんでした"
+        }
+        recordCustomerReview(CustomerReview(
+            customerID: item.id,
+            createdTurn: turn,
+            channel: .seller,
+            purchaseOfferScore: purchaseScore,
+            serviceScore: service,
+            overallScore: overall,
+            comment: comment
+        ), storeIndex: storeIndex)
+    }
+
+    private func recordUnattendedReview(customerID: UUID, storeID: UUID, channel: CustomerReviewChannel) {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }) else { return }
+        recordCustomerReview(CustomerReview(
+            customerID: customerID,
+            createdTurn: turn,
+            channel: channel,
+            serviceScore: 20,
+            overallScore: 20,
+            comment: "来店しましたが、担当者に対応してもらえませんでした"
+        ), storeIndex: storeIndex)
+    }
+
+    private func recordClaimReview(_ claim: PendingCustomerClaim, storeIndex: Int) {
+        let existing = stores[storeIndex].customerReviews.first(where: { $0.customerID == claim.customerID })
+        let priceScore = existing?.salesPriceScore
+        let service = min(existing?.serviceScore ?? 30, 25)
+        let overall = clampedReviewScore(Int((Double(priceScore ?? 45) * 0.30 + 10 * 0.45 + Double(service) * 0.25).rounded()))
+        recordCustomerReview(CustomerReview(
+            customerID: claim.customerID,
+            createdTurn: turn,
+            channel: .buyer,
+            salesPriceScore: priceScore,
+            vehicleScore: 10,
+            serviceScore: service,
+            overallScore: overall,
+            comment: "購入後に\(claim.issue.name)が判明し、車両への評価を変更しました"
+        ), storeIndex: storeIndex)
+    }
+
     func tradeInSalePreview(storeID: UUID, buyerLeadID: UUID, inventoryID: UUID, strategy: SaleNegotiationStrategy) -> TradeInSalePreview? {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID),
@@ -1952,14 +2291,15 @@ final class GameEngine: ObservableObject {
         let expectedTradeInSalePrice = max(25, Int(Double(baseRetail) * conceptPremium * store.priceIndex))
         let improvedBudgetEffect = buyerBudgetEffect(price: max(0, customerSettlement), lead: lead) - buyerBudgetEffect(price: sale.price, lead: lead)
         let closeChance = min(0.97, max(0.03, sale.closeChance + 0.08 + max(0, improvedBudgetEffect)))
+        let repairCost = tradeInRepairCost(for: tradeIn, storeID: storeID)
         return TradeInSalePreview(
             salePrice: sale.price,
             saleGrossProfit: sale.grossProfit,
             allowance: tradeIn.appraisedValue,
-            repairCost: tradeIn.repairCost,
+            repairCost: repairCost,
             customerCashSettlement: customerSettlement,
             expectedTradeInSalePrice: expectedTradeInSalePrice,
-            expectedTradeInGrossProfit: expectedTradeInSalePrice - tradeIn.appraisedValue - tradeIn.repairCost,
+            expectedTradeInGrossProfit: expectedTradeInSalePrice - tradeIn.appraisedValue - repairCost,
             closeChance: closeChance
         )
     }
@@ -1997,6 +2337,15 @@ final class GameEngine: ObservableObject {
         let succeeded = transactionRoll(seed: seed) < closeChance
         stores[storeIndex].pendingManualNegotiations = salesAttempts + 1
         buyerLeads.remove(at: leadIndex)
+        let proposedVehicle = stores[storeIndex].inventory[batchIndex]
+        let reviewService = (succeeded ? 82 : 60) + Int((strategy.discountRate * 100).rounded()) + (acceptTradeIn ? 4 : 0)
+        recordBuyerReview(
+            lead: lead,
+            batch: proposedVehicle,
+            offerPrice: preview.price,
+            succeeded: succeeded,
+            serviceScore: reviewService
+        )
 
         var acquiredTradeIn = false
         if succeeded {
@@ -2012,7 +2361,7 @@ final class GameEngine: ObservableObject {
                     modelID: tradeIn.modelID,
                     category: tradeIn.category,
                     count: 1,
-                    averageCost: tradeIn.appraisedValue + tradeIn.repairCost,
+                    averageCost: tradeIn.appraisedValue + tradeInPreview.repairCost,
                     quality: tradeIn.qualityAfterRepair,
                     modelYear: tradeIn.modelYear,
                     mileage: tradeIn.mileage,
@@ -2032,7 +2381,7 @@ final class GameEngine: ObservableObject {
                 250,
                 stores[storeIndex].loyalCustomers + loyalCustomerGain(store: stores[storeIndex], category: category)
             )
-            scheduleCustomerClaimIfNeeded(for: soldVehicle, storeID: storeID, salePrice: preview.price, seed: seed + 401)
+            scheduleCustomerClaimIfNeeded(for: soldVehicle, customerID: lead.id, storeID: storeID, salePrice: preview.price, seed: seed + 401)
             recalculateAssets()
         }
         save()
@@ -2306,6 +2655,38 @@ final class GameEngine: ObservableObject {
         return (item.askingPrice * percent / 100, chance)
     }
 
+    func procurementAppraisalAdvice(for caseID: UUID) -> String? {
+        guard let item = purchaseCases.first(where: { $0.id == caseID }),
+              let store = stores.first(where: { $0.id == item.storeID }),
+              let appraiser = store.employees
+                .filter({ $0.assignment == .procurement })
+                .max(by: { $0.appraisalComposite < $1.appraisalComposite }) else { return nil }
+        guard let percent = safePurchaseOfferPercent(item: item, policy: store.procurementPolicy, appraiser: appraiser) else {
+            return "\(appraiser.name)査定：採算上限が希望額の85%未満。高値づかみを避けるため見送り推奨"
+        }
+        let price = item.askingPrice * percent / 100
+        let issueText = item.revealedIssue.map { issue in "・\(issue.name)を価格へ反映" } ?? ""
+        return "\(appraiser.name)査定：上限\(price.currency)（希望額の\(percent)%）\(issueText)"
+    }
+
+    private func safePurchaseOfferPercent(item: PurchaseCase, policy: ProcurementAutomationPolicy, appraiser: StoreEmployee) -> Int? {
+        let baseMargin: Double
+        switch policy {
+        case .profit: baseMargin = 0.12
+        case .balanced: baseMargin = 0.07
+        case .volume: baseMargin = 0.03
+        }
+        // Better appraisers retain a slightly larger uncertainty buffer instead
+        // of spending their additional knowledge on a more aggressive bid.
+        let skillBuffer = max(0, appraiser.appraisalComposite - 50) / 1_000
+        let targetMargin = Int((Double(item.expectedSaleAfterAppraisal) * (baseMargin + skillBuffer)).rounded())
+        let safePurchasePrice = item.expectedSaleAfterAppraisal - purchaseRepairCost(for: item) - targetMargin
+        guard safePurchasePrice > 0 else { return nil }
+        let maximumPercent = safePurchasePrice * 100 / max(1, item.askingPrice)
+        guard maximumPercent >= 85 else { return nil }
+        return min(policy.offerPercent, min(100, maximumPercent))
+    }
+
     func canNegotiatePurchaseCase(_ caseID: UUID) -> Bool {
         guard let item = purchaseCases.first(where: { $0.id == caseID }),
               stores.contains(where: { $0.id == item.storeID }) else { return false }
@@ -2318,7 +2699,8 @@ final class GameEngine: ObservableObject {
               let storeIndex = stores.firstIndex(where: { $0.id == purchaseCases[caseIndex].storeID }),
               let preview = purchaseNegotiationPreview(caseID, offerPercent: offerPercent) else { return .unavailable }
         let item = purchaseCases[caseIndex]
-        let total = (preview.price + item.repairCost) * item.lotCount
+        let repairCost = purchaseRepairCost(for: item)
+        let total = (preview.price + repairCost) * item.lotCount
         guard cash >= total,
               stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity,
               remainingWeeklyOpportunities(storeID: item.storeID) > 0 else { return .unavailable }
@@ -2329,6 +2711,7 @@ final class GameEngine: ObservableObject {
         guard transactionRoll(seed: seed) < preview.closeChance else {
             let nextAttempt = item.negotiations + 1
             let walkedAway = nextAttempt >= 2 || offerPercent <= 88
+            recordSellerReview(item: item, offerPercent: min(100, max(85, offerPercent)), succeeded: false, serviceScore: walkedAway ? 48 : 58)
             if walkedAway { purchaseCases.remove(at: caseIndex) }
             else { purchaseCases[caseIndex].negotiationAttempts = nextAttempt }
             save()
@@ -2340,7 +2723,7 @@ final class GameEngine: ObservableObject {
             modelID: item.modelID,
             category: item.category,
             count: item.lotCount,
-            averageCost: preview.price + item.repairCost,
+            averageCost: preview.price + repairCost,
             quality: Double(item.qualityAfterRepairScore) / 100,
             modelYear: item.modelYear,
             mileage: item.mileage,
@@ -2349,7 +2732,7 @@ final class GameEngine: ObservableObject {
                 VehicleIssueRecord(kind: $0, status: item.issueRevealed ? .disclosed : .hidden)
             }
         ))
-        stores[storeIndex].reputation = min(1.25, stores[storeIndex].reputation + (tradeIn ? 0.012 : offerPercent < 94 ? -0.004 : 0.006))
+        recordSellerReview(item: item, offerPercent: min(100, max(85, offerPercent)), succeeded: true, serviceScore: tradeIn ? 90 : 84)
         purchaseCases.remove(at: caseIndex)
         recalculateAssets()
         save()
@@ -2390,7 +2773,9 @@ final class GameEngine: ObservableObject {
         guard currentScore <= 91 else { return nil }
         let gain = currentScore < 75 ? 4 : 3
         let resultingQuality = min(94, currentScore + gain)
-        let cost = max(5, (100 - currentScore) * batch.category.purchaseCost / 350)
+        let cost = hasServiceTechnician(storeID: storeID)
+            ? 0
+            : max(5, (100 - currentScore) * batch.category.purchaseCost / 350)
         return (cost, resultingQuality - currentScore, resultingQuality)
     }
 
@@ -2542,6 +2927,9 @@ final class GameEngine: ObservableObject {
     }
 
     func declinePurchaseCase(_ caseID: UUID) {
+        if let item = purchaseCases.first(where: { $0.id == caseID }) {
+            recordSellerReview(item: item, offerPercent: nil, succeeded: false, serviceScore: 42, declinedByStore: true)
+        }
         purchaseCases.removeAll { $0.id == caseID }
         save()
     }
@@ -2658,13 +3046,14 @@ final class GameEngine: ObservableObject {
             let storeDepreciation = (stores[index].type.buildCost + stores[index].facilityInvestment) / 960
             let storeClaimCosts = claimCostsByStore[stores[index].id] ?? 0
             let storeProfit = storeRevenue - storeCOGS - staffCost - storeRent - weeklyAdvertising - weeklyFixedCost - storeDepreciation - storeClaimCosts
-            let inventoryPenalty = capacity == 0 ? 0.4 : 0.0
             stores[index].lastSales = sales
             stores[index].lastRevenue = storeRevenue
             stores[index].lastProfit = storeProfit
-            stores[index].satisfaction = min(96, max(42, Int(58 + stores[index].type.serviceQuality * 12 + stores[index].serviceAllocation * 20 - max(0, stores[index].priceIndex - 1) * 24 - inventoryPenalty * 12)))
-            stores[index].reputation = min(1.25, max(0.4, stores[index].reputation + (Double(stores[index].satisfaction) - 70) / 4_000))
             stores[index].causes = makeCauses(demand: demand, concept: conceptMatch, conceptName: stores[index].concept.name, marketing: marketing, competition: competition, inventory: capacity)
+            stores[index].causes.append(ResultCause(
+                stores[index].reviewCount == 0 ? "口コミ実績なし" : "来店客口コミ",
+                (stores[index].customerReviewAttraction(for: .buyer) - 1) * 5
+            ))
             stores[index].pendingManualSales = 0
             stores[index].pendingManualRevenue = 0
             stores[index].pendingManualCOGS = 0
@@ -2694,8 +3083,7 @@ final class GameEngine: ObservableObject {
         cash += cashChange
         finance = FinanceSnapshot(revenue: revenue, costOfSales: costOfSales, personnel: personnel, rent: rent, advertising: ads, depreciation: depreciation, customerClaims: claimCosts, operatingProfit: operatingProfit, landAssets: finance.landAssets, buildingAssets: finance.buildingAssets, inventoryAssets: inventoryAssetValue(), debt: debt, operatingCF: operatingProfit + depreciation, investingCF: 0, financingCF: -interest)
         simulateDistrictDynamics(notes: &notes)
-        updateEconomicIndex(notes: &notes)
-        updateFuelPrice(notes: &notes)
+        updateMarketConditions(notes: &notes)
         updateLandValues(notes: &notes)
         progressDevelopments(notes: &notes)
         simulateCompetitors(notes: &notes)
@@ -2981,36 +3369,201 @@ final class GameEngine: ObservableObject {
         return 0.65 + roll * 0.72
     }
 
-    private func updateEconomicIndex(notes: inout [String]) {
-        let previous = economicIndex
-        let shock = (transactionRoll(seed: turn * 211 + 73) - 0.5) * 0.045
-        let pullToNormal = (1 - economicIndex) * 0.06
-        economicIndex = min(1.28, max(0.72, economicIndex + pullToNormal + shock))
-        if abs(economicIndex - previous) >= 0.018 {
-            let direction = economicIndex >= previous ? "改善" : "悪化"
-            notes.append("市況が\(direction)し、景気指数は\(Int(economicIndex * 100))です")
+    private func updateMarketConditions(notes: inout [String]) {
+        let previousGasoline = gasolinePrice
+        let previousNikkei = nikkeiAverage
+        let previousDemand = marketDemandIndex
+
+        refreshMarketTrendTargetsIfNeeded()
+        triggerMarketShockIfNeeded(notes: &notes)
+
+        let gasolineDesiredStep = min(1.8, max(-1.8, (gasolineTrendTarget - gasolinePrice) / 18))
+        gasolineMomentum = gasolineMomentum * 0.84 + gasolineDesiredStep * 0.16
+        let gasolineNoise = (transactionRoll(seed: turn * 227 + 91) - 0.5) * 0.6
+
+        let nikkeiDesiredStep = min(2_500.0, max(-2_500.0, (nikkeiTrendTarget - nikkeiAverage) / 20))
+        nikkeiMomentum = nikkeiMomentum * 0.85 + nikkeiDesiredStep * 0.15
+        let nikkeiNoise = (transactionRoll(seed: turn * 211 + 73) - 0.5) * 120
+
+        let demandDesiredStep = min(0.012, max(-0.012, (demandTrendTarget - marketDemandIndex) / 18))
+        demandMomentum = demandMomentum * 0.86 + demandDesiredStep * 0.14
+        let demandNoise = (transactionRoll(seed: turn * 193 + 47) - 0.5) * 0.0012
+
+        let gasolineShock = activeMarketShocks.reduce(0.0) { $0 + $1.kind.gasolineWeeklyChange }
+        let nikkeiShock = activeMarketShocks.reduce(0.0) { $0 + $1.kind.nikkeiWeeklyChange }
+        let demandShock = activeMarketShocks.reduce(0.0) { $0 + $1.kind.demandWeeklyChange }
+
+        gasolinePrice = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound, gasolinePrice + gasolineMomentum + gasolineNoise + gasolineShock))
+        nikkeiAverage = min(Self.nikkeiRange.upperBound, max(Self.nikkeiRange.lowerBound, nikkeiAverage + nikkeiMomentum + nikkeiNoise + nikkeiShock))
+        marketDemandIndex = min(1.35, max(0.65, marketDemandIndex + demandMomentum + demandNoise + demandShock))
+
+        if gasolinePrice == Self.gasolineRange.lowerBound || gasolinePrice == Self.gasolineRange.upperBound { gasolineMomentum *= 0.3 }
+        if nikkeiAverage == Self.nikkeiRange.lowerBound || nikkeiAverage == Self.nikkeiRange.upperBound { nikkeiMomentum *= 0.3 }
+        if marketDemandIndex == 0.65 || marketDemandIndex == 1.35 { demandMomentum *= 0.3 }
+
+        activeMarketShocks = activeMarketShocks.compactMap { shock in
+            var updated = shock
+            updated.remainingWeeks -= 1
+            return updated.remainingWeeks > 0 ? updated : nil
+        }
+
+        let gasolineChange = gasolinePrice - previousGasoline
+        let nikkeiChange = nikkeiAverage - previousNikkei
+        let demandChange = marketDemandIndex - previousDemand
+        if abs(gasolineChange) >= 3 {
+            notes.append("ガソリン価格が前週から\(signedYen(gasolineChange))/L動き、\(gasolinePricePerLiter)円/Lになりました")
+        }
+        if abs(nikkeiChange) >= 2_500 {
+            notes.append("日経平均が前週から\(signedYen(nikkeiChange))動き、\(nikkeiAverageYen.formatted())円になりました")
+        }
+        if abs(demandChange) >= 0.03 {
+            notes.append("中古車需要は前週比\(String(format: "%+.0f", demandChange * 100))ポイント、現在\(marketDemandPercentage)%です")
+        }
+
+        if turn.isMultiple(of: 12), activeMarketShocks.isEmpty {
+            let direction = gasolineChange >= 0 ? "上昇" : "下落"
+            let detail = "ガソリン\(gasolinePricePerLiter)円/L・日経平均\(nikkeiAverageYen.formatted())円・中古車需要\(marketDemandPercentage)%"
+            recordCityEvent(CityEvent(turn: turn + 1, kind: .fuelPrice, title: "市場トレンド：燃料価格が\(direction)", detail: detail, isPositive: gasolinePrice <= Self.gasolineBaseline))
         }
     }
 
-    private func updateFuelPrice(notes: inout [String]) {
-        let previous = fuelPriceIndex
-        let roll = transactionRoll(seed: turn * 227 + 91)
-        let weeklyNoise = (roll - 0.5) * 0.038
-        let supplyShock: Double
-        if roll < 0.035 {
-            supplyShock = 0.09
-        } else if roll > 0.965 {
-            supplyShock = -0.075
-        } else {
-            supplyShock = 0
+    private func refreshMarketTrendTargetsIfNeeded() {
+        if turn.isMultiple(of: 16) {
+            gasolineTrendTarget = Self.gasolineRange.lowerBound
+                + transactionRoll(seed: turn * 271 + 113) * (Self.gasolineRange.upperBound - Self.gasolineRange.lowerBound)
+            demandTrendTarget = 0.78 + transactionRoll(seed: turn * 313 + 157) * 0.44
         }
-        let pullToNormal = (1 - fuelPriceIndex) * 0.035
-        fuelPriceIndex = min(1.48, max(0.72, fuelPriceIndex + pullToNormal + weeklyNoise + supplyShock))
-        guard abs(fuelPriceIndex - previous) >= 0.045 || turn.isMultiple(of: 12) else { return }
-        let direction = fuelPriceIndex >= previous ? "上昇" : "下落"
-        let detail = "燃料価格が\(direction)し、指数は\(Int(fuelPriceIndex * 100))。高騰時はEV・ハイブリッド・低燃費車の人気が上がります"
-        notes.append(detail)
-        recordCityEvent(CityEvent(turn: turn + 1, kind: .fuelPrice, title: "燃料価格が\(direction)", detail: detail, isPositive: fuelPriceIndex <= 1.0))
+        if turn.isMultiple(of: 20) {
+            nikkeiTrendTarget = Self.nikkeiRange.lowerBound
+                + transactionRoll(seed: turn * 307 + 139) * (Self.nikkeiRange.upperBound - Self.nikkeiRange.lowerBound)
+        }
+    }
+
+    private struct ProjectedMarketState {
+        let gasoline: Double
+        let nikkei: Double
+        let demand: Double
+    }
+
+    private func projectedMarketState(weeks: Int) -> ProjectedMarketState {
+        var projectedGasoline = gasolinePrice
+        var projectedNikkei = nikkeiAverage
+        var projectedDemand = marketDemandIndex
+        var gasTarget = gasolineTrendTarget
+        var stockTarget = nikkeiTrendTarget
+        var demandTarget = demandTrendTarget
+        var gasMomentum = gasolineMomentum
+        var stockMomentum = nikkeiMomentum
+        var projectedDemandMomentum = demandMomentum
+        var shocks = activeMarketShocks
+
+        for offset in 0..<max(1, weeks) {
+            let projectedTurn = turn + offset
+            if projectedTurn.isMultiple(of: 16) {
+                gasTarget = Self.gasolineRange.lowerBound
+                    + transactionRoll(seed: projectedTurn * 271 + 113) * (Self.gasolineRange.upperBound - Self.gasolineRange.lowerBound)
+                demandTarget = 0.78 + transactionRoll(seed: projectedTurn * 313 + 157) * 0.44
+            }
+            if projectedTurn.isMultiple(of: 20) {
+                stockTarget = Self.nikkeiRange.lowerBound
+                    + transactionRoll(seed: projectedTurn * 307 + 139) * (Self.nikkeiRange.upperBound - Self.nikkeiRange.lowerBound)
+            }
+            if shocks.count < 2,
+               let kind = scheduledMarketShockKind(at: projectedTurn),
+               !shocks.contains(where: { $0.kind == kind }) {
+                shocks.append(ActiveMarketShock(kind: kind))
+            }
+
+            let gasolineDesiredStep = min(1.8, max(-1.8, (gasTarget - projectedGasoline) / 18))
+            gasMomentum = gasMomentum * 0.84 + gasolineDesiredStep * 0.16
+            let gasolineNoise = (transactionRoll(seed: projectedTurn * 227 + 91) - 0.5) * 0.6
+            let nikkeiDesiredStep = min(2_500.0, max(-2_500.0, (stockTarget - projectedNikkei) / 20))
+            stockMomentum = stockMomentum * 0.85 + nikkeiDesiredStep * 0.15
+            let nikkeiNoise = (transactionRoll(seed: projectedTurn * 211 + 73) - 0.5) * 120
+            let demandDesiredStep = min(0.012, max(-0.012, (demandTarget - projectedDemand) / 18))
+            projectedDemandMomentum = projectedDemandMomentum * 0.86 + demandDesiredStep * 0.14
+            let demandNoise = (transactionRoll(seed: projectedTurn * 193 + 47) - 0.5) * 0.0012
+
+            projectedGasoline = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound,
+                projectedGasoline + gasMomentum + gasolineNoise + shocks.reduce(0) { $0 + $1.kind.gasolineWeeklyChange }))
+            projectedNikkei = min(Self.nikkeiRange.upperBound, max(Self.nikkeiRange.lowerBound,
+                projectedNikkei + stockMomentum + nikkeiNoise + shocks.reduce(0) { $0 + $1.kind.nikkeiWeeklyChange }))
+            projectedDemand = min(1.35, max(0.65,
+                projectedDemand + projectedDemandMomentum + demandNoise + shocks.reduce(0) { $0 + $1.kind.demandWeeklyChange }))
+            shocks = shocks.compactMap { shock in
+                var updated = shock
+                updated.remainingWeeks -= 1
+                return updated.remainingWeeks > 0 ? updated : nil
+            }
+        }
+        return ProjectedMarketState(gasoline: projectedGasoline, nikkei: projectedNikkei, demand: projectedDemand)
+    }
+
+    private func upcomingMarketShock(within weeks: Int) -> MarketShockKind? {
+        for offset in 0..<max(1, weeks) {
+            if let kind = scheduledMarketShockKind(at: turn + offset),
+               !activeMarketShocks.contains(where: { $0.kind == kind }) {
+                return kind
+            }
+        }
+        return nil
+    }
+
+    private func scheduledMarketShockKind(at projectedTurn: Int) -> MarketShockKind? {
+        guard projectedTurn >= 4 else { return nil }
+        let eventRoll = transactionRoll(seed: projectedTurn * 359 + 181)
+        if eventRoll < 0.010 {
+            let fuelEvents: [MarketShockKind] = [.war, .oilDemandSurge, .oilProductionHalt]
+            let selection = Int(transactionRoll(seed: projectedTurn * 367 + 191) * Double(fuelEvents.count))
+            return fuelEvents[min(fuelEvents.count - 1, selection)]
+        }
+        if eventRoll > 0.993 {
+            return transactionRoll(seed: projectedTurn * 373 + 197) < 0.55 ? .economicBoom : .financialCrisis
+        }
+        return nil
+    }
+
+    private func trendWord(_ difference: Double, threshold: Double) -> String {
+        if difference >= threshold { return "上昇基調" }
+        if difference <= -threshold { return "下落基調" }
+        return "横ばい"
+    }
+
+    private func economicIndex(for nikkei: Double) -> Double {
+        if nikkei <= Self.nikkeiBaseline {
+            return 0.72 + (nikkei - Self.nikkeiRange.lowerBound) / (Self.nikkeiBaseline - Self.nikkeiRange.lowerBound) * 0.28
+        }
+        return 1.0 + (nikkei - Self.nikkeiBaseline) / (Self.nikkeiRange.upperBound - Self.nikkeiBaseline) * 0.28
+    }
+
+    private func projectedVehiclePriceFactor(powertrain: VehiclePowertrain, projection: ProjectedMarketState) -> Double {
+        let demandEffect = (projection.demand - marketDemandIndex) * 0.30
+        let economyEffect = (economicIndex(for: projection.nikkei) - economicIndex) * 0.22
+        let fuelChange = (projection.gasoline - gasolinePrice) / Self.gasolineBaseline
+        let fuelEffect: Double
+        switch powertrain {
+        case .electric: fuelEffect = fuelChange * 0.22
+        case .hybrid: fuelEffect = fuelChange * 0.13
+        case .gasoline: fuelEffect = -fuelChange * 0.10
+        case .diesel: fuelEffect = -fuelChange * 0.05
+        }
+        return min(1.18, max(0.82, 1 + demandEffect + economyEffect + fuelEffect))
+    }
+
+    private func triggerMarketShockIfNeeded(notes: inout [String]) {
+        guard turn >= 4, activeMarketShocks.count < 2 else { return }
+        let kind = scheduledMarketShockKind(at: turn)
+        guard let kind, !activeMarketShocks.contains(where: { $0.kind == kind }) else { return }
+
+        activeMarketShocks.append(ActiveMarketShock(kind: kind))
+        let detail = "\(kind.detail)。影響は約\(kind.durationWeeks)週間続く見込みです"
+        notes.append("市場イベント：\(kind.title)")
+        recordCityEvent(CityEvent(turn: turn + 1, kind: kind.eventKind, title: kind.title, detail: detail, isPositive: kind.isPositive))
+    }
+
+    private func signedYen(_ value: Double) -> String {
+        let amount = Int(value.rounded())
+        return String(format: "%+d円", amount)
     }
 
     private func makeCauses(demand: Double, concept: Double, conceptName: String, marketing: Double, competition: Double, inventory: Int) -> [ResultCause] {
@@ -3412,7 +3965,7 @@ final class GameEngine: ObservableObject {
         for claim in dueClaims {
             costsByStore[claim.storeID, default: 0] += claim.compensationCost
             if let storeIndex = stores.firstIndex(where: { $0.id == claim.storeID }) {
-                stores[storeIndex].reputation = max(0.40, stores[storeIndex].reputation - claim.issue.reputationPenalty)
+                recordClaimReview(claim, storeIndex: storeIndex)
                 let detail = "\(claim.vehicleName)の\(claim.issue.name)が販売後に判明。補償費\(claim.compensationCost.currency)を支払い、店舗評判が低下しました"
                 notes.append("\(stores[storeIndex].name)：\(detail)")
                 recordCityEvent(CityEvent(
@@ -3704,6 +4257,17 @@ final class GameEngine: ObservableObject {
                 let succeeded = transactionRoll(seed: seed) < closeChance
                 updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) { $0.handled += 1 }
                 awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .sales, successful: succeeded)
+                let proposedVehicle = stores[storeIndex].inventory[batchIndex]
+                let reviewService = (succeeded ? 68 : 48)
+                    + Int((handler.salesComposite * 0.22).rounded())
+                    + Int((strategy.discountRate * 100).rounded())
+                recordBuyerReview(
+                    lead: lead,
+                    batch: proposedVehicle,
+                    offerPrice: preview.price,
+                    succeeded: succeeded,
+                    serviceScore: reviewService
+                )
                 guard succeeded else { continue }
 
                 let soldVehicle = stores[storeIndex].inventory[batchIndex]
@@ -3717,7 +4281,7 @@ final class GameEngine: ObservableObject {
                         modelID: tradeIn.modelID,
                         category: tradeIn.category,
                         count: 1,
-                        averageCost: tradeIn.appraisedValue + tradeIn.repairCost,
+                        averageCost: tradeIn.appraisedValue + tradePreview.repairCost,
                         quality: tradeIn.qualityAfterRepair,
                         modelYear: tradeIn.modelYear,
                         mileage: tradeIn.mileage,
@@ -3743,7 +4307,7 @@ final class GameEngine: ObservableObject {
                     250,
                     stores[storeIndex].loyalCustomers + loyalCustomerGain(store: stores[storeIndex], category: category)
                 )
-                scheduleCustomerClaimIfNeeded(for: soldVehicle, storeID: storeID, salePrice: preview.price, seed: seed + 409)
+                scheduleCustomerClaimIfNeeded(for: soldVehicle, customerID: lead.id, storeID: storeID, salePrice: preview.price, seed: seed + 409)
             }
         }
         return result
@@ -3787,11 +4351,12 @@ final class GameEngine: ObservableObject {
         stores[storeIndex].employees[employeeIndex] = employee
     }
 
-    private func scheduleCustomerClaimIfNeeded(for batch: InventoryBatch, storeID: UUID, salePrice: Int, seed: Int) {
+    private func scheduleCustomerClaimIfNeeded(for batch: InventoryBatch, customerID: UUID, storeID: UUID, salePrice: Int, seed: Int) {
         guard let issue = batch.vehicleIssue, issue.status == .hidden else { return }
         let compensation = max(30, Int(Double(salePrice) * issue.kind.compensationRate))
         pendingCustomerClaims.append(PendingCustomerClaim(
             id: UUID(),
+            customerID: customerID,
             storeID: storeID,
             vehicleName: batch.vehicleName,
             issue: issue.kind,
@@ -3834,19 +4399,21 @@ final class GameEngine: ObservableObject {
         for handler in handlers {
             var candidates = purchaseCases.filter { item in
                 guard item.storeID == storeID else { return false }
+                let expectedGrossProfit = purchaseExpectedGrossProfit(for: item)
                 switch policy {
-                case .profit: return item.expectedGrossProfit > 0
-                case .balanced: return item.expectedGrossProfit >= 0
+                case .profit: return expectedGrossProfit > 0
+                case .balanced: return expectedGrossProfit >= 0
                 case .volume: return true
                 }
             }
-            candidates.sort { $0.expectedGrossProfit > $1.expectedGrossProfit }
+            candidates.sort { purchaseExpectedGrossProfit(for: $0) > purchaseExpectedGrossProfit(for: $1) }
 
             for original in candidates.prefix(7) {
                 guard let caseIndex = purchaseCases.firstIndex(where: { $0.id == original.id }) else { continue }
                 var item = purchaseCases[caseIndex]
                 let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000 + totalAttempts * 29
-                let accuracy = min(96, max(35, item.appraisalAccuracy + employeeAppraisalAccuracyBonus(handler)))
+                let staffAccuracyFloor = 78 + employeeAppraisalAccuracyBonus(handler)
+                let accuracy = min(96, max(35, max(item.appraisalAccuracy, staffAccuracyFloor)))
                 var issueFound = item.issueRevealed
                 if item.hiddenIssue != nil, !issueFound,
                    transactionRoll(seed: seed + 113) < Double(accuracy) / 100 {
@@ -3855,15 +4422,34 @@ final class GameEngine: ObservableObject {
                 purchaseCases[caseIndex].appraisalAccuracy = accuracy
                 purchaseCases[caseIndex].issueRevealed = issueFound
                 item = purchaseCases[caseIndex]
-                guard let basePreview = purchaseNegotiationPreview(item.id, offerPercent: policy.offerPercent) else { continue }
-                let total = (basePreview.price + item.repairCost) * item.lotCount
+                guard let safeOfferPercent = safePurchaseOfferPercent(item: item, policy: policy, appraiser: handler) else {
+                    updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                        $0.handled += 1
+                        if issueFound && !original.issueRevealed { $0.issuesFound += 1 }
+                    }
+                    if issueFound && !original.issueRevealed {
+                        awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .appraisal, successful: true)
+                    }
+                    recordSellerReview(
+                        item: item,
+                        offerPercent: nil,
+                        succeeded: false,
+                        serviceScore: 54 + Int((handler.procurementComposite * 0.16).rounded()),
+                        declinedByStore: true
+                    )
+                    purchaseCases.removeAll { $0.id == item.id }
+                    continue
+                }
+                guard let basePreview = purchaseNegotiationPreview(item.id, offerPercent: safeOfferPercent) else { continue }
+                let repairCost = purchaseRepairCost(for: item)
+                let total = (basePreview.price + repairCost) * item.lotCount
                 guard cash >= total,
                       stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity else { continue }
 
                 totalAttempts += 1
                 let chance = min(0.98, max(0.05, basePreview.closeChance + employeeProcurementCloseAdjustment(handler)))
                 let succeeded = transactionRoll(seed: seed) < chance
-                let expectedGrossProfit = (item.expectedSaleAfterAppraisal - basePreview.price - item.repairCost) * item.lotCount
+                let expectedGrossProfit = (item.expectedSaleAfterAppraisal - basePreview.price - repairCost) * item.lotCount
                 updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
                     $0.handled += 1
                     if issueFound && !original.issueRevealed { $0.issuesFound += 1 }
@@ -3872,13 +4458,19 @@ final class GameEngine: ObservableObject {
                 if issueFound && !original.issueRevealed {
                     awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .appraisal, successful: true)
                 }
+                recordSellerReview(
+                    item: item,
+                    offerPercent: safeOfferPercent,
+                    succeeded: succeeded,
+                    serviceScore: (succeeded ? 68 : 50) + Int((handler.procurementComposite * 0.20).rounded())
+                )
                 if succeeded {
                     cash -= total
                     stores[storeIndex].inventory.append(InventoryBatch(
                         modelID: item.modelID,
                         category: item.category,
                         count: item.lotCount,
-                        averageCost: basePreview.price + item.repairCost,
+                        averageCost: basePreview.price + repairCost,
                         quality: Double(item.qualityAfterRepairScore) / 100,
                         modelYear: item.modelYear,
                         mileage: item.mileage,
@@ -3921,8 +4513,9 @@ final class GameEngine: ObservableObject {
                 }) else { break }
                 let batch = stores[storeIndex].inventory[batchIndex]
                 guard let base = servicePreview(storeID: storeID, inventoryID: batch.id) else { break }
-                let costFactor = interpolatedEmployeeEffect(score: handler.serviceComposite, low: 1.10, high: 0.82)
-                let cost = max(1, Int((Double(base.cost) * costFactor).rounded()))
+                // The technician's payroll covers ordinary productization work.
+                // Skill still affects throughput, finish quality and issue detection.
+                let cost = 0
                 let bonus = handler.serviceComposite >= 90 ? 2 : handler.serviceComposite >= 70 ? 1 : 0
                 let resultingQuality = min(94, base.resultingQuality + bonus)
                 if stores[storeIndex].servicePolicy == .balanced {
@@ -4012,8 +4605,16 @@ final class GameEngine: ObservableObject {
 
     private func expireWeeklyCustomerLeads(notes: inout [String]) {
         for store in stores where store.isOperational {
-            let missedBuyers = buyerLeads.filter { $0.storeID == store.id }.count
-            let missedSellers = purchaseCases.filter { $0.storeID == store.id }.count
+            let missedBuyerLeads = buyerLeads.filter { $0.storeID == store.id }
+            let missedSellerCases = purchaseCases.filter { $0.storeID == store.id }
+            let missedBuyers = missedBuyerLeads.count
+            let missedSellers = missedSellerCases.count
+            for lead in missedBuyerLeads {
+                recordUnattendedReview(customerID: lead.id, storeID: store.id, channel: .buyer)
+            }
+            for item in missedSellerCases {
+                recordUnattendedReview(customerID: item.id, storeID: store.id, channel: .seller)
+            }
             if missedBuyers > 0 || missedSellers > 0 {
                 notes.append("\(store.name)：未対応・不一致で販売客\(missedBuyers)人、買取客\(missedSellers)人を見送り")
             }
@@ -4079,8 +4680,10 @@ final class GameEngine: ObservableObject {
 
             if stores[index].delegatePricing {
                 let stockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
-                let targetPrice = stockRate > 0.72 ? 0.96 : stockRate < 0.30 ? 1.05 : 1.0
-                let targetPolicy: SalesAutomationPolicy = stockRate > 0.72 ? .volume : stockRate < 0.30 ? .profit : .balanced
+                let priceReview = stores[index].reviewScore(for: .salesPrice)
+                let reviewRequiresCorrection = (priceReview ?? 100) < 60
+                let targetPrice = reviewRequiresCorrection ? 0.96 : stockRate > 0.72 ? 0.96 : stockRate < 0.30 ? 1.05 : 1.0
+                let targetPolicy: SalesAutomationPolicy = reviewRequiresCorrection ? .volume : stockRate > 0.72 ? .volume : stockRate < 0.30 ? .profit : .balanced
                 let canAdjust = manager.salesAbility >= 60 || turn.isMultiple(of: 2)
                 var changedPolicy = false
                 if canAdjust, stores[index].salesPolicy != targetPolicy {
@@ -4097,7 +4700,8 @@ final class GameEngine: ObservableObject {
 
             if stores[index].delegateProcurement {
                 let currentStockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
-                let target: ProcurementAutomationPolicy = currentStockRate < 0.28 ? .volume : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .profit : .balanced
+                let highPurchaseReviewsAreUnprofitable = (stores[index].reviewScore(for: .purchaseOffer) ?? 0) >= 85 && stores[index].lastProfit < 0
+                let target: ProcurementAutomationPolicy = highPurchaseReviewsAreUnprofitable ? .profit : currentStockRate < 0.28 ? .volume : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .profit : .balanced
                 if (manager.procurementAbility >= 60 || turn.isMultiple(of: 2)), stores[index].procurementPolicy != target {
                     stores[index].procurementPolicy = target
                     actions.append("仕入方針を\(target.name)へ変更")
@@ -4127,7 +4731,8 @@ final class GameEngine: ObservableObject {
                 let serviceAbility = manager.serviceAbility
                 let averageQuality = stores[index].inventory.isEmpty ? 100 : stores[index].inventory.reduce(0.0) { $0 + $1.quality * Double($1.count) } / Double(max(1, stores[index].inventoryCount)) * 100
                 let targetPolicy: ServiceAutomationPolicy = averageQuality < 70 ? .quality : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .cost : .balanced
-                let target = stores[index].satisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
+                let reviewSatisfaction = stores[index].averageReviewScore ?? 70
+                let target = reviewSatisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
                 let canAdjust = serviceAbility >= 60 || turn.isMultiple(of: 2)
                 var changedPolicy = false
                 if canAdjust, stores[index].servicePolicy != targetPolicy {
@@ -4217,23 +4822,51 @@ final class GameEngine: ObservableObject {
     }
 
     private func competitorAuctionBid(for listing: AuctionListing, seed: Int) -> (competitorIndex: Int, maxPrice: Int)? {
-        let candidates = competitors.indices.filter { competitors[$0].cash >= listing.reservePrice }
-        guard let competitorIndex = candidates.max(by: { left, right in
-            competitorAuctionInterest(competitors[left], listing: listing, seed: seed + left * 31)
-                < competitorAuctionInterest(competitors[right], listing: listing, seed: seed + right * 31)
-        }) else { return nil }
-        let competitor = competitors[competitorIndex]
-        let categoryFit = competitor.category == listing.category ? 0.13 : 0
-        let strategyFit: Double
-        switch competitor.name {
-        case "バリューオート": strategyFit = [.kei, .compact, .commercial].contains(listing.category) ? 0.07 : -0.05
-        case "プレミアモータース": strategyFit = listing.category == .imported ? 0.12 : (listing.category == .suv ? 0.04 : -0.06)
-        default: strategyFit = [.suv, .minivan, .pickup].contains(listing.category) ? 0.08 : -0.02
+        let bids = competitors.indices.compactMap { competitorIndex -> (competitorIndex: Int, maxPrice: Int, interest: Double)? in
+            let competitor = competitors[competitorIndex]
+            guard competitor.cash >= listing.reservePrice else { return nil }
+            let profitCeiling = competitorAuctionProfitCeiling(for: competitor, listing: listing)
+            guard profitCeiling >= listing.reservePrice else { return nil }
+            let interest = competitorAuctionInterest(competitor, listing: listing, seed: seed + competitorIndex * 31)
+            let categoryFit = competitor.category == listing.category ? 0.09 : 0
+            let strategyFit = competitorAuctionStrategyFit(competitor, category: listing.category)
+            let variation = transactionRoll(seed: seed + competitorIndex * 47 + 19) * 0.22
+            let willingness = min(1.24, max(0.78, 0.78 + categoryFit + strategyFit + variation + min(0.05, interest / 50)))
+            let marketLimitedBid = Int((Double(listing.marketPrice) * willingness).rounded())
+            let maxPrice = min(competitor.cash, min(profitCeiling, marketLimitedBid))
+            guard maxPrice >= listing.reservePrice else { return nil }
+            return (competitorIndex, maxPrice, interest)
         }
-        let variation = transactionRoll(seed: seed + competitorIndex * 47 + 19) * 0.30
-        let willingness = min(1.34, max(0.86, 0.88 + categoryFit + strategyFit + variation))
-        let maxPrice = min(competitor.cash, max(listing.reservePrice, Int(Double(listing.marketPrice) * willingness)))
-        return (competitorIndex, maxPrice)
+        return bids.max {
+            $0.maxPrice == $1.maxPrice ? $0.interest < $1.interest : $0.maxPrice < $1.maxPrice
+        }.map { ($0.competitorIndex, $0.maxPrice) }
+    }
+
+    func competitorAuctionProfitCeiling(for competitor: Competitor, listing: AuctionListing) -> Int {
+        let retailValues = competitor.plotIDs.compactMap { plot(id: $0)?.district }.map { district in
+            vehicleRetailValue(
+                modelID: listing.modelID,
+                category: listing.category,
+                modelYear: listing.modelYear,
+                mileage: listing.mileage,
+                quality: listing.quality,
+                in: district
+            )
+        }
+        guard let bestRetail = retailValues.max() else { return 0 }
+        let categoryFit = competitor.category == listing.category
+        let strategyFit = competitorAuctionStrategyFit(competitor, category: listing.category)
+        let targetMargin = max(0.07, 0.15 - (categoryFit ? 0.035 : 0) - max(0, strategyFit) * 0.20 - competitor.strength * 0.015)
+        let requiredProfit = Int((Double(bestRetail) * targetMargin).rounded())
+        return max(0, bestRetail - requiredProfit - listing.venue.fee - listing.venue.shippingCost)
+    }
+
+    private func competitorAuctionStrategyFit(_ competitor: Competitor, category: VehicleCategory) -> Double {
+        switch competitor.name {
+        case "バリューオート": return [.kei, .compact, .commercial].contains(category) ? 0.07 : -0.05
+        case "プレミアモータース": return category == .imported ? 0.12 : (category == .suv ? 0.04 : -0.06)
+        default: return [.suv, .minivan, .pickup].contains(category) ? 0.08 : -0.02
+        }
     }
 
     private func competitorAuctionInterest(_ competitor: Competitor, listing: AuctionListing, seed: Int) -> Double {
@@ -4369,7 +5002,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -4493,6 +5126,7 @@ final class GameEngine: ObservableObject {
                 weight = max(
                     0.05,
                     store.reputation * location * marketing * (0.8 + store.serviceAllocation * 0.4)
+                        * store.customerReviewAttraction(for: .seller)
                         * sellerAttractionFactor(for: store, category: sellerCategory ?? .compact)
                 )
             } else {
@@ -4666,7 +5300,9 @@ final class GameEngine: ObservableObject {
         )
         let allowance = max(20, Int(Double(marketValue) * (0.90 + transactionRoll(seed: seed + 13) * 0.08)))
         let conditionScore = Int((quality * 100).rounded())
-        let repairCost = max(5, (100 - conditionScore) * category.purchaseCost / 280)
+        let repairCost = hasServiceTechnician(storeID: storeID)
+            ? 0
+            : max(5, (100 - conditionScore) * category.purchaseCost / 280)
         return TradeInVehicle(
             modelID: model.id,
             category: category,
@@ -4685,7 +5321,9 @@ final class GameEngine: ObservableObject {
         let condition = min(91, max(50, Int((profile.quality * 100).rounded())))
         let wholesale = vehicleWholesaleValue(modelID: model.id, category: category, modelYear: profile.modelYear, mileage: profile.mileage, quality: Double(condition) / 100.0, in: plot.district)
         let asking = max(25, Int(Double(wholesale) * (0.84 + transactionRoll(seed: seed + 13) * 0.22)))
-        let repair = max(6, (100 - condition) * base / 230)
+        let repair = hasServiceTechnician(storeID: storeID)
+            ? 0
+            : max(6, (100 - condition) * base / 230)
         let repairGain = condition < 75 ? 4 : 3
         let repairedQuality = Double(min(94, condition + repairGain)) / 100.0
         let expectedSale = vehicleRetailValue(modelID: model.id, category: category, modelYear: profile.modelYear, mileage: profile.mileage, quality: repairedQuality, in: plot.district)
