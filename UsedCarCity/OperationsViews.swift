@@ -229,7 +229,7 @@ struct StoreSettingsView: View {
                                 }
                             }
                             if store.wrappedValue.hasManager && (store.wrappedValue.delegatePricing || store.wrappedValue.delegateProcurement) {
-                                Label("販売価格または仕入れは店長へ委任中です。週間処理で実行されます。", systemImage: "person.crop.circle.badge.checkmark")
+                                Label("販売または仕入方針は店長へ管理委任中です。社員の自動実行とは独立しています。", systemImage: "person.crop.circle.badge.checkmark")
                                     .font(.caption).foregroundStyle(GameTheme.teal)
                             }
                         }
@@ -254,10 +254,10 @@ struct StoreSettingsView: View {
                             HStack {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
-                                MetricView(title: "営業枠", value: "週\((store.wrappedValue.staff + 1) * 7)回")
+                                MetricView(title: "手動枠", value: "週7回")
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・解雇・研修・昇給は店舗画面の「店員」で行います。店員は自分では判断せず、オーナーの操作または店長への委任が必要です。")
+                            Text("採用・担当配置・6能力研修・自動化方針は店舗画面の「店員」で設定します。販売・買取担当は1人週7件を自動処理します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

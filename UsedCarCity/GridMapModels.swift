@@ -395,7 +395,10 @@ struct GridOrthographicCameraSpec: Hashable, Sendable {
 
     static let foundation = GridOrthographicCameraSpec(
         azimuthDegrees: 45,
-        elevationDegrees: 38.16,
+        // True isometric elevation. Combined with the 45 degree azimuth this
+        // keeps both ground axes at the same on-screen scale as the artwork
+        // reference, at every zoom level.
+        elevationDegrees: 35.26439,
         // The former roughly 400% view (0.22) remains the 100% baseline.
         // Wider overview steps sit before it, while closer inspection steps
         // continue through 700% without changing the camera angle.

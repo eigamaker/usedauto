@@ -587,6 +587,7 @@ final class GridMapTests: XCTestCase {
         let positionBefore = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size).center
 
         XCTAssertEqual(spec.azimuthDegrees, 45, accuracy: 0.001)
+        XCTAssertEqual(spec.elevationDegrees, 35.26439, accuracy: 0.001)
         XCTAssertEqual(spec.orthographicScale(baseScale: 2_000, zoomStep: 0), 1_760, accuracy: 0.001)
         XCTAssertEqual(spec.orthographicScale(baseScale: 2_000, zoomStep: GridCameraZoom.defaultStep), 440, accuracy: 0.001)
         XCTAssertLessThan(spec.orthographicScale(baseScale: 2_000, zoomStep: 6), 440)
@@ -785,6 +786,11 @@ final class GridMapTests: XCTestCase {
                 let minimum = bounds.min
                 let maximum = bounds.max
                 let footprint = definition.footprint(facing: facing)
+                // The plinth is the visible, exact footprint contract. It
+                // guarantees the artwork touches the same grid bounds used by
+                // placement and hit testing, including quarter-turn rotation.
+                XCTAssertEqual(maximum.x - minimum.x, Float(footprint.width) * map.metrics.cellSize, accuracy: 0.01, definition.id.rawValue)
+                XCTAssertEqual(maximum.z - minimum.z, Float(footprint.depth) * map.metrics.cellSize, accuracy: 0.01, definition.id.rawValue)
                 XCTAssertLessThanOrEqual(maximum.x - minimum.x, Float(footprint.width) * map.metrics.cellSize + 0.01, definition.id.rawValue)
                 XCTAssertLessThanOrEqual(maximum.z - minimum.z, Float(footprint.depth) * map.metrics.cellSize + 0.01, definition.id.rawValue)
                 XCTAssertGreaterThanOrEqual(minimum.y, -0.01, definition.id.rawValue)

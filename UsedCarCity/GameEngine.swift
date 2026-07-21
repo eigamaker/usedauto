@@ -4,8 +4,8 @@ import SwiftUI
 @MainActor
 final class GameEngine: ObservableObject {
     @Published var hasStarted = false
-    @Published var year = 2030
-    @Published var month = 4
+    @Published var year = 2026
+    @Published var month = 1
     @Published var weekOfMonth = 1
     @Published var turn = 0
     @Published var cash = 6_500
@@ -23,6 +23,7 @@ final class GameEngine: ObservableObject {
     @Published var auctionListings: [AuctionListing] = []
     @Published var bidReservations: [BidReservation] = []
     @Published var auctionBidResults: [AuctionBidResult] = []
+    @Published var competitorAuctionPurchases: [CompetitorAuctionPurchase] = []
     @Published var inboundShipments: [InboundShipment] = []
     @Published var auctionConsignments: [AuctionConsignment] = []
     @Published var pendingCustomerClaims: [PendingCustomerClaim] = []
@@ -67,6 +68,7 @@ final class GameEngine: ObservableObject {
         let auctionListings: [AuctionListing]
         let bidReservations: [BidReservation]
         let auctionBidResults: [AuctionBidResult]
+        let competitorAuctionPurchases: [CompetitorAuctionPurchase]
         let inboundShipments: [InboundShipment]
         let auctionConsignments: [AuctionConsignment]
         let pendingCustomerClaims: [PendingCustomerClaim]
@@ -97,6 +99,7 @@ final class GameEngine: ObservableObject {
         var revenue = 0
         var costOfSales = 0
         var cashCollected = 0
+        var commission = 0
         var tradeIns = 0
         var attempts = 0
     }
@@ -117,33 +120,33 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v28"
+    private static let saveKey = "UsedCarCity.save.v30"
     private static let managerCandidates = [
-        StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, marketingAbility: 84, serviceAbility: 71, monthlySalary: 56),
-        StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, marketingAbility: 58, serviceAbility: 75, monthlySalary: 56),
-        StoreManager(name: "鈴木 菜月", staffingAbility: 70, salesAbility: 72, marketingAbility: 76, serviceAbility: 82, monthlySalary: 60),
-        StoreManager(name: "伊藤 拓海", staffingAbility: 55, salesAbility: 64, marketingAbility: 68, serviceAbility: 59, monthlySalary: 48),
-        StoreManager(name: "田中 玲奈", staffingAbility: 86, salesAbility: 80, marketingAbility: 73, serviceAbility: 88, monthlySalary: 64)
+        StoreManager(name: "佐藤 美咲", staffingAbility: 78, salesAbility: 66, procurementAbility: 72, marketingAbility: 84, serviceAbility: 71, monthlySalary: 58),
+        StoreManager(name: "高橋 健太", staffingAbility: 62, salesAbility: 88, procurementAbility: 81, marketingAbility: 58, serviceAbility: 75, monthlySalary: 59),
+        StoreManager(name: "鈴木 菜月", staffingAbility: 70, salesAbility: 72, procurementAbility: 76, marketingAbility: 76, serviceAbility: 82, monthlySalary: 61),
+        StoreManager(name: "伊藤 拓海", staffingAbility: 55, salesAbility: 64, procurementAbility: 59, marketingAbility: 68, serviceAbility: 59, monthlySalary: 49),
+        StoreManager(name: "田中 玲奈", staffingAbility: 86, salesAbility: 80, procurementAbility: 84, marketingAbility: 73, serviceAbility: 88, monthlySalary: 66)
     ]
     private static let employeeRoster = [
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000001")!, name: "山田 悠斗", salesSkill: 62, appraisalSkill: 48, monthlySalary: 32),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000002")!, name: "小林 美月", salesSkill: 74, appraisalSkill: 55, monthlySalary: 37),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000003")!, name: "中村 海斗", salesSkill: 51, appraisalSkill: 76, monthlySalary: 38),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000004")!, name: "加藤 さくら", salesSkill: 68, appraisalSkill: 69, monthlySalary: 39),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000005")!, name: "吉田 颯太", salesSkill: 45, appraisalSkill: 61, monthlySalary: 30),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000006")!, name: "佐々木 結衣", salesSkill: 80, appraisalSkill: 63, monthlySalary: 43),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000007")!, name: "山口 陸", salesSkill: 57, appraisalSkill: 83, monthlySalary: 43),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000008")!, name: "松本 葵", salesSkill: 71, appraisalSkill: 73, monthlySalary: 42),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000009")!, name: "井上 陽菜", salesSkill: 54, appraisalSkill: 52, monthlySalary: 30),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000010")!, name: "木村 蓮", salesSkill: 77, appraisalSkill: 46, monthlySalary: 36),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000011")!, name: "清水 凛", salesSkill: 49, appraisalSkill: 79, monthlySalary: 38),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000012")!, name: "林 直樹", salesSkill: 66, appraisalSkill: 65, monthlySalary: 37),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000013")!, name: "斎藤 真央", salesSkill: 84, appraisalSkill: 72, monthlySalary: 47),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000014")!, name: "森 大地", salesSkill: 59, appraisalSkill: 86, monthlySalary: 45),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000015")!, name: "池田 彩", salesSkill: 73, appraisalSkill: 81, monthlySalary: 46),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000016")!, name: "橋本 翼", salesSkill: 88, appraisalSkill: 58, monthlySalary: 46),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000017")!, name: "阿部 千尋", salesSkill: 64, appraisalSkill: 88, monthlySalary: 48),
-        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000018")!, name: "石川 遥", salesSkill: 82, appraisalSkill: 84, monthlySalary: 51)
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000001")!, name: "山田 悠斗", salesSkill: 62, appraisalSkill: 48, procurementSkill: 55, marketingSkill: 58, serviceSkill: 45, marketResearchSkill: 52, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000002")!, name: "小林 美月", salesSkill: 74, appraisalSkill: 55, procurementSkill: 61, marketingSkill: 70, serviceSkill: 48, marketResearchSkill: 68, compensation: .balanced),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000003")!, name: "中村 海斗", salesSkill: 51, appraisalSkill: 76, procurementSkill: 79, marketingSkill: 46, serviceSkill: 69, marketResearchSkill: 72, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000004")!, name: "加藤 さくら", salesSkill: 68, appraisalSkill: 69, procurementSkill: 70, marketingSkill: 66, serviceSkill: 64, marketResearchSkill: 73, compensation: .balanced),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000005")!, name: "吉田 颯太", salesSkill: 45, appraisalSkill: 61, procurementSkill: 66, marketingSkill: 52, serviceSkill: 74, marketResearchSkill: 55, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000006")!, name: "佐々木 結衣", salesSkill: 80, appraisalSkill: 63, procurementSkill: 68, marketingSkill: 77, serviceSkill: 55, marketResearchSkill: 74, compensation: .performance),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000007")!, name: "山口 陸", salesSkill: 57, appraisalSkill: 83, procurementSkill: 86, marketingSkill: 51, serviceSkill: 78, marketResearchSkill: 79, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000008")!, name: "松本 葵", salesSkill: 71, appraisalSkill: 73, procurementSkill: 72, marketingSkill: 75, serviceSkill: 68, marketResearchSkill: 81, compensation: .balanced),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000009")!, name: "井上 陽菜", salesSkill: 54, appraisalSkill: 52, procurementSkill: 47, marketingSkill: 82, serviceSkill: 50, marketResearchSkill: 71, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000010")!, name: "木村 蓮", salesSkill: 77, appraisalSkill: 46, procurementSkill: 72, marketingSkill: 61, serviceSkill: 43, marketResearchSkill: 58, compensation: .performance),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000011")!, name: "清水 凛", salesSkill: 49, appraisalSkill: 79, procurementSkill: 73, marketingSkill: 55, serviceSkill: 88, marketResearchSkill: 68, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000012")!, name: "林 直樹", salesSkill: 66, appraisalSkill: 65, procurementSkill: 68, marketingSkill: 64, serviceSkill: 67, marketResearchSkill: 66, compensation: .balanced),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000013")!, name: "斎藤 真央", salesSkill: 84, appraisalSkill: 72, procurementSkill: 77, marketingSkill: 80, serviceSkill: 60, marketResearchSkill: 83, compensation: .performance),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000014")!, name: "森 大地", salesSkill: 59, appraisalSkill: 86, procurementSkill: 88, marketingSkill: 48, serviceSkill: 82, marketResearchSkill: 84, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000015")!, name: "池田 彩", salesSkill: 73, appraisalSkill: 81, procurementSkill: 80, marketingSkill: 78, serviceSkill: 76, marketResearchSkill: 86, compensation: .balanced),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000016")!, name: "橋本 翼", salesSkill: 88, appraisalSkill: 58, procurementSkill: 82, marketingSkill: 69, serviceSkill: 52, marketResearchSkill: 76, compensation: .performance),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000017")!, name: "阿部 千尋", salesSkill: 64, appraisalSkill: 88, procurementSkill: 90, marketingSkill: 60, serviceSkill: 91, marketResearchSkill: 85, compensation: .fixed),
+        StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000018")!, name: "石川 遥", salesSkill: 82, appraisalSkill: 84, procurementSkill: 83, marketingSkill: 86, serviceSkill: 80, marketResearchSkill: 92, compensation: .balanced)
     ]
     private var pendingSave: SaveData?
 
@@ -434,9 +437,9 @@ final class GameEngine: ObservableObject {
 
     private func resetState(removeSave: Bool) {
         hasStarted = false
-        year = 2030; month = 4; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
+        year = 2026; month = 1; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
-        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; tutorialMessage = nil
+        stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; nationalBrandStrength = 0.48; economicIndex = 1.0; fuelPriceIndex = 1.0; careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; tutorialMessage = nil
         unlockedFeatures = ["仕入", "価格設定", "出店"]
         placeCompetitors()
         if removeSave {
@@ -465,6 +468,7 @@ final class GameEngine: ObservableObject {
         auctionListings = saved.auctionListings
         bidReservations = saved.bidReservations
         auctionBidResults = saved.auctionBidResults
+        competitorAuctionPurchases = saved.competitorAuctionPurchases
         inboundShipments = saved.inboundShipments
         auctionConsignments = saved.auctionConsignments
         pendingCustomerClaims = saved.pendingCustomerClaims
@@ -564,8 +568,7 @@ final class GameEngine: ObservableObject {
     }
 
     func weeklyOpportunityCapacity(storeID: UUID) -> Int {
-        guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
-        return (store.staff + 1) * 7
+        stores.contains(where: { $0.id == storeID }) ? 7 : 0
     }
 
     func catalogMarketIndex(for model: VehicleCatalogEntry, in kind: DistrictKind) -> Double {
@@ -832,7 +835,8 @@ final class GameEngine: ObservableObject {
             Int((Double(weeklyBuyerPool(in: plot.district)) * marketShare(for: store)).rounded())
         )
         let fourWeekDemand = weeklyDemand * 4
-        let fourWeekCapacity = weeklyOpportunityCapacity(storeID: storeID) * 4
+        let automaticSalesCapacity = store.autoSales ? store.employees.filter { $0.assignment == .sales }.count * 7 : 0
+        let fourWeekCapacity = (weeklyOpportunityCapacity(storeID: storeID) + automaticSalesCapacity) * 4
         let possibleSales = min(sellableUnits, fourWeekDemand, fourWeekCapacity)
         let skillLift = employeeSalesCloseAdjustment(for: storeID)
         let closeLow = min(0.72, max(0.28, 0.40 + skillLift + (store.reputation - 0.65) * 0.10))
@@ -991,7 +995,8 @@ final class GameEngine: ObservableObject {
         let district = district(for: plot)
         let inventoryFit = demandFit(store: store, district: district)
         let location = plot.visibility * plot.access * plot.traffic
-        let marketing = 0.82 + min(0.38, Double(store.advertising) / 550.0)
+        let marketing = (0.82 + min(0.38, Double(store.advertising) / 550.0))
+            * employeeMarketingEfficiency(for: store.id, buyers: true)
         let priceAppeal = max(0.62, 1.72 - store.priceIndex * 0.72)
         return max(0.08, inventoryFit * facilityMarketFactor(store) * location * marketing * priceAppeal * competitiveStoreMarketFactor(in: plot.district))
     }
@@ -1454,24 +1459,128 @@ final class GameEngine: ObservableObject {
         return (0..<count).map { available[(start + $0) % available.count] }
     }
 
+    private func interpolatedEmployeeEffect(score: Double, low: Double, high: Double) -> Double {
+        let progress = min(1, max(0, (score - 20) / 75))
+        return low + (high - low) * progress
+    }
+
+    func employeeSalesCloseAdjustment(_ employee: StoreEmployee) -> Double {
+        interpolatedEmployeeEffect(score: employee.salesComposite, low: -0.05, high: 0.08)
+    }
+
+    func employeeAlternativeProposalAdjustment(_ employee: StoreEmployee, lead: BuyerLead, batch: InventoryBatch) -> Double {
+        guard !inventoryPreferenceMatches(batch, preference: lead.preference) else { return 0 }
+        return interpolatedEmployeeEffect(score: employee.salesComposite, low: -0.04, high: 0.30)
+    }
+
     func employeeSalesCloseAdjustment(for storeID: UUID) -> Double {
-        guard let average = stores.first(where: { $0.id == storeID })?.averageSalesSkill else { return 0 }
-        return min(0.06, max(-0.03, (average - 50) * 0.0015))
+        guard let store = stores.first(where: { $0.id == storeID }), store.autoSales,
+              let employee = store.employees
+            .filter({ $0.assignment == .sales })
+            .max(by: { $0.salesComposite < $1.salesComposite }) else { return 0 }
+        return employeeSalesCloseAdjustment(employee)
+    }
+
+    func employeeProcurementCloseAdjustment(_ employee: StoreEmployee) -> Double {
+        interpolatedEmployeeEffect(score: employee.procurementComposite, low: -0.06, high: 0.09)
+    }
+
+    func employeeAppraisalAccuracyBonus(_ employee: StoreEmployee) -> Int {
+        Int(interpolatedEmployeeEffect(score: employee.appraisalComposite, low: -10, high: 16).rounded())
     }
 
     func employeeAppraisalAccuracyBonus(for storeID: UUID) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
-        let skillBonus = store.averageAppraisalSkill.map { max(0, Int((($0 - 50) * 0.28).rounded())) } ?? 0
         let facilityBonus = store.facilities.contains(.quickAppraisal) ? 5 : 0
-        return min(16, skillBonus + facilityBonus)
+        return facilityBonus
+    }
+
+    func assignedEmployees(storeID: UUID, assignment: EmployeeAssignment) -> [StoreEmployee] {
+        stores.first(where: { $0.id == storeID })?.employees.filter { $0.assignment == assignment } ?? []
+    }
+
+    func employeeMarketingScore(for storeID: UUID) -> Double {
+        guard let store = stores.first(where: { $0.id == storeID }), store.autoMarketing else { return 50 }
+        let scores = store.employees.filter { $0.assignment == .marketingResearch }.map(\.marketingComposite).sorted(by: >)
+        guard let lead = scores.first else { return 50 }
+        return min(95, lead + scores.dropFirst().reduce(0) { $0 + max(0, $1 - 50) * 0.25 })
+    }
+
+    func employeeMarketingEfficiency(for storeID: UUID, buyers: Bool) -> Double {
+        guard let store = stores.first(where: { $0.id == storeID }), store.autoMarketing,
+              store.employees.contains(where: { $0.assignment == .marketingResearch }) else { return 1 }
+        let base = interpolatedEmployeeEffect(score: employeeMarketingScore(for: storeID), low: 0.80, high: 1.30)
+        let policyFactor: Double
+        switch (store.marketingPolicy, buyers) {
+        case (.buyers, true), (.sellers, false): policyFactor = 1.15
+        case (.buyers, false), (.sellers, true): policyFactor = 0.85
+        default: policyFactor = 1
+        }
+        return base * policyFactor
+    }
+
+    func marketResearchScore(for storeID: UUID) -> Double {
+        guard let store = stores.first(where: { $0.id == storeID }) else { return 50 }
+        let scores = store.employees.filter { $0.assignment == .marketingResearch }.map { Double($0.marketResearchSkill) }.sorted(by: >)
+        guard let lead = scores.first else { return 50 }
+        return min(95, lead + scores.dropFirst().reduce(0) { $0 + max(0, $1 - 50) * 0.25 })
+    }
+
+    func hasMarketResearcher(storeID: UUID) -> Bool {
+        guard let store = stores.first(where: { $0.id == storeID }) else { return false }
+        return store.employees.contains { $0.assignment == .marketingResearch }
+    }
+
+    func auctionWinnerName(for result: AuctionBidResult) -> String? {
+        result.winningCompetitorID.map { competitorName(for: $0) }
+    }
+
+    func recentCompetitorAuctionPurchases(competitorID: UUID, weeks: Int = 12) -> [CompetitorAuctionPurchase] {
+        competitorAuctionPurchases.filter {
+            $0.competitorID == competitorID && $0.purchasedTurn >= max(0, turn - weeks + 1)
+        }
+    }
+
+    func competitorAuctionTrend(competitorID: UUID, storeID: UUID) -> String {
+        guard hasMarketResearcher(storeID: storeID) else { return "市場調査担当を配置すると仕入れ動向が判明します" }
+        let purchases = recentCompetitorAuctionPurchases(competitorID: competitorID)
+        guard !purchases.isEmpty else { return "直近12週間は目立ったAA仕入れなし" }
+        let counts = Dictionary(grouping: purchases, by: \.category).mapValues(\.count)
+        let categories = counts.sorted {
+            $0.value == $1.value ? $0.key.rawValue < $1.key.rawValue : $0.value > $1.value
+        }.prefix(2).map { "\($0.key.name)\($0.value)台" }.joined(separator: "・")
+        let visibleModels = marketResearchScore(for: storeID) >= 70 ? 3 : 1
+        let models = purchases.prefix(visibleModels).map(\.vehicleName).joined(separator: "、")
+        let range = marketForecastRange(value: purchases.count, storeID: storeID)
+        return "推定\(range.lowerBound)〜\(range.upperBound)台増・\(categories)｜最近：\(models)"
+    }
+
+    func marketForecastErrorRate(for storeID: UUID) -> Double {
+        interpolatedEmployeeEffect(score: marketResearchScore(for: storeID), low: 0.30, high: 0.02)
+    }
+
+    func marketForecastRange(value: Int, storeID: UUID) -> ClosedRange<Int> {
+        let error = marketForecastErrorRate(for: storeID)
+        let seed = turn * 401 + (stores.first(where: { $0.id == storeID })?.plotID ?? 0)
+        let centerError = (transactionRoll(seed: seed) - 0.5) * error
+        let center = Double(value) * (1 + centerError)
+        let halfWidth = Double(value) * error / 2
+        return max(0, Int((center - halfWidth).rounded()))...max(0, Int((center + halfWidth).rounded()))
+    }
+
+    func marketResearcherName(for storeID: UUID) -> String {
+        guard let employee = stores.first(where: { $0.id == storeID })?.employees
+            .filter({ $0.assignment == .marketingResearch })
+            .max(by: { $0.marketResearchSkill < $1.marketResearchSkill }) else { return "オーナー調査" }
+        return employee.name
     }
 
     func employeePoachingRisk(_ employee: StoreEmployee) -> Double {
         guard employee.tenureWeeks >= 12, employee.overallSkill >= 70 else { return 0 }
-        let marketSalary = 23 + employee.overallSkill / 4
+        let marketSalary = employee.marketMonthlySalary
         let skillRisk = Double(employee.overallSkill - 70) * 0.0015
-        let salaryRisk = Double(max(0, marketSalary - employee.monthlySalary)) * 0.004
-        let retention = Double(max(0, employee.monthlySalary - marketSalary)) * 0.003
+        let salaryRisk = Double(max(0, marketSalary - employee.recentTotalCompensation)) * 0.004
+        let retention = Double(max(0, employee.recentTotalCompensation - marketSalary)) * 0.003
         return min(0.12, max(0, 0.01 + skillRisk + salaryRisk - retention))
     }
 
@@ -1657,6 +1766,15 @@ final class GameEngine: ObservableObject {
     }
 
     @discardableResult
+    func assignEmployee(_ employeeID: UUID, at storeID: UUID, to assignment: EmployeeAssignment) -> Bool {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
+              let employeeIndex = stores[storeIndex].employees.firstIndex(where: { $0.id == employeeID }) else { return false }
+        stores[storeIndex].employees[employeeIndex].assignment = assignment
+        save()
+        return true
+    }
+
+    @discardableResult
     func trainEmployee(_ employeeID: UUID, at storeID: UUID, focus: EmployeeTrainingFocus) -> Bool {
         guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               let employeeIndex = stores[storeIndex].employees.firstIndex(where: { $0.id == employeeID }),
@@ -1669,6 +1787,14 @@ final class GameEngine: ObservableObject {
             stores[storeIndex].employees[employeeIndex].salesSkill = min(95, stores[storeIndex].employees[employeeIndex].salesSkill + 3)
         case .appraisal:
             stores[storeIndex].employees[employeeIndex].appraisalSkill = min(95, stores[storeIndex].employees[employeeIndex].appraisalSkill + 3)
+        case .procurement:
+            stores[storeIndex].employees[employeeIndex].procurementSkill = min(95, stores[storeIndex].employees[employeeIndex].procurementSkill + 3)
+        case .marketing:
+            stores[storeIndex].employees[employeeIndex].marketingSkill = min(95, stores[storeIndex].employees[employeeIndex].marketingSkill + 3)
+        case .service:
+            stores[storeIndex].employees[employeeIndex].serviceSkill = min(95, stores[storeIndex].employees[employeeIndex].serviceSkill + 3)
+        case .marketResearch:
+            stores[storeIndex].employees[employeeIndex].marketResearchSkill = min(95, stores[storeIndex].employees[employeeIndex].marketResearchSkill + 3)
         }
         stores[storeIndex].employees[employeeIndex].monthlySalary += 1
         stores[storeIndex].employees[employeeIndex].lastTrainingTurn = turn
@@ -1753,8 +1879,7 @@ final class GameEngine: ObservableObject {
 
     func canSellManually(storeID: UUID) -> Bool {
         guard let store = stores.first(where: { $0.id == storeID }) else { return false }
-        return !(store.hasManager && store.delegatePricing)
-            && store.inventory.contains(where: { $0.count > 0 && !$0.isInWorkshop })
+        return store.inventory.contains(where: { $0.count > 0 && !$0.isInWorkshop })
             && buyerLeads.contains(where: { $0.storeID == storeID })
             && remainingWeeklyOpportunities(storeID: storeID) > 0
     }
@@ -1794,12 +1919,11 @@ final class GameEngine: ObservableObject {
         let freshnessEffect = inventoryFreshnessCloseAdjustment(for: batch)
         let specialtyEffect = specialtyCloseAdjustment(for: batch, in: plot.district)
         let disclosedIssueEffect = batch.disclosedIssue == nil ? 0.0 : -0.06
-        let employeeEffect = employeeSalesCloseAdjustment(for: storeID)
         let facilityEffect = facilityCloseAdjustment(store: store, category: batch.category)
         let competitiveEffect = priceWarCloseAdjustment(in: plot.district)
         // Apply stock age after the common cap so a high-demand district cannot
         // completely hide the penalty for inventory that has sat for months.
-        let baselineChance = min(0.93, max(0.03, strategy.baseCloseChance + demandEffect + reputationEffect + preferenceEffect + catalogEffect + qualityEffect + yearEffect + mileageEffect + budgetEffect + specialtyEffect + disclosedIssueEffect + employeeEffect + facilityEffect + competitiveEffect))
+        let baselineChance = min(0.93, max(0.03, strategy.baseCloseChance + demandEffect + reputationEffect + preferenceEffect + catalogEffect + qualityEffect + yearEffect + mileageEffect + budgetEffect + specialtyEffect + disclosedIssueEffect + facilityEffect + competitiveEffect))
         let chance = min(0.93, max(0.03, baselineChance + freshnessEffect))
         return (offer, offer - batch.averageCost, chance)
     }
@@ -1911,7 +2035,6 @@ final class GameEngine: ObservableObject {
             scheduleCustomerClaimIfNeeded(for: soldVehicle, storeID: storeID, salePrice: preview.price, seed: seed + 401)
             recalculateAssets()
         }
-        awardEmployeeExperience(storeIndex: storeIndex, focus: .sales, successful: succeeded)
         save()
         return SaleNegotiationResult(
             succeeded: succeeded,
@@ -1930,16 +2053,26 @@ final class GameEngine: ObservableObject {
         let model = VehicleCatalog.entry(id: batch.modelID)
         switch lead.preference {
         case .category(let desiredCategory):
-            return batch.category == desiredCategory ? 0.16 : -0.38
+            return batch.category == desiredCategory ? 0.16 : -0.30
         case .maker(let desiredCategory, let maker):
             if batch.category == desiredCategory, model?.maker == maker { return 0.24 }
-            return batch.category == desiredCategory ? -0.48 : -0.65
+            return batch.category == desiredCategory ? -0.34 : -0.48
         case .exactModel(let modelID):
             if batch.modelID == modelID { return 0.30 }
             if batch.category == lead.desiredCategory, model?.maker == lead.preference.preferredMaker { return -0.30 }
             return batch.category == lead.desiredCategory ? -0.58 : -0.72
         case .budgetFirst:
             return offerPrice <= lead.budget ? 0.12 : -0.06
+        }
+    }
+
+    private func inventoryPreferenceMatches(_ batch: InventoryBatch, preference: BuyerVehiclePreference) -> Bool {
+        let model = VehicleCatalog.entry(id: batch.modelID)
+        switch preference {
+        case .category(let category): return batch.category == category
+        case .maker(let category, let maker): return batch.category == category && model?.maker == maker
+        case .exactModel(let modelID): return batch.modelID == modelID
+        case .budgetFirst: return true
         }
     }
 
@@ -2169,23 +2302,20 @@ final class GameEngine: ObservableObject {
         let baseChance: Double = percent >= 100 ? 0.96 : percent >= 94 ? 0.80 : 0.60
         let priceGap = Double(item.askingPrice - item.appraisedPrice) / Double(max(1, item.askingPrice))
         let retryPenalty = Double(item.negotiations) * 0.08
-        let employeeEffect = employeeSalesCloseAdjustment(for: item.storeID) * 0.65
-        let chance = min(0.98, max(0.28, baseChance + priceGap * 0.20 - retryPenalty + employeeEffect))
+        let chance = min(0.98, max(0.28, baseChance + priceGap * 0.20 - retryPenalty))
         return (item.askingPrice * percent / 100, chance)
     }
 
     func canNegotiatePurchaseCase(_ caseID: UUID) -> Bool {
         guard let item = purchaseCases.first(where: { $0.id == caseID }),
-              let store = stores.first(where: { $0.id == item.storeID }) else { return false }
-        return !(store.hasManager && store.delegateProcurement)
-            && remainingWeeklyOpportunities(storeID: item.storeID) > 0
+              stores.contains(where: { $0.id == item.storeID }) else { return false }
+        return remainingWeeklyOpportunities(storeID: item.storeID) > 0
     }
 
     @discardableResult
     func negotiatePurchaseCase(_ caseID: UUID, offerPercent: Int, tradeIn: Bool = false) -> PurchaseNegotiationOutcome {
         guard let caseIndex = purchaseCases.firstIndex(where: { $0.id == caseID }),
               let storeIndex = stores.firstIndex(where: { $0.id == purchaseCases[caseIndex].storeID }),
-              !(stores[storeIndex].hasManager && stores[storeIndex].delegateProcurement),
               let preview = purchaseNegotiationPreview(caseID, offerPercent: offerPercent) else { return .unavailable }
         let item = purchaseCases[caseIndex]
         let total = (preview.price + item.repairCost) * item.lotCount
@@ -2197,7 +2327,6 @@ final class GameEngine: ObservableObject {
 
         let seed = turn * 83 + item.modelYear * 7 + item.mileage / 1_000 + offerPercent * 13 + stores[storeIndex].usedOpportunitiesThisWeek * 37
         guard transactionRoll(seed: seed) < preview.closeChance else {
-            awardEmployeeExperience(storeIndex: storeIndex, focus: .appraisal, successful: false)
             let nextAttempt = item.negotiations + 1
             let walkedAway = nextAttempt >= 2 || offerPercent <= 88
             if walkedAway { purchaseCases.remove(at: caseIndex) }
@@ -2221,7 +2350,6 @@ final class GameEngine: ObservableObject {
             }
         ))
         stores[storeIndex].reputation = min(1.25, stores[storeIndex].reputation + (tradeIn ? 0.012 : offerPercent < 94 ? -0.004 : 0.006))
-        awardEmployeeExperience(storeIndex: storeIndex, focus: .appraisal, successful: true)
         purchaseCases.remove(at: caseIndex)
         recalculateAssets()
         save()
@@ -2243,9 +2371,6 @@ final class GameEngine: ObservableObject {
               cash >= 10 else { return .unavailable }
         cash -= 10
         purchaseCases[index].appraisalAccuracy = 96
-        if let storeIndex = stores.firstIndex(where: { $0.id == purchaseCases[index].storeID }) {
-            awardEmployeeExperience(storeIndex: storeIndex, focus: .appraisal, successful: true)
-        }
         if let issue = purchaseCases[index].hiddenIssue {
             let item = purchaseCases[index]
             let inspectionRoll = transactionRoll(seed: item.modelYear * 43 + item.mileage / 500 + categoryIndex(item.category) * 71)
@@ -2366,10 +2491,12 @@ final class GameEngine: ObservableObject {
         let conceptPremium = 1 + conceptMarginBonus(store.concept, category: projected.category, serviceAllocation: store.serviceAllocation) * 0.35
         let disclosedIssueFactor = projected.disclosedIssue?.disclosedValueFactor ?? 1.0
         let projectedPrice = max(25, Int(Double(marketValue) * conceptPremium * store.priceIndex * inventoryAgingValueFactor(for: projected) * specialtyMarketFactor(for: projected, in: plot.district) * disclosedIssueFactor))
+        let serviceLead = store.autoService ? store.employees.filter { $0.assignment == .service }.max(by: { $0.serviceComposite < $1.serviceComposite }) : nil
+        let effectiveWeeks = serviceLead?.serviceComposite ?? 0 >= 80 ? max(1, weeks - 1) : weeks
         return WorkshopProjectPreview(
             kind: kind,
             cost: cost,
-            weeks: weeks,
+            weeks: effectiveWeeks,
             qualityGain: resultingQuality - currentQuality,
             resultingQuality: resultingQuality,
             projectedSalePrice: projectedPrice
@@ -2485,6 +2612,16 @@ final class GameEngine: ObservableObject {
         processIntercityShipments(notes: &notes)
         settleAuctionConsignments(notes: &notes)
         resolveAuctionBids(at: turn + 1, notes: &notes)
+        resolveCompetitorAuctionPurchases(at: turn + 1, notes: &notes)
+        beginEmployeeWeek()
+        var automaticSalesByStore: [UUID: AutomaticSaleResult] = [:]
+        for index in stores.indices where stores[index].isOperational {
+            progressAutomaticMarketing(for: index)
+            resolveAutomaticService(for: index)
+            resolveAutomaticPurchases(for: index)
+            automaticSalesByStore[stores[index].id] = resolveAutomaticSales(for: index)
+        }
+        finalizeEmployeeWeek(notes: &notes)
 
         for index in stores.indices {
             guard let plot = plot(id: stores[index].plotID) else { continue }
@@ -2503,8 +2640,7 @@ final class GameEngine: ObservableObject {
             let share = marketShare(for: stores[index])
             let competition = 0.62 + share * 0.76
             let capacity = min(stores[index].inventoryCount, stores[index].type.capacity)
-            let autoSalesEnabled = stores[index].hasManager && stores[index].delegatePricing
-            let automatic = autoSalesEnabled ? resolveAutomaticSales(for: index) : AutomaticSaleResult()
+            let automatic = automaticSalesByStore[stores[index].id] ?? AutomaticSaleResult()
             let manualSales = stores[index].pendingManualSales
             let sales = automatic.sales + manualSales
 
@@ -2512,9 +2648,9 @@ final class GameEngine: ObservableObject {
             let storeCOGS = stores[index].pendingManualCOGS + automatic.costOfSales
             revenueToCollect += automatic.cashCollected
             if automatic.tradeIns > 0 {
-                notes.append("\(stores[index].name)店長：販売商談と同時に下取り車\(automatic.tradeIns)台を在庫化")
+                notes.append("\(stores[index].name)社員：販売商談と同時に下取り車\(automatic.tradeIns)台を在庫化")
             }
-            let staffCost = weeklyPersonnelCost(for: stores[index])
+            let staffCost = weeklyPersonnelCost(for: stores[index]) + automatic.commission
             let combinedRent = stores[index].plotIDs.compactMap { self.plot(id: $0)?.monthlyRent }.reduce(0, +)
             let storeRent = stores[index].acquisition == .lease ? max(1, combinedRent / 4) : 0
             let weeklyAdvertising = stores[index].advertising / 4
@@ -3203,8 +3339,7 @@ final class GameEngine: ObservableObject {
 
     private func launchYear(for model: VehicleCatalogEntry) -> Int {
         guard model.launchTurn > 0 else { return 2015 }
-        let monthOffset = 3 + model.launchTurn / 4
-        return 2030 + monthOffset / 12
+        return 2026 + model.launchTurn / 48
     }
 
     private func lastProductionYear(for model: VehicleCatalogEntry) -> Int {
@@ -3212,7 +3347,7 @@ final class GameEngine: ObservableObject {
             .filter { $0.maker == model.maker && $0.category == model.category && $0.launchTurn > model.launchTurn }
             .map(\.launchTurn)
             .min()
-        let nominalEnd = nextLaunch.map { 2030 + (3 + $0 / 4) / 12 } ?? (launchYear(for: model) + 6)
+        let nominalEnd = nextLaunch.map { 2026 + $0 / 48 } ?? (launchYear(for: model) + 6)
         return min(year, nominalEnd)
     }
 
@@ -3532,99 +3667,124 @@ final class GameEngine: ObservableObject {
     }
 
     private func resolveAutomaticSales(for storeIndex: Int) -> AutomaticSaleResult {
-        guard stores.indices.contains(storeIndex) else { return AutomaticSaleResult() }
+        guard stores.indices.contains(storeIndex), stores[storeIndex].autoSales else { return AutomaticSaleResult() }
         let storeID = stores[storeIndex].id
-        let availableSlots = remainingWeeklyOpportunities(storeID: storeID)
-        guard availableSlots > 0 else { return AutomaticSaleResult() }
+        let handlers = stores[storeIndex].employees
+            .filter { $0.assignment == .sales }
+            .sorted { $0.salesComposite > $1.salesComposite }
+        guard !handlers.isEmpty else { return AutomaticSaleResult() }
         var result = AutomaticSaleResult()
-        let waitingLeads = buyerLeads.filter { $0.storeID == storeID }
+        let strategy = stores[storeIndex].salesPolicy.strategy
 
-        for lead in waitingLeads where result.attempts < availableSlots {
-            guard let batchIndex = automaticInventoryIndex(for: lead, storeIndex: storeIndex),
-            let preview = saleNegotiationPreview(
-                storeID: storeID,
-                buyerLeadID: lead.id,
-                inventoryID: stores[storeIndex].inventory[batchIndex].id,
-                strategy: .smallDiscount
-            ) else { continue }
+        for handler in handlers {
+            var handledByEmployee = 0
+            while handledByEmployee < 7,
+                  let lead = buyerLeads.first(where: {
+                      $0.storeID == storeID && automaticInventoryIndex(for: $0, storeIndex: storeIndex, salesperson: handler) != nil
+                  }),
+                  let batchIndex = automaticInventoryIndex(for: lead, storeIndex: storeIndex, salesperson: handler),
+                  let preview = saleNegotiationPreview(
+                      storeID: storeID,
+                      buyerLeadID: lead.id,
+                      inventoryID: stores[storeIndex].inventory[batchIndex].id,
+                      strategy: strategy
+                  ) {
+                handledByEmployee += 1
+                result.attempts += 1
+                let category = stores[storeIndex].inventory[batchIndex].category
+                let employeeSeed = handler.name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+                let seed = turn * 257 + stores[storeIndex].plotID * 47 + categoryIndex(category) * 31 + result.attempts * 17 + employeeSeed
+                let tradePreview = tradeInSalePreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: stores[storeIndex].inventory[batchIndex].id, strategy: strategy)
+                let canFundTradeIn = cash + min(0, result.cashCollected) >= (tradePreview?.requiredDealerCash ?? 0)
+                let acceptTradeIn = tradePreview.map { $0.expectedTradeInGrossProfit >= 0 && canFundTradeIn } ?? false
+                let baseChance = acceptTradeIn ? (tradePreview?.closeChance ?? preview.closeChance) : preview.closeChance
+                let alternativeLift = employeeAlternativeProposalAdjustment(handler, lead: lead, batch: stores[storeIndex].inventory[batchIndex])
+                let closeChance = min(0.97, max(0.03, baseChance + employeeSalesCloseAdjustment(handler) + alternativeLift))
+                buyerLeads.removeAll { $0.id == lead.id }
+                let succeeded = transactionRoll(seed: seed) < closeChance
+                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) { $0.handled += 1 }
+                awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .sales, successful: succeeded)
+                guard succeeded else { continue }
 
-            result.attempts += 1
-            stores[storeIndex].pendingManualNegotiations = stores[storeIndex].manualNegotiationsThisWeek + 1
-            let category = stores[storeIndex].inventory[batchIndex].category
-            let seed = turn * 257 + stores[storeIndex].plotID * 47 + categoryIndex(category) * 31 + result.attempts * 17
-            let tradePreview = tradeInSalePreview(storeID: storeID, buyerLeadID: lead.id, inventoryID: stores[storeIndex].inventory[batchIndex].id, strategy: .smallDiscount)
-            let canFundTradeIn = cash + min(0, result.cashCollected) >= (tradePreview?.requiredDealerCash ?? 0)
-            let acceptTradeIn = tradePreview.map { $0.expectedTradeInGrossProfit >= 0 && canFundTradeIn } ?? false
-            let closeChance = managerAdjustedCloseChance(acceptTradeIn ? (tradePreview?.closeChance ?? preview.closeChance) : preview.closeChance, storeIndex: storeIndex)
-            buyerLeads.removeAll { $0.id == lead.id }
-            let succeeded = transactionRoll(seed: seed) < closeChance
-            awardEmployeeExperience(storeIndex: storeIndex, focus: .sales, successful: succeeded)
-            guard succeeded else { continue }
-
-            let soldVehicle = stores[storeIndex].inventory[batchIndex]
-            let unitCost = soldVehicle.averageCost
-            stores[storeIndex].inventory[batchIndex].count -= 1
-            if stores[storeIndex].inventory[batchIndex].count == 0 {
-                stores[storeIndex].inventory.remove(at: batchIndex)
+                let soldVehicle = stores[storeIndex].inventory[batchIndex]
+                let unitCost = soldVehicle.averageCost
+                stores[storeIndex].inventory[batchIndex].count -= 1
+                if stores[storeIndex].inventory[batchIndex].count == 0 {
+                    stores[storeIndex].inventory.remove(at: batchIndex)
+                }
+                if acceptTradeIn, let tradeIn = lead.tradeInVehicle, let tradePreview {
+                    stores[storeIndex].inventory.append(InventoryBatch(
+                        modelID: tradeIn.modelID,
+                        category: tradeIn.category,
+                        count: 1,
+                        averageCost: tradeIn.appraisedValue + tradeIn.repairCost,
+                        quality: tradeIn.qualityAfterRepair,
+                        modelYear: tradeIn.modelYear,
+                        mileage: tradeIn.mileage,
+                        acquiredTurn: turn
+                    ))
+                    result.cashCollected += tradePreview.cashImpact
+                    result.tradeIns += 1
+                } else {
+                    result.cashCollected += preview.price
+                }
+                let grossProfit = preview.price - unitCost
+                let commission = max(0, grossProfit) * handler.commissionRate / 100
+                result.sales += 1
+                result.revenue += preview.price
+                result.costOfSales += unitCost
+                result.commission += commission
+                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                    $0.successes += 1
+                    $0.grossProfit += grossProfit
+                    $0.commission += commission
+                }
+                stores[storeIndex].loyalCustomers = min(
+                    250,
+                    stores[storeIndex].loyalCustomers + loyalCustomerGain(store: stores[storeIndex], category: category)
+                )
+                scheduleCustomerClaimIfNeeded(for: soldVehicle, storeID: storeID, salePrice: preview.price, seed: seed + 409)
             }
-            if acceptTradeIn, let tradeIn = lead.tradeInVehicle, let tradePreview {
-                stores[storeIndex].inventory.append(InventoryBatch(
-                    modelID: tradeIn.modelID,
-                    category: tradeIn.category,
-                    count: 1,
-                    averageCost: tradeIn.appraisedValue + tradeIn.repairCost,
-                    quality: tradeIn.qualityAfterRepair,
-                    modelYear: tradeIn.modelYear,
-                    mileage: tradeIn.mileage,
-                    acquiredTurn: turn
-                ))
-                result.cashCollected += tradePreview.cashImpact
-                result.tradeIns += 1
-            } else {
-                result.cashCollected += preview.price
-            }
-            result.sales += 1
-            result.revenue += preview.price
-            result.costOfSales += unitCost
-            stores[storeIndex].loyalCustomers = min(
-                250,
-                stores[storeIndex].loyalCustomers + loyalCustomerGain(store: stores[storeIndex], category: category)
-            )
-            scheduleCustomerClaimIfNeeded(for: soldVehicle, storeID: storeID, salePrice: preview.price, seed: seed + 409)
         }
         return result
     }
 
-    private func awardEmployeeExperience(storeIndex: Int, focus: EmployeeTrainingFocus, successful: Bool) {
-        guard stores.indices.contains(storeIndex), !stores[storeIndex].employees.isEmpty else { return }
-        let opportunity = stores[storeIndex].usedOpportunitiesThisWeek
-        let employeeIndex = (turn + opportunity) % stores[storeIndex].employees.count
-        let oldOverall = stores[storeIndex].employees[employeeIndex].overallSkill
+    private func updateEmployeePerformance(employeeID: UUID, storeIndex: Int, update: (inout EmployeeWeeklyPerformance) -> Void) {
+        guard stores.indices.contains(storeIndex),
+              let employeeIndex = stores[storeIndex].employees.firstIndex(where: { $0.id == employeeID }) else { return }
+        update(&stores[storeIndex].employees[employeeIndex].currentWeekPerformance)
+    }
+
+    private func awardEmployeeExperience(employeeID: UUID, storeIndex: Int, focus: EmployeeTrainingFocus, successful: Bool) {
+        guard stores.indices.contains(storeIndex),
+              let employeeIndex = stores[storeIndex].employees.firstIndex(where: { $0.id == employeeID }) else { return }
+        var employee = stores[storeIndex].employees[employeeIndex]
+        let oldOverall = employee.overallSkill
         let gained = successful ? 4 : 2
+        func advanced(_ skill: Int, _ experience: Int) -> (skill: Int, experience: Int) {
+            let total = experience + gained
+            guard skill < 95, total >= 12 else { return (skill, skill >= 95 ? min(12, total) : total) }
+            return (skill + 1, total - 12)
+        }
         switch focus {
         case .sales:
-            stores[storeIndex].employees[employeeIndex].salesExperience += gained
-            if stores[storeIndex].employees[employeeIndex].salesExperience >= 12,
-               stores[storeIndex].employees[employeeIndex].salesSkill < 95 {
-                stores[storeIndex].employees[employeeIndex].salesExperience -= 12
-                stores[storeIndex].employees[employeeIndex].salesSkill += 1
-            } else if stores[storeIndex].employees[employeeIndex].salesSkill >= 95 {
-                stores[storeIndex].employees[employeeIndex].salesExperience = min(12, stores[storeIndex].employees[employeeIndex].salesExperience)
-            }
+            (employee.salesSkill, employee.salesExperience) = advanced(employee.salesSkill, employee.salesExperience)
         case .appraisal:
-            stores[storeIndex].employees[employeeIndex].appraisalExperience += gained
-            if stores[storeIndex].employees[employeeIndex].appraisalExperience >= 12,
-               stores[storeIndex].employees[employeeIndex].appraisalSkill < 95 {
-                stores[storeIndex].employees[employeeIndex].appraisalExperience -= 12
-                stores[storeIndex].employees[employeeIndex].appraisalSkill += 1
-            } else if stores[storeIndex].employees[employeeIndex].appraisalSkill >= 95 {
-                stores[storeIndex].employees[employeeIndex].appraisalExperience = min(12, stores[storeIndex].employees[employeeIndex].appraisalExperience)
-            }
+            (employee.appraisalSkill, employee.appraisalExperience) = advanced(employee.appraisalSkill, employee.appraisalExperience)
+        case .procurement:
+            (employee.procurementSkill, employee.procurementExperience) = advanced(employee.procurementSkill, employee.procurementExperience)
+        case .marketing:
+            (employee.marketingSkill, employee.marketingExperience) = advanced(employee.marketingSkill, employee.marketingExperience)
+        case .service:
+            (employee.serviceSkill, employee.serviceExperience) = advanced(employee.serviceSkill, employee.serviceExperience)
+        case .marketResearch:
+            (employee.marketResearchSkill, employee.marketResearchExperience) = advanced(employee.marketResearchSkill, employee.marketResearchExperience)
         }
-        let newOverall = stores[storeIndex].employees[employeeIndex].overallSkill
+        let newOverall = employee.overallSkill
         if newOverall / 5 > oldOverall / 5 {
-            stores[storeIndex].employees[employeeIndex].monthlySalary += 1
+            employee.monthlySalary += 1
         }
+        stores[storeIndex].employees[employeeIndex] = employee
     }
 
     private func scheduleCustomerClaimIfNeeded(for batch: InventoryBatch, storeID: UUID, salePrice: Int, seed: Int) {
@@ -3641,87 +3801,213 @@ final class GameEngine: ObservableObject {
         ))
     }
 
-    private func managerAdjustedCloseChance(_ baseChance: Double, storeIndex: Int) -> Double {
-        let ability = stores[storeIndex].manager?.salesAbility ?? 50
-        let multiplier = 0.82 + Double(ability) / 350.0
-        return min(0.97, max(0.05, baseChance * multiplier))
-    }
-
-    private func automaticInventoryIndex(for lead: BuyerLead, storeIndex: Int) -> Int? {
+    private func automaticInventoryIndex(for lead: BuyerLead, storeIndex: Int, salesperson: StoreEmployee) -> Int? {
         let candidates = stores[storeIndex].inventory.indices.filter {
             stores[storeIndex].inventory[$0].count > 0 && !stores[storeIndex].inventory[$0].isInWorkshop
         }
-        switch lead.preference {
-        case .category(let desiredCategory):
-            return candidates.first { stores[storeIndex].inventory[$0].category == desiredCategory }
-        case .maker(let desiredCategory, let maker):
-            return candidates.first {
-                let batch = stores[storeIndex].inventory[$0]
-                return batch.category == desiredCategory && VehicleCatalog.entry(id: batch.modelID)?.maker == maker
+        return candidates.max { left, right in
+            automaticProposalScore(lead: lead, batch: stores[storeIndex].inventory[left], salesperson: salesperson)
+                < automaticProposalScore(lead: lead, batch: stores[storeIndex].inventory[right], salesperson: salesperson)
+        }
+    }
+
+    private func automaticProposalScore(lead: BuyerLead, batch: InventoryBatch, salesperson: StoreEmployee) -> Double {
+        let price = manualSaleQuote(storeID: lead.storeID, inventoryID: batch.id)?.price ?? Int.max
+        let preference = buyerPreferenceMatchEffect(lead: lead, batch: batch, offerPrice: price)
+        let budget = price <= lead.budget ? 0.18 : -min(0.45, Double(price - lead.budget) / Double(max(1, lead.budget)))
+        let condition = (batch.quality - lead.minimumQuality) * 0.25
+            + (batch.modelYear >= lead.minimumModelYear ? 0.04 : -0.16)
+            + (batch.mileage <= lead.maximumMileage ? 0.04 : -0.14)
+        return preference + budget + condition + employeeAlternativeProposalAdjustment(salesperson, lead: lead, batch: batch)
+    }
+
+    private func resolveAutomaticPurchases(for storeIndex: Int) {
+        guard stores.indices.contains(storeIndex), stores[storeIndex].autoProcurement else { return }
+        let storeID = stores[storeIndex].id
+        let handlers = stores[storeIndex].employees
+            .filter { $0.assignment == .procurement }
+            .sorted { $0.procurementComposite > $1.procurementComposite }
+        guard !handlers.isEmpty else { return }
+        let policy = stores[storeIndex].procurementPolicy
+        var totalAttempts = 0
+
+        for handler in handlers {
+            var candidates = purchaseCases.filter { item in
+                guard item.storeID == storeID else { return false }
+                switch policy {
+                case .profit: return item.expectedGrossProfit > 0
+                case .balanced: return item.expectedGrossProfit >= 0
+                case .volume: return true
+                }
             }
-        case .exactModel(let modelID):
-            return candidates.first { stores[storeIndex].inventory[$0].modelID == modelID }
-        case .budgetFirst:
-            return candidates.min { left, right in
-                let leftPrice = manualSaleQuote(storeID: lead.storeID, inventoryID: stores[storeIndex].inventory[left].id)?.price ?? Int.max
-                let rightPrice = manualSaleQuote(storeID: lead.storeID, inventoryID: stores[storeIndex].inventory[right].id)?.price ?? Int.max
-                let leftFits = leftPrice <= lead.budget
-                let rightFits = rightPrice <= lead.budget
-                if leftFits != rightFits { return leftFits }
-                return leftPrice < rightPrice
+            candidates.sort { $0.expectedGrossProfit > $1.expectedGrossProfit }
+
+            for original in candidates.prefix(7) {
+                guard let caseIndex = purchaseCases.firstIndex(where: { $0.id == original.id }) else { continue }
+                var item = purchaseCases[caseIndex]
+                let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000 + totalAttempts * 29
+                let accuracy = min(96, max(35, item.appraisalAccuracy + employeeAppraisalAccuracyBonus(handler)))
+                var issueFound = item.issueRevealed
+                if item.hiddenIssue != nil, !issueFound,
+                   transactionRoll(seed: seed + 113) < Double(accuracy) / 100 {
+                    issueFound = true
+                }
+                purchaseCases[caseIndex].appraisalAccuracy = accuracy
+                purchaseCases[caseIndex].issueRevealed = issueFound
+                item = purchaseCases[caseIndex]
+                guard let basePreview = purchaseNegotiationPreview(item.id, offerPercent: policy.offerPercent) else { continue }
+                let total = (basePreview.price + item.repairCost) * item.lotCount
+                guard cash >= total,
+                      stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity else { continue }
+
+                totalAttempts += 1
+                let chance = min(0.98, max(0.05, basePreview.closeChance + employeeProcurementCloseAdjustment(handler)))
+                let succeeded = transactionRoll(seed: seed) < chance
+                let expectedGrossProfit = (item.expectedSaleAfterAppraisal - basePreview.price - item.repairCost) * item.lotCount
+                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                    $0.handled += 1
+                    if issueFound && !original.issueRevealed { $0.issuesFound += 1 }
+                }
+                awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .procurement, successful: succeeded)
+                if issueFound && !original.issueRevealed {
+                    awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .appraisal, successful: true)
+                }
+                if succeeded {
+                    cash -= total
+                    stores[storeIndex].inventory.append(InventoryBatch(
+                        modelID: item.modelID,
+                        category: item.category,
+                        count: item.lotCount,
+                        averageCost: basePreview.price + item.repairCost,
+                        quality: Double(item.qualityAfterRepairScore) / 100,
+                        modelYear: item.modelYear,
+                        mileage: item.mileage,
+                        acquiredTurn: turn,
+                        vehicleIssue: item.hiddenIssue.map {
+                            VehicleIssueRecord(kind: $0, status: issueFound ? .disclosed : .hidden)
+                        }
+                    ))
+                    updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                        $0.successes += 1
+                        $0.grossProfit += expectedGrossProfit
+                    }
+                }
+                purchaseCases.removeAll { $0.id == item.id }
             }
         }
     }
 
-    private func resolveDelegatedPurchases(for storeIndex: Int) -> (attempts: Int, purchases: Int) {
-        guard stores.indices.contains(storeIndex) else { return (0, 0) }
+    private func resolveAutomaticService(for storeIndex: Int) {
+        guard stores.indices.contains(storeIndex), stores[storeIndex].autoService else { return }
         let storeID = stores[storeIndex].id
-        let remaining = remainingWeeklyOpportunities(storeID: storeID)
-        let stockRate = Double(stores[storeIndex].inventoryCount + incomingCount(for: storeID)) / Double(max(1, stores[storeIndex].type.capacity))
-        guard remaining > 0, stockRate < 0.72 else { return (0, 0) }
-        let limit = min(remaining, max(1, weeklyOpportunityCapacity(storeID: storeID) / 3))
-        let candidates = purchaseCases
-            .filter { $0.storeID == storeID && $0.expectedGrossProfit > 0 }
-            .sorted { $0.expectedGrossProfit > $1.expectedGrossProfit }
-        var attempts = 0
-        var purchases = 0
-
-        for item in candidates where attempts < limit {
-            guard let caseIndex = purchaseCases.firstIndex(where: { $0.id == item.id }),
-                  let preview = purchaseNegotiationPreview(item.id, offerPercent: 94) else { continue }
-            let total = (preview.price + item.repairCost) * item.lotCount
-            guard cash >= total, stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity else { continue }
-            attempts += 1
-            stores[storeIndex].pendingPurchaseNegotiations = stores[storeIndex].purchaseNegotiationsThisWeek + 1
-            let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000 + attempts * 29
-            let closeChance = managerAdjustedCloseChance(preview.closeChance, storeIndex: storeIndex)
-            let succeeded = transactionRoll(seed: seed) < closeChance
-            if succeeded {
-                cash -= total
-                let managerAccuracy = stores[storeIndex].manager?.serviceAbility ?? 50
-                let employeeAccuracy = Int(stores[storeIndex].averageAppraisalSkill ?? 0)
-                let teamAccuracy = max(managerAccuracy, employeeAccuracy)
-                let managerFoundIssue = item.hiddenIssue != nil
-                    && (item.issueRevealed || transactionRoll(seed: seed + 113) < Double(teamAccuracy) / 115.0)
-                stores[storeIndex].inventory.append(InventoryBatch(
-                    modelID: item.modelID,
-                    category: item.category,
-                    count: item.lotCount,
-                    averageCost: preview.price + item.repairCost,
-                    quality: Double(item.qualityAfterRepairScore) / 100,
-                    modelYear: item.modelYear,
-                    mileage: item.mileage,
-                    acquiredTurn: turn,
-                    vehicleIssue: item.hiddenIssue.map {
-                        VehicleIssueRecord(kind: $0, status: managerFoundIssue ? .disclosed : .hidden)
+        let handlers = stores[storeIndex].employees
+            .filter { $0.assignment == .service }
+            .sorted { $0.serviceComposite > $1.serviceComposite }
+        for handler in handlers {
+            let capacity = handler.serviceComposite >= 80 ? 3 : handler.serviceComposite >= 60 ? 2 : 1
+            for _ in 0..<capacity {
+                let candidateIndices = stores[storeIndex].inventory.indices.filter { index in
+                    let batch = stores[storeIndex].inventory[index]
+                    guard batch.count > 0, !batch.isInWorkshop else { return false }
+                    let quality = Int((batch.quality * 100).rounded())
+                    switch stores[storeIndex].servicePolicy {
+                    case .cost: return quality < 70
+                    case .balanced: return quality < 80
+                    case .quality: return quality < 90
                     }
-                ))
-                purchases += 1
+                }
+                guard let batchIndex = candidateIndices.min(by: {
+                    stores[storeIndex].inventory[$0].quality < stores[storeIndex].inventory[$1].quality
+                }) else { break }
+                let batch = stores[storeIndex].inventory[batchIndex]
+                guard let base = servicePreview(storeID: storeID, inventoryID: batch.id) else { break }
+                let costFactor = interpolatedEmployeeEffect(score: handler.serviceComposite, low: 1.10, high: 0.82)
+                let cost = max(1, Int((Double(base.cost) * costFactor).rounded()))
+                let bonus = handler.serviceComposite >= 90 ? 2 : handler.serviceComposite >= 70 ? 1 : 0
+                let resultingQuality = min(94, base.resultingQuality + bonus)
+                if stores[storeIndex].servicePolicy == .balanced {
+                    let currentPrice = manualSaleQuote(storeID: storeID, inventoryID: batch.id)?.price ?? 0
+                    let valueIncrease = Int(Double(currentPrice) * Double(resultingQuality - Int((batch.quality * 100).rounded())) / 100)
+                    guard valueIncrease >= cost else { break }
+                }
+                guard cash >= cost else { break }
+                cash -= cost
+                let servicedQuality = Double(resultingQuality) / 100
+                var issueFound = false
+                var servicedIssue = batch.vehicleIssue
+                if let issue = batch.vehicleIssue, issue.status == .hidden,
+                   transactionRoll(seed: turn * 347 + batch.modelYear + batch.mileage / 500 + handler.id.uuidString.count) < handler.appraisalComposite / 100 {
+                    servicedIssue = VehicleIssueRecord(kind: issue.kind, status: .disclosed)
+                    issueFound = true
+                }
+                if stores[storeIndex].inventory[batchIndex].count == 1 {
+                    stores[storeIndex].inventory[batchIndex].averageCost += cost
+                    stores[storeIndex].inventory[batchIndex].quality = servicedQuality
+                    stores[storeIndex].inventory[batchIndex].vehicleIssue = servicedIssue
+                } else {
+                    stores[storeIndex].inventory[batchIndex].count -= 1
+                    stores[storeIndex].inventory.append(InventoryBatch(
+                        modelID: batch.modelID,
+                        category: batch.category,
+                        count: 1,
+                        averageCost: batch.averageCost + cost,
+                        quality: servicedQuality,
+                        modelYear: batch.modelYear,
+                        mileage: batch.mileage,
+                        acquiredTurn: batch.acquiredTurn,
+                        productState: batch.productState,
+                        vehicleIssue: servicedIssue
+                    ))
+                }
+                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                    $0.handled += 1
+                    $0.successes += 1
+                    $0.servicesCompleted += 1
+                    if issueFound { $0.issuesFound += 1 }
+                }
+                awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .service, successful: true)
+                if issueFound {
+                    awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .appraisal, successful: true)
+                }
             }
-            awardEmployeeExperience(storeIndex: storeIndex, focus: .appraisal, successful: succeeded)
-            purchaseCases.remove(at: caseIndex)
         }
-        return (attempts, purchases)
+    }
+
+    private func progressAutomaticMarketing(for storeIndex: Int) {
+        guard stores.indices.contains(storeIndex), stores[storeIndex].autoMarketing else { return }
+        let employeeIDs = stores[storeIndex].employees.filter { $0.assignment == .marketingResearch }.map(\.id)
+        for employeeID in employeeIDs {
+            awardEmployeeExperience(employeeID: employeeID, storeIndex: storeIndex, focus: .marketing, successful: true)
+            awardEmployeeExperience(employeeID: employeeID, storeIndex: storeIndex, focus: .marketResearch, successful: true)
+        }
+    }
+
+    private func beginEmployeeWeek() {
+        for storeIndex in stores.indices {
+            for employeeIndex in stores[storeIndex].employees.indices {
+                stores[storeIndex].employees[employeeIndex].currentWeekPerformance = EmployeeWeeklyPerformance()
+            }
+        }
+    }
+
+    private func finalizeEmployeeWeek(notes: inout [String]) {
+        for storeIndex in stores.indices {
+            for employeeIndex in stores[storeIndex].employees.indices {
+                let performance = stores[storeIndex].employees[employeeIndex].currentWeekPerformance
+                stores[storeIndex].employees[employeeIndex].lastWeekPerformance = performance
+                stores[storeIndex].employees[employeeIndex].recentCommissions.append(performance.commission)
+                stores[storeIndex].employees[employeeIndex].recentCommissions = Array(stores[storeIndex].employees[employeeIndex].recentCommissions.suffix(4))
+                if performance.handled > 0 || performance.servicesCompleted > 0 {
+                    let employee = stores[storeIndex].employees[employeeIndex]
+                    let commissionText = performance.commission > 0 ? "・歩合\(performance.commission.currency)" : ""
+                    notes.append("\(stores[storeIndex].name) \(employee.name)：\(performance.summary)\(commissionText)")
+                }
+            }
+            if stores[storeIndex].autoMarketing,
+               let researcher = stores[storeIndex].employees.filter({ $0.assignment == .marketingResearch }).max(by: { $0.marketResearchSkill < $1.marketResearchSkill }) {
+                notes.append("\(stores[storeIndex].name) \(researcher.name)：広告効率\(Int((employeeMarketingEfficiency(for: stores[storeIndex].id, buyers: true) * 100).rounded()))%・市場予測±\(Int((marketForecastErrorRate(for: stores[storeIndex].id) * 100).rounded()))%")
+            }
+        }
     }
 
     private func expireWeeklyCustomerLeads(notes: inout [String]) {
@@ -3741,14 +4027,15 @@ final class GameEngine: ObservableObject {
             guard stores[index].isOperational, stores[index].hasManager,
                   let plot = plot(id: stores[index].plotID) else { continue }
             var actions: [String] = []
+            let manager = stores[index].manager!
 
             if stores[index].delegateStaff {
-                let weeklyVisitors = stores[index].buyerArrivalsThisWeek + stores[index].sellerArrivalsThisWeek
-                let staffingAbility = stores[index].manager?.staffingAbility ?? 50
-                let leaderCapacity = 1
-                let ideal = max(0, Int(ceil(Double(weeklyVisitors) / 7.0)) - leaderCapacity)
-                let buffer = staffingAbility < 60 && weeklyVisitors > 0 ? 1 : 0
-                let target = min(maxEmployeesPerStore, ideal + buffer)
+                let automatedCases = (stores[index].autoSales ? stores[index].buyerArrivalsThisWeek : 0)
+                    + (stores[index].autoProcurement ? stores[index].sellerArrivalsThisWeek : 0)
+                let caseWorkers = max(0, Int(ceil(Double(automatedCases) / 7.0)))
+                let supportWorkers = (stores[index].autoMarketing ? 1 : 0)
+                    + (stores[index].autoService && stores[index].inventoryCount > 0 ? 1 : 0)
+                let target = min(maxEmployeesPerStore, caseWorkers + supportWorkers)
                 if stores[index].staff < target, let candidate = employeeCandidates(for: stores[index].id).first {
                     stores[index].employees.append(candidate)
                     actions.append("\(candidate.name)を採用")
@@ -3757,43 +4044,79 @@ final class GameEngine: ObservableObject {
                     stores[index].employees.removeAll { $0.id == employee.id }
                     actions.append("\(employee.name)を配置から外す")
                 }
+
+                let canReassign = manager.staffingAbility >= 60 || turn.isMultiple(of: 2)
+                if canReassign {
+                    let reassignmentLimit = manager.staffingAbility >= 80 ? 2 : 1
+                    let enabledAssignments: [EmployeeAssignment] = [
+                        stores[index].autoSales ? .sales : nil,
+                        stores[index].autoProcurement ? .procurement : nil,
+                        stores[index].autoMarketing ? .marketingResearch : nil,
+                        stores[index].autoService ? .service : nil
+                    ].compactMap { $0 }
+                    for _ in 0..<reassignmentLimit {
+                        guard !enabledAssignments.isEmpty,
+                              let employeeIndex = stores[index].employees.firstIndex(where: {
+                                  $0.assignment == .unassigned || !enabledAssignments.contains($0.assignment)
+                              }) else { break }
+                        let buyerNeed = max(0, stores[index].buyerArrivalsThisWeek - stores[index].employees.filter { $0.assignment == .sales }.count * 7)
+                        let sellerNeed = max(0, stores[index].sellerArrivalsThisWeek - stores[index].employees.filter { $0.assignment == .procurement }.count * 7)
+                        let assignment: EmployeeAssignment
+                        if stores[index].autoMarketing && !stores[index].employees.contains(where: { $0.assignment == .marketingResearch }) {
+                            assignment = .marketingResearch
+                        } else if buyerNeed >= sellerNeed, stores[index].autoSales {
+                            assignment = .sales
+                        } else if stores[index].autoProcurement {
+                            assignment = .procurement
+                        } else {
+                            assignment = enabledAssignments.first!
+                        }
+                        stores[index].employees[employeeIndex].assignment = assignment
+                        actions.append("\(stores[index].employees[employeeIndex].name)を\(assignment.name)へ配置")
+                    }
+                }
             }
 
             if stores[index].delegatePricing {
                 let stockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
                 let targetPrice = stockRate > 0.72 ? 0.96 : stockRate < 0.30 ? 1.05 : 1.0
-                if abs(stores[index].priceIndex - targetPrice) >= 0.02 {
-                    let salesAbility = stores[index].manager?.salesAbility ?? 50
-                    let step = salesAbility >= 80 ? 0.03 : salesAbility >= 60 ? 0.02 : 0.01
+                let targetPolicy: SalesAutomationPolicy = stockRate > 0.72 ? .volume : stockRate < 0.30 ? .profit : .balanced
+                let canAdjust = manager.salesAbility >= 60 || turn.isMultiple(of: 2)
+                var changedPolicy = false
+                if canAdjust, stores[index].salesPolicy != targetPolicy {
+                    stores[index].salesPolicy = targetPolicy
+                    changedPolicy = true
+                    actions.append("販売方針を\(targetPolicy.name)へ変更")
+                }
+                if canAdjust, (manager.salesAbility >= 80 || !changedPolicy), abs(stores[index].priceIndex - targetPrice) >= 0.02 {
+                    let step = manager.salesAbility >= 80 ? 0.03 : manager.salesAbility >= 60 ? 0.02 : 0.01
                     stores[index].priceIndex += targetPrice > stores[index].priceIndex ? step : -step
                     actions.append("価格を調整")
                 }
             }
 
             if stores[index].delegateProcurement {
-                let customerPurchases = resolveDelegatedPurchases(for: index)
-                if customerPurchases.attempts > 0 {
-                    actions.append("買取客\(customerPurchases.attempts)人に対応・\(customerPurchases.purchases)台成約")
-                }
                 let currentStockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
-                let freeCapacity = stores[index].type.capacity - stores[index].inventoryCount - incomingCount(for: stores[index].id)
-                if currentStockRate < 0.28, freeCapacity >= 3 {
-                    let localOrder = recommendedCategories(for: plot.district)
-                    let targets = stores[index].concept.targetCategories
-                    let category = localOrder.first(where: targets.contains) ?? targets.first ?? .compact
-                    if let quote = dealerTradeQuote(category: category, count: 3, storeID: stores[index].id), cash >= quote.totalCost {
-                        cash -= quote.totalCost
-                        inboundShipments.append(InboundShipment(id: UUID(), storeID: stores[index].id, source: .dealerTrade, modelID: quote.modelID, category: category, count: 3, unitCost: quote.unitCost + quote.fee / 3, quality: quote.quality, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: quote.weeks))
-                        actions.append("\(category.name)3台を自動発注")
-                    }
+                let target: ProcurementAutomationPolicy = currentStockRate < 0.28 ? .volume : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .profit : .balanced
+                if (manager.procurementAbility >= 60 || turn.isMultiple(of: 2)), stores[index].procurementPolicy != target {
+                    stores[index].procurementPolicy = target
+                    actions.append("仕入方針を\(target.name)へ変更")
                 }
             }
 
             if stores[index].delegateMarketing {
-                let marketingAbility = stores[index].manager?.marketingAbility ?? 50
+                let marketingAbility = manager.marketingAbility
+                let targetPolicy: MarketingAutomationPolicy = stores[index].buyerArrivalsThisWeek < stores[index].sellerArrivalsThisWeek ? .buyers : stores[index].sellerArrivalsThisWeek < stores[index].buyerArrivalsThisWeek ? .sellers : .balanced
                 let overspend = max(0, 65 - marketingAbility)
                 let target = min(360, 70 + competitorCount(in: plot.district) * 45 + max(0, stores[index].lastProfit) / 12 + overspend)
-                if abs(stores[index].advertising - target) >= 20 {
+                let canAdjust = marketingAbility >= 60 || turn.isMultiple(of: 2)
+                var changedPolicy = false
+                if canAdjust, stores[index].marketingPolicy != targetPolicy {
+                    stores[index].marketingPolicy = targetPolicy
+                    changedPolicy = true
+                    actions.append("集客方針を\(targetPolicy.name)へ変更")
+                }
+                if canAdjust, (marketingAbility >= 80 || !changedPolicy), abs(stores[index].advertising - target) >= 20 {
                     let step = marketingAbility >= 80 ? 30 : marketingAbility >= 60 ? 20 : 10
                     stores[index].advertising += target > stores[index].advertising ? step : -step
                     actions.append("広告予算を調整")
@@ -3801,11 +4124,18 @@ final class GameEngine: ObservableObject {
             }
 
             if stores[index].delegateService {
-                let serviceAbility = stores[index].manager?.serviceAbility ?? 50
-                let abilityBuffer = serviceAbility < 60 ? 0.05 : 0.0
-                let baseTarget = stores[index].satisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
-                let target = min(0.65, baseTarget + abilityBuffer)
-                if abs(stores[index].serviceAllocation - target) >= 0.04 {
+                let serviceAbility = manager.serviceAbility
+                let averageQuality = stores[index].inventory.isEmpty ? 100 : stores[index].inventory.reduce(0.0) { $0 + $1.quality * Double($1.count) } / Double(max(1, stores[index].inventoryCount)) * 100
+                let targetPolicy: ServiceAutomationPolicy = averageQuality < 70 ? .quality : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .cost : .balanced
+                let target = stores[index].satisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
+                let canAdjust = serviceAbility >= 60 || turn.isMultiple(of: 2)
+                var changedPolicy = false
+                if canAdjust, stores[index].servicePolicy != targetPolicy {
+                    stores[index].servicePolicy = targetPolicy
+                    changedPolicy = true
+                    actions.append("整備方針を\(targetPolicy.name)へ変更")
+                }
+                if canAdjust, (serviceAbility >= 80 || !changedPolicy), abs(stores[index].serviceAllocation - target) >= 0.04 {
                     let step = serviceAbility >= 80 ? 0.07 : serviceAbility >= 60 ? 0.05 : 0.03
                     stores[index].serviceAllocation += target > stores[index].serviceAllocation ? step : -step
                     actions.append("整備配分を調整")
@@ -3827,27 +4157,41 @@ final class GameEngine: ObservableObject {
                 bidReservations.removeAll { $0.id == bid.id }
                 continue
             }
-            let spread = max(4, listing.marketPrice - listing.reservePrice)
             let seed = turn * 277 + listing.modelYear * 19 + listing.mileage / 500 + categoryIndex(listing.category) * 43
-            let wonCompetition = transactionRoll(seed: seed) < auctionBidWinChance(for: listing, maxPrice: bid.maxPrice)
-            let competitivePrice = listing.reservePrice + Int(transactionRoll(seed: seed + 17) * Double(spread + spread / 2 + 1))
-            let hammerPrice = wonCompetition
-                ? min(bid.maxPrice, max(listing.reservePrice, competitivePrice))
-                : max(bid.maxPrice + 1, competitivePrice)
-            let total = hammerPrice + listing.venue.fee + listing.venue.shippingCost
+            let rivalBid = competitorAuctionBid(for: listing, seed: seed)
+            let rivalPrice = rivalBid?.maxPrice ?? listing.reservePrice
+            let wonCompetition = bid.maxPrice >= rivalPrice
             let status: AuctionBidResultStatus
+            var hammerPrice: Int
+            let winningCompetitorID: UUID?
             if !wonCompetition {
+                hammerPrice = rivalPrice
                 status = .exceededLimit
-                notes.append("\(listing.vehicleName)の入札は落札価格\(hammerPrice.currency)が上限\(bid.maxPrice.currency)を超えたため不落札でした")
-            } else if cash < total {
-                status = .insufficientFunds
-                notes.append("\(listing.vehicleName)は落札圏内でしたが、諸費用込み\(total.currency)の資金を確保できませんでした")
+                winningCompetitorID = rivalBid.map { competitors[$0.competitorIndex].id }
+                if let rivalBid {
+                    recordCompetitorAuctionPurchase(listing: listing, competitorIndex: rivalBid.competitorIndex, hammerPrice: hammerPrice, purchasedTurn: resolvingTurn)
+                }
+                notes.append("\(listing.vehicleName)の入札は落札価格\(hammerPrice.currency)が上限\(bid.maxPrice.currency)を超え、\(winningCompetitorID.map(competitorName(for:)) ?? "他社")が落札しました")
             } else {
-                status = .won
-                cash -= total
-                inboundShipments.append(InboundShipment(id: UUID(), storeID: bid.storeID, source: .auction, modelID: listing.modelID, category: listing.category, count: 1, unitCost: total, quality: listing.quality, modelYear: listing.modelYear, mileage: listing.mileage, acquiredTurn: resolvingTurn, monthsRemaining: listing.venue.shippingMonths))
-                notes.append("\(listing.venue.name)で\(listing.vehicleName)を\(hammerPrice.currency)で落札しました（会場費・輸送費込み \(total.currency)）")
+                hammerPrice = min(bid.maxPrice, max(listing.reservePrice, rivalPrice + 1))
+                let playerTotal = hammerPrice + listing.venue.fee + listing.venue.shippingCost
+                if cash < playerTotal {
+                    hammerPrice = rivalPrice
+                    status = .insufficientFunds
+                    winningCompetitorID = rivalBid.map { competitors[$0.competitorIndex].id }
+                    if let rivalBid {
+                        recordCompetitorAuctionPurchase(listing: listing, competitorIndex: rivalBid.competitorIndex, hammerPrice: rivalPrice, purchasedTurn: resolvingTurn)
+                    }
+                    notes.append("\(listing.vehicleName)は落札圏内でしたが、諸費用込み\(playerTotal.currency)の資金を確保できず、\(winningCompetitorID.map(competitorName(for:)) ?? "他社")が落札しました")
+                } else {
+                    status = .won
+                    winningCompetitorID = nil
+                    cash -= playerTotal
+                    inboundShipments.append(InboundShipment(id: UUID(), storeID: bid.storeID, source: .auction, modelID: listing.modelID, category: listing.category, count: 1, unitCost: playerTotal, quality: listing.quality, modelYear: listing.modelYear, mileage: listing.mileage, acquiredTurn: resolvingTurn, monthsRemaining: listing.venue.shippingMonths))
+                    notes.append("\(listing.venue.name)で\(listing.vehicleName)を\(hammerPrice.currency)で落札しました（会場費・輸送費込み \(playerTotal.currency)）")
+                }
             }
+            let total = hammerPrice + listing.venue.fee + listing.venue.shippingCost
             auctionBidResults.insert(AuctionBidResult(
                 id: UUID(),
                 listingID: listing.id,
@@ -3861,6 +4205,7 @@ final class GameEngine: ObservableObject {
                 hammerPrice: hammerPrice,
                 totalCost: total,
                 status: status,
+                winningCompetitorID: winningCompetitorID,
                 resolvedTurn: resolvingTurn
             ), at: 0)
             auctionListings.removeAll { $0.id == listing.id }
@@ -3869,6 +4214,74 @@ final class GameEngine: ObservableObject {
         if auctionBidResults.count > 20 {
             auctionBidResults.removeLast(auctionBidResults.count - 20)
         }
+    }
+
+    private func competitorAuctionBid(for listing: AuctionListing, seed: Int) -> (competitorIndex: Int, maxPrice: Int)? {
+        let candidates = competitors.indices.filter { competitors[$0].cash >= listing.reservePrice }
+        guard let competitorIndex = candidates.max(by: { left, right in
+            competitorAuctionInterest(competitors[left], listing: listing, seed: seed + left * 31)
+                < competitorAuctionInterest(competitors[right], listing: listing, seed: seed + right * 31)
+        }) else { return nil }
+        let competitor = competitors[competitorIndex]
+        let categoryFit = competitor.category == listing.category ? 0.13 : 0
+        let strategyFit: Double
+        switch competitor.name {
+        case "バリューオート": strategyFit = [.kei, .compact, .commercial].contains(listing.category) ? 0.07 : -0.05
+        case "プレミアモータース": strategyFit = listing.category == .imported ? 0.12 : (listing.category == .suv ? 0.04 : -0.06)
+        default: strategyFit = [.suv, .minivan, .pickup].contains(listing.category) ? 0.08 : -0.02
+        }
+        let variation = transactionRoll(seed: seed + competitorIndex * 47 + 19) * 0.30
+        let willingness = min(1.34, max(0.86, 0.88 + categoryFit + strategyFit + variation))
+        let maxPrice = min(competitor.cash, max(listing.reservePrice, Int(Double(listing.marketPrice) * willingness)))
+        return (competitorIndex, maxPrice)
+    }
+
+    private func competitorAuctionInterest(_ competitor: Competitor, listing: AuctionListing, seed: Int) -> Double {
+        let specialty = competitor.category == listing.category ? 1.7 : 1.0
+        let scale = 0.75 + competitor.strength * 0.25
+        return specialty * scale * (0.82 + transactionRoll(seed: seed) * 0.36)
+    }
+
+    private func recordCompetitorAuctionPurchase(listing: AuctionListing, competitorIndex: Int, hammerPrice: Int, purchasedTurn: Int) {
+        guard competitors.indices.contains(competitorIndex) else { return }
+        // Rival dealers recycle most auction inventory into sales quickly; only the
+        // working-capital portion is tied up in this higher-level simulation.
+        competitors[competitorIndex].cash = max(0, competitors[competitorIndex].cash - max(1, hammerPrice / 5))
+        competitorAuctionPurchases.insert(CompetitorAuctionPurchase(
+            id: UUID(),
+            listingID: listing.id,
+            competitorID: competitors[competitorIndex].id,
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            hammerPrice: hammerPrice,
+            purchasedTurn: purchasedTurn
+        ), at: 0)
+        if competitorAuctionPurchases.count > 240 {
+            competitorAuctionPurchases.removeLast(competitorAuctionPurchases.count - 240)
+        }
+    }
+
+    private func resolveCompetitorAuctionPurchases(at resolvingTurn: Int, notes: inout [String]) {
+        let listings = auctionListings
+            .filter { listing in
+                listing.createdTurn < resolvingTurn
+                    && !bidReservations.contains(where: { $0.listingID == listing.id })
+            }
+            .sorted { $0.createdTurn < $1.createdTurn }
+        var purchaseCounts: [UUID: Int] = [:]
+        for listing in listings.prefix(7) {
+            let seed = resolvingTurn * 359 + listing.modelYear * 17 + listing.mileage / 1_000
+            guard let rivalBid = competitorAuctionBid(for: listing, seed: seed) else { continue }
+            recordCompetitorAuctionPurchase(listing: listing, competitorIndex: rivalBid.competitorIndex, hammerPrice: rivalBid.maxPrice, purchasedTurn: resolvingTurn)
+            purchaseCounts[competitors[rivalBid.competitorIndex].id, default: 0] += 1
+            auctionListings.removeAll { $0.id == listing.id }
+        }
+        guard !purchaseCounts.isEmpty,
+              stores.contains(where: { hasMarketResearcher(storeID: $0.id) }) else { return }
+        let summary = purchaseCounts.map { "\(competitorName(for: $0.key)) \($0.value)台" }.sorted().joined(separator: "、")
+        notes.append("市場調査：今週の競合AA仕入れは\(summary)")
     }
 
     private func settleAuctionConsignments(notes: inout [String]) {
@@ -3908,11 +4321,11 @@ final class GameEngine: ObservableObject {
     }
 
     private func generateAuctionListings() {
-        if turn > 0 && auctionListings.count >= 15 {
-            let stale = auctionListings.filter { listing in !bidReservations.contains(where: { $0.listingID == listing.id }) }.prefix(3).map(\.id)
+        if turn > 0 && auctionListings.count >= 25 {
+            let stale = auctionListings.filter { listing in !bidReservations.contains(where: { $0.listingID == listing.id }) }.prefix(5).map(\.id)
             auctionListings.removeAll { stale.contains($0.id) }
         }
-        while auctionListings.count < 18 {
+        while auctionListings.count < 30 {
             let index = auctionListings.count + turn * 5
             let venue = AuctionVenue.allCases[index % AuctionVenue.allCases.count]
             let categories: [VehicleCategory]
@@ -3951,12 +4364,12 @@ final class GameEngine: ObservableObject {
             let seller = isRareClassicListing
                 ? "コレクター放出・現状渡し"
                 : venue == .premium ? "輸入車正規店・下取車" : (index.isMultiple(of: 3) ? "法人リース" : "中古車業者")
-            auctionListings.append(AuctionListing(id: UUID(), venue: venue, modelID: model.id, category: category, modelYear: profile.modelYear, mileage: profile.mileage, quality: profile.quality, reservePrice: reserve, marketPrice: market, seller: seller))
+            auctionListings.append(AuctionListing(id: UUID(), venue: venue, modelID: model.id, category: category, modelYear: profile.modelYear, mileage: profile.mileage, quality: profile.quality, reservePrice: reserve, marketPrice: market, seller: seller, createdTurn: turn))
         }
     }
 
     private func save() {
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, economicIndex: economicIndex, fuelPriceIndex: fuelPriceIndex, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -4075,7 +4488,8 @@ final class GameEngine: ObservableObject {
                 let freeCapacity = store.type.capacity - store.inventoryCount - incomingCount(for: store.id)
                 guard freeCapacity > 0 else { continue }
                 let location = storePlot.visibility * storePlot.access * storePlot.traffic
-                let marketing = 0.78 + min(0.44, Double(store.advertising) / 500.0)
+                let marketing = (0.78 + min(0.44, Double(store.advertising) / 500.0))
+                    * employeeMarketingEfficiency(for: store.id, buyers: false)
                 weight = max(
                     0.05,
                     store.reputation * location * marketing * (0.8 + store.serviceAllocation * 0.4)
@@ -4142,18 +4556,6 @@ final class GameEngine: ObservableObject {
     }
 
     private func leadPreference(in kind: DistrictKind, seed: Int) -> BuyerVehiclePreference {
-        let budgetFirstShare: Double
-        switch kind {
-        case .downtown: budgetFirstShare = 0.10
-        case .station: budgetFirstShare = 0.26
-        case .emerging: budgetFirstShare = 0.17
-        case .suburb: budgetFirstShare = 0.21
-        case .industrial: budgetFirstShare = 0.34
-        case .highway: budgetFirstShare = 0.31
-        }
-        if transactionRoll(seed: seed + 101) < budgetFirstShare {
-            return .budgetFirst
-        }
         return .category(leadCategory(in: kind, seed: seed))
     }
 
@@ -4225,13 +4627,26 @@ final class GameEngine: ObservableObject {
     }
 
     private func detailedBuyerPreference(from preference: BuyerVehiclePreference, seed: Int) -> BuyerVehiclePreference {
-        guard preference.category == .imported,
-              case .category = preference else { return preference }
-        let target = vehicleModel(for: .imported, seed: seed)
-        // 高額輸入車客の多くは車種を指名し、残りもメーカーを指定する。
-        return transactionRoll(seed: seed + 17) < 0.68
-            ? .exactModel(target.id)
-            : .maker(category: .imported, maker: target.maker)
+        guard case .category(let category) = preference else { return preference }
+        let target = vehicleModel(for: category, seed: seed)
+        let roll = transactionRoll(seed: seed + 17)
+        if category == .imported {
+            // 高額輸入車客の多くは車種を指名し、残りもメーカーを指定する。
+            return roll < 0.68
+                ? .exactModel(target.id)
+                : .maker(category: category, maker: target.maker)
+        }
+        let categoryOnlyShare: Double
+        switch category {
+        case .kei: categoryOnlyShare = 0.56
+        case .compact: categoryOnlyShare = 0.50
+        case .minivan, .suv: categoryOnlyShare = 0.42
+        case .pickup, .commercial: categoryOnlyShare = 0.48
+        case .imported: categoryOnlyShare = 0
+        }
+        if roll < categoryOnlyShare { return .category(category) }
+        if roll < categoryOnlyShare + 0.30 { return .maker(category: category, maker: target.maker) }
+        return .exactModel(target.id)
     }
 
     private func makeTradeInVehicle(storeID: UUID, seed: Int) -> TradeInVehicle? {

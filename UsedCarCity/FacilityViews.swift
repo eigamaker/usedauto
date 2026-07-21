@@ -115,6 +115,8 @@ struct FacilityHubSheet: View {
                 }.padding(15)
             }
             .background(GameTheme.cream)
+            .navigationTitle(facility.shortName)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
         }
     }
@@ -199,7 +201,7 @@ private struct StoreNetworkContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫を融通し、店長への自動化委任を確認")
+            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫を融通し、社員自動化と店長への管理委任を確認")
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 7) {
                     HStack {
@@ -256,7 +258,7 @@ private struct AuctionContent: View {
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "オークション会場", subtitle: "出品機会は多い一方、競合入札で落札率は低め。会場費と輸送費も加算されます")
+                SectionTitle(title: "オークション会場", subtitle: "常時30台規模。競合3社も実際に入札し、会場費と輸送費が加算されます")
                 Picker("会場", selection: $venue) {
                     ForEach(AuctionVenue.allCases) { item in Text(item.name.replacingOccurrences(of: "オートオークション", with: "AA")).tag(item) }
                 }.pickerStyle(.segmented)
@@ -272,15 +274,35 @@ private struct AuctionContent: View {
                 MetricView(title: "陸送", value: venue.shippingCost.currency)
                 MetricView(title: "入庫", value: "\(venue.shippingMonths)週間後", tint: venue.tint)
             }.gameCard()
+            if let store = selectedStore {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle(title: "競合のAA仕入れ動向", subtitle: "直近12週間の落札から在庫増加を推定")
+                    if game.hasMarketResearcher(storeID: store.id) {
+                        Label("調査担当：\(game.marketResearcherName(for: store.id))・調査力 \(Int(game.marketResearchScore(for: store.id)))", systemImage: "binoculars.fill")
+                            .font(.caption.bold()).foregroundStyle(GameTheme.teal)
+                        ForEach(game.competitors) { competitor in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(competitor.name).font(.subheadline.bold())
+                                Text(game.competitorAuctionTrend(competitorID: competitor.id, storeID: store.id))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if competitor.id != game.competitors.last?.id { Divider() }
+                        }
+                    } else {
+                        Label("社員を「集客・市場調査」に配置すると、競合が増やしているカテゴリ・車種が判明します", systemImage: "eye.slash.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }.gameCard()
+            }
             VStack(alignment: .leading, spacing: 11) {
                 SectionTitle(title: "出品車両・上限入札", subtitle: "今週は上限額を予約し、落札結果は翌週に確定します")
                 Label("業者間落札相場はAAでの落札目安、店頭販売参考は選択店舗の立地で販売する場合の目安です。", systemImage: "info.circle.fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if let store = selectedStore {
-                    ForEach(listings.prefix(7)) { listing in
+                    ForEach(listings.prefix(10)) { listing in
                         AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
-                        if listing.id != listings.prefix(7).last?.id { Divider() }
+                        if listing.id != listings.prefix(10).last?.id { Divider() }
                     }
                 }
             }.gameCard()
@@ -412,6 +434,7 @@ private struct AuctionBidRow: View {
 }
 
 private struct AuctionBidResultRow: View {
+    @EnvironmentObject private var game: GameEngine
     let result: AuctionBidResult
     let currentTurn: Int
 
@@ -443,6 +466,9 @@ private struct AuctionBidResultRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(result.status.name).font(.caption.bold()).foregroundStyle(tint)
                 Text("確定 \(result.hammerPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                if let winner = game.auctionWinnerName(for: result) {
+                    Text("落札者 \(winner)").font(.caption2.bold()).foregroundStyle(GameTheme.orange)
+                }
             }
         }
     }

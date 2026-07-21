@@ -15,10 +15,6 @@ struct RootView: View {
                 ManagementView()
             } else if CommandLine.arguments.contains("-demo-national") {
                 NationalExpansionView()
-            } else if CommandLine.arguments.contains("-demo-workshop") {
-                FacilityHubSheet(facility: .workshop) { _ in }
-            } else if CommandLine.arguments.contains("-demo-auction") {
-                FacilityHubSheet(facility: .auction) { _ in }
             } else if CommandLine.arguments.contains("-demo-hq") {
                 CompanyDashboardView()
             } else if (CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-tutorial-purchase")), let store = game.stores.first {

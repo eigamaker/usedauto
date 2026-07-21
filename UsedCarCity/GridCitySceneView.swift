@@ -557,10 +557,13 @@ private final class GridCitySceneController {
 
     private func configureView(_ view: SCNView) {
         view.scene = scene
-        view.backgroundColor = UIColor(red: 0.76, green: 0.89, blue: 0.94, alpha: 1)
-        view.antialiasingMode = .multisampling2X
+        view.backgroundColor = UIColor(red: 0.82, green: 0.91, blue: 0.91, alpha: 1)
+        view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 30
-        view.rendersContinuously = false
+        // SceneKit can drop the first on-demand frame while SwiftUI is still
+        // resolving this view's size. A steady 30 fps also keeps pan and pinch
+        // motion fluid without changing any simulation state.
+        view.rendersContinuously = true
         view.isJitteringEnabled = false
         view.autoenablesDefaultLighting = false
         view.allowsCameraControl = false
@@ -807,9 +810,9 @@ private final class GridCitySceneController {
             }
         }
         let image: UIImage = switch roadClass {
-        case .local: CityGroundArt.asphaltTexture(brightness: 0.36)
-        case .arterial: CityGroundArt.asphaltTexture(brightness: 0.30)
-        case .expressway: CityGroundArt.asphaltTexture(brightness: 0.25)
+        case .local: CityGroundArt.asphaltTexture(brightness: 0.29)
+        case .arterial: CityGroundArt.asphaltTexture(brightness: 0.25)
+        case .expressway: CityGroundArt.asphaltTexture(brightness: 0.22)
         }
         let geometry = makeHorizontalGeometry(
             rectangles: rectangles,
@@ -1418,16 +1421,16 @@ private final class GridCitySceneController {
         ambientLight.type = .ambient
         // A restrained cool ambient fill; the warm key light carries the
         // modelling and the soft shadow pass gives the town its depth.
-        ambientLight.intensity = 420
-        ambientLight.color = UIColor(red: 0.80, green: 0.87, blue: 0.94, alpha: 1)
+        ambientLight.intensity = 520
+        ambientLight.color = UIColor(red: 0.74, green: 0.84, blue: 0.94, alpha: 1)
         let ambient = SCNNode()
         ambient.light = ambientLight
         scene.rootNode.addChildNode(ambient)
 
         let directionalLight = SCNLight()
         directionalLight.type = .directional
-        directionalLight.intensity = 1_250
-        directionalLight.color = UIColor(red: 1, green: 0.95, blue: 0.83, alpha: 1)
+        directionalLight.intensity = 1_450
+        directionalLight.color = UIColor(red: 1, green: 0.91, blue: 0.71, alpha: 1)
         // Shadow maps under a fixed orthographic camera produced acne on
         // faceted roofs while ground shadows stayed invisible, so depth-map
         // shadows stay off. Grounding comes from baked blob shadows that
@@ -1439,6 +1442,18 @@ private final class GridCitySceneController {
         directional.position = SCNVector3(mapCenter.x + 850, 1_150, mapCenter.z + 1_250)
         directional.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
         scene.rootNode.addChildNode(directional)
+
+        // A weaker opposite fill separates navy roofs and tree silhouettes
+        // from their shaded walls without flattening the warm key light.
+        let fillLight = SCNLight()
+        fillLight.type = .directional
+        fillLight.intensity = 280
+        fillLight.color = UIColor(red: 0.54, green: 0.73, blue: 1.00, alpha: 1)
+        let fill = SCNNode()
+        fill.light = fillLight
+        fill.position = SCNVector3(mapCenter.x - 900, 720, mapCenter.z - 1_050)
+        fill.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
+        scene.rootNode.addChildNode(fill)
     }
 
     private func buildCamera() {
@@ -1832,8 +1847,9 @@ private final class GridCitySceneController {
         if let cached = materialCache[key] { return cached }
         let result = SCNMaterial()
         result.diffuse.contents = color
-        result.lightingModel = .lambert
-        result.isDoubleSided = true
+        result.lightingModel = .blinn
+        result.shininess = 0.08
+        result.isDoubleSided = false
         materialCache[key] = result
         return result
     }
@@ -1882,12 +1898,12 @@ private final class GridCitySceneController {
         // Lot aprons stay close to one warm neutral so the buildings, not the
         // ground checkerboard, carry the color of every district.
         switch district {
-        case .downtown: UIColor(red: 0.71, green: 0.69, blue: 0.66, alpha: 1)
-        case .station: UIColor(red: 0.72, green: 0.71, blue: 0.65, alpha: 1)
-        case .emerging: UIColor(red: 0.70, green: 0.72, blue: 0.62, alpha: 1)
-        case .suburb: UIColor(red: 0.71, green: 0.72, blue: 0.63, alpha: 1)
-        case .industrial: UIColor(red: 0.68, green: 0.68, blue: 0.66, alpha: 1)
-        case .highway: UIColor(red: 0.71, green: 0.70, blue: 0.63, alpha: 1)
+        case .downtown: UIColor(red: 0.76, green: 0.70, blue: 0.58, alpha: 1)
+        case .station: UIColor(red: 0.75, green: 0.71, blue: 0.57, alpha: 1)
+        case .emerging: UIColor(red: 0.63, green: 0.70, blue: 0.39, alpha: 1)
+        case .suburb: UIColor(red: 0.60, green: 0.70, blue: 0.35, alpha: 1)
+        case .industrial: UIColor(red: 0.69, green: 0.65, blue: 0.56, alpha: 1)
+        case .highway: UIColor(red: 0.71, green: 0.67, blue: 0.49, alpha: 1)
         }
     }
 

@@ -197,7 +197,7 @@ struct VehicleCatalogEntry: Identifiable, Codable, Hashable {
         self.popularity = popularity
         self.launchTurn = launchTurn
         self.powertrain = powertrain
-        self.usedMarketDelayWeeks = usedMarketDelayWeeks ?? (launchTurn == 0 ? 0 : 16)
+        self.usedMarketDelayWeeks = usedMarketDelayWeeks ?? (launchTurn == 0 ? 0 : 12)
     }
 
     var fullName: String { "\(maker) \(modelName)" }
@@ -273,7 +273,7 @@ enum VehicleCatalog {
         VehicleCatalogEntry(id: "nord-velar", maker: "ノルド", modelName: "VELAR", category: .imported, baseWholesalePrice: 680, referenceRetailPrice: 980, qualityBaseline: 0.84, popularity: 1.04, launchTurn: 0),
         VehicleCatalogEntry(id: "voltra-aurex", maker: "ヴォルトラ", modelName: "AUREX", category: .imported, baseWholesalePrice: 780, referenceRetailPrice: 1_180, qualityBaseline: 0.91, popularity: 0.94, launchTurn: 0, powertrain: .electric),
         VehicleCatalogEntry(id: "rossa-luce", maker: "ロッサ", modelName: "LUCE", category: .imported, baseWholesalePrice: 720, referenceRetailPrice: 1_080, qualityBaseline: 0.88, popularity: 1.08, launchTurn: 0),
-        VehicleCatalogEntry(id: "voltra-aurexs", maker: "ヴォルトラ", modelName: "AUREX S", category: .imported, baseWholesalePrice: 980, referenceRetailPrice: 1_480, qualityBaseline: 0.93, popularity: 1.17, launchTurn: 30, powertrain: .electric, usedMarketDelayWeeks: 24),
+        VehicleCatalogEntry(id: "voltra-aurexs", maker: "ヴォルトラ", modelName: "AUREX S", category: .imported, baseWholesalePrice: 980, referenceRetailPrice: 1_480, qualityBaseline: 0.93, popularity: 1.17, launchTurn: 30, powertrain: .electric, usedMarketDelayWeeks: 16),
 
         VehicleCatalogEntry(id: "hokuto-trail", maker: "ホクト", modelName: "TRAIL", category: .pickup, baseWholesalePrice: 225, referenceRetailPrice: 318, qualityBaseline: 0.79, popularity: 1.06, launchTurn: 0),
         VehicleCatalogEntry(id: "yamato-ranger", maker: "ヤマト", modelName: "RANGER", category: .pickup, baseWholesalePrice: 248, referenceRetailPrice: 352, qualityBaseline: 0.82, popularity: 0.98, launchTurn: 0, powertrain: .diesel),
@@ -297,10 +297,10 @@ enum VehicleCatalog {
         VehicleCatalogEntry(id: "nord-velar2", maker: "ノルド", modelName: "VELAR II", category: .imported, baseWholesalePrice: 820, referenceRetailPrice: 1_220, qualityBaseline: 0.93, popularity: 1.16, launchTurn: 182),
         VehicleCatalogEntry(id: "yamato-ranger2", maker: "ヤマト", modelName: "RANGER II", category: .pickup, baseWholesalePrice: 294, referenceRetailPrice: 426, qualityBaseline: 0.90, popularity: 1.15, launchTurn: 208),
         VehicleCatalogEntry(id: "koyo-worka2", maker: "コーヨー", modelName: "WORKA II", category: .commercial, baseWholesalePrice: 184, referenceRetailPrice: 262, qualityBaseline: 0.89, popularity: 1.14, launchTurn: 234),
-        VehicleCatalogEntry(id: "aoba-picoev", maker: "アオバ", modelName: "PICO EV", category: .kei, baseWholesalePrice: 112, referenceRetailPrice: 164, qualityBaseline: 0.91, popularity: 1.18, launchTurn: 260, powertrain: .electric, usedMarketDelayWeeks: 24),
+        VehicleCatalogEntry(id: "aoba-picoev", maker: "アオバ", modelName: "PICO EV", category: .kei, baseWholesalePrice: 112, referenceRetailPrice: 164, qualityBaseline: 0.91, popularity: 1.18, launchTurn: 260, powertrain: .electric, usedMarketDelayWeeks: 16),
         VehicleCatalogEntry(id: "seika-comet2", maker: "セイカ", modelName: "COMET II", category: .compact, baseWholesalePrice: 146, referenceRetailPrice: 208, qualityBaseline: 0.91, popularity: 1.16, launchTurn: 286),
-        VehicleCatalogEntry(id: "hinode-familiaev", maker: "ヒノデ", modelName: "FAMILIA EV", category: .minivan, baseWholesalePrice: 252, referenceRetailPrice: 368, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 312, powertrain: .electric, usedMarketDelayWeeks: 26),
-        VehicleCatalogEntry(id: "seika-terrae", maker: "セイカ", modelName: "TERRA E", category: .suv, baseWholesalePrice: 440, referenceRetailPrice: 640, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 338, powertrain: .electric, usedMarketDelayWeeks: 28),
+        VehicleCatalogEntry(id: "hinode-familiaev", maker: "ヒノデ", modelName: "FAMILIA EV", category: .minivan, baseWholesalePrice: 252, referenceRetailPrice: 368, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 312, powertrain: .electric, usedMarketDelayWeeks: 16),
+        VehicleCatalogEntry(id: "seika-terrae", maker: "セイカ", modelName: "TERRA E", category: .suv, baseWholesalePrice: 440, referenceRetailPrice: 640, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 338, powertrain: .electric, usedMarketDelayWeeks: 16),
         VehicleCatalogEntry(id: "rossa-luce2", maker: "ロッサ", modelName: "LUCE II", category: .imported, baseWholesalePrice: 960, referenceRetailPrice: 1_440, qualityBaseline: 0.94, popularity: 1.17, launchTurn: 390),
         VehicleCatalogEntry(id: "hokuto-trailpro", maker: "ホクト", modelName: "TRAIL PRO", category: .pickup, baseWholesalePrice: 326, referenceRetailPrice: 472, qualityBaseline: 0.92, popularity: 1.16, launchTurn: 416),
         VehicleCatalogEntry(id: "yamato-porter3", maker: "ヤマト", modelName: "PORTER III", category: .commercial, baseWholesalePrice: 204, referenceRetailPrice: 292, qualityBaseline: 0.91, popularity: 1.15, launchTurn: 442)
@@ -361,14 +361,14 @@ enum VehicleCatalog {
                 } else {
                     powertrain = line.initialPowertrain
                 }
-                let year = 2030 + yearIndex
+                let year = 2026 + yearIndex
                 let inflation = 1.0 + Double(yearIndex) * 0.024
                 let segmentPremium: Double = category == .imported ? 1.16 : 1.0
                 let technologyPremium: Double = powertrain == .electric ? 1.14 : powertrain == .hybrid ? 1.07 : 1.0
                 let wholesale = max(45, Int(Double(category.purchaseCost) * 1.06 * inflation * segmentPremium * technologyPremium))
                 let retail = Int(Double(wholesale) * (category == .imported ? 1.48 : 1.40))
                 let popularity = 0.94 + Double((makerIndex * 7 + yearIndex * 11) % 25) / 100.0
-                let delay = 14 + (makerIndex * 3 + yearIndex * 5) % 19 + (powertrain == .electric ? 6 : 0)
+                let delay = 12 + (makerIndex * 3 + yearIndex * 5) % 5 + (powertrain == .electric ? 2 : 0)
                 models.append(VehicleCatalogEntry(
                     id: "annual-\(line.makerID)-\(year)",
                     maker: line.maker,
@@ -1252,6 +1252,7 @@ struct AuctionListing: Identifiable, Codable, Hashable {
     let reservePrice: Int
     let marketPrice: Int
     let seller: String
+    let createdTurn: Int
 
     var vehicleName: String {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
@@ -1293,7 +1294,24 @@ struct AuctionBidResult: Identifiable, Codable, Hashable {
     let hammerPrice: Int
     let totalCost: Int
     let status: AuctionBidResultStatus
+    let winningCompetitorID: UUID?
     let resolvedTurn: Int
+
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
+}
+
+struct CompetitorAuctionPurchase: Identifiable, Codable, Hashable {
+    let id: UUID
+    let listingID: UUID
+    let competitorID: UUID
+    let modelID: String
+    let category: VehicleCategory
+    let modelYear: Int
+    let mileage: Int
+    let hammerPrice: Int
+    let purchasedTurn: Int
 
     var vehicleName: String {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
@@ -1365,21 +1383,145 @@ struct StoreManager: Codable, Hashable {
     let name: String
     let staffingAbility: Int
     let salesAbility: Int
+    let procurementAbility: Int
     let marketingAbility: Int
     let serviceAbility: Int
     let monthlySalary: Int
 
     var overallAbility: Int {
-        (staffingAbility + salesAbility + marketingAbility + serviceAbility) / 4
+        (staffingAbility + salesAbility + procurementAbility + marketingAbility + serviceAbility) / 5
     }
 }
 
 enum EmployeeTrainingFocus: String, Codable, CaseIterable, Identifiable {
     case sales
     case appraisal
+    case procurement
+    case marketing
+    case service
+    case marketResearch
 
     var id: String { rawValue }
-    var name: String { self == .sales ? "営業" : "査定" }
+    var name: String {
+        switch self {
+        case .sales: "営業"
+        case .appraisal: "査定"
+        case .procurement: "仕入"
+        case .marketing: "集客"
+        case .service: "整備"
+        case .marketResearch: "市場調査"
+        }
+    }
+}
+
+enum EmployeeAssignment: String, Codable, CaseIterable, Identifiable {
+    case unassigned
+    case sales
+    case procurement
+    case marketingResearch
+    case service
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .unassigned: "未配置"
+        case .sales: "販売"
+        case .procurement: "買取・査定"
+        case .marketingResearch: "集客・市場調査"
+        case .service: "整備"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .unassigned: "person.crop.circle.badge.questionmark"
+        case .sales: "person.line.dotted.person.fill"
+        case .procurement: "car.badge.gearshape"
+        case .marketingResearch: "chart.line.uptrend.xyaxis"
+        case .service: "wrench.and.screwdriver.fill"
+        }
+    }
+}
+
+enum EmployeeCompensationType: String, Codable, CaseIterable, Identifiable {
+    case fixed
+    case balanced
+    case performance
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .fixed: "固定給型"
+        case .balanced: "バランス型"
+        case .performance: "成果型"
+        }
+    }
+    var salaryFactor: Double {
+        switch self {
+        case .fixed: 1.0
+        case .balanced: 0.9
+        case .performance: 0.8
+        }
+    }
+    var commissionRate: Int {
+        switch self {
+        case .fixed: 0
+        case .balanced: 5
+        case .performance: 10
+        }
+    }
+}
+
+struct EmployeeWeeklyPerformance: Codable, Hashable {
+    var handled = 0
+    var successes = 0
+    var grossProfit = 0
+    var commission = 0
+    var issuesFound = 0
+    var servicesCompleted = 0
+
+    var summary: String {
+        if servicesCompleted > 0 { return "整備\(servicesCompleted)台" }
+        if handled > 0 { return "対応\(handled)件・成功\(successes)件・粗利\(grossProfit.currency)" }
+        return "実績なし"
+    }
+}
+
+enum SalesAutomationPolicy: String, Codable, CaseIterable, Identifiable {
+    case profit
+    case balanced
+    case volume
+
+    var id: String { rawValue }
+    var name: String { switch self { case .profit: "利益重視"; case .balanced: "バランス"; case .volume: "件数重視" } }
+    var strategy: SaleNegotiationStrategy { switch self { case .profit: .holdPrice; case .balanced: .smallDiscount; case .volume: .closeDeal } }
+}
+
+enum ProcurementAutomationPolicy: String, Codable, CaseIterable, Identifiable {
+    case profit
+    case balanced
+    case volume
+
+    var id: String { rawValue }
+    var name: String { switch self { case .profit: "利益重視"; case .balanced: "バランス"; case .volume: "件数重視" } }
+    var offerPercent: Int { switch self { case .profit: 88; case .balanced: 94; case .volume: 100 } }
+}
+
+enum MarketingAutomationPolicy: String, Codable, CaseIterable, Identifiable {
+    case buyers
+    case balanced
+    case sellers
+
+    var id: String { rawValue }
+    var name: String { switch self { case .buyers: "販売客重視"; case .balanced: "バランス"; case .sellers: "買取客重視" } }
+}
+
+enum ServiceAutomationPolicy: String, Codable, CaseIterable, Identifiable {
+    case cost
+    case balanced
+    case quality
+
+    var id: String { rawValue }
+    var name: String { switch self { case .cost: "コスト重視"; case .balanced: "バランス"; case .quality: "品質重視" } }
 }
 
 struct StoreEmployee: Identifiable, Codable, Hashable {
@@ -1387,25 +1529,124 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
     let name: String
     var salesSkill: Int
     var appraisalSkill: Int
+    var procurementSkill: Int
+    var marketingSkill: Int
+    var serviceSkill: Int
+    var marketResearchSkill: Int
     var salesExperience: Int
     var appraisalExperience: Int
+    var procurementExperience: Int
+    var marketingExperience: Int
+    var serviceExperience: Int
+    var marketResearchExperience: Int
     var monthlySalary: Int
+    var commissionRate: Int
+    var assignment: EmployeeAssignment
+    var recentCommissions: [Int]
+    var currentWeekPerformance: EmployeeWeeklyPerformance
+    var lastWeekPerformance: EmployeeWeeklyPerformance
     var tenureWeeks: Int
     var lastTrainingTurn: Int?
 
-    init(id: UUID = UUID(), name: String, salesSkill: Int, appraisalSkill: Int, monthlySalary: Int, salesExperience: Int = 0, appraisalExperience: Int = 0, tenureWeeks: Int = 0, lastTrainingTurn: Int? = nil) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        salesSkill: Int,
+        appraisalSkill: Int,
+        procurementSkill: Int? = nil,
+        marketingSkill: Int? = nil,
+        serviceSkill: Int? = nil,
+        marketResearchSkill: Int? = nil,
+        monthlySalary: Int,
+        commissionRate: Int = 0,
+        assignment: EmployeeAssignment = .unassigned,
+        salesExperience: Int = 0,
+        appraisalExperience: Int = 0,
+        procurementExperience: Int = 0,
+        marketingExperience: Int = 0,
+        serviceExperience: Int = 0,
+        marketResearchExperience: Int = 0,
+        recentCommissions: [Int] = [],
+        currentWeekPerformance: EmployeeWeeklyPerformance = EmployeeWeeklyPerformance(),
+        lastWeekPerformance: EmployeeWeeklyPerformance = EmployeeWeeklyPerformance(),
+        tenureWeeks: Int = 0,
+        lastTrainingTurn: Int? = nil
+    ) {
         self.id = id
         self.name = name
         self.salesSkill = salesSkill
         self.appraisalSkill = appraisalSkill
+        self.procurementSkill = procurementSkill ?? appraisalSkill
+        self.marketingSkill = marketingSkill ?? salesSkill
+        self.serviceSkill = serviceSkill ?? appraisalSkill
+        self.marketResearchSkill = marketResearchSkill ?? (salesSkill + appraisalSkill) / 2
         self.salesExperience = salesExperience
         self.appraisalExperience = appraisalExperience
+        self.procurementExperience = procurementExperience
+        self.marketingExperience = marketingExperience
+        self.serviceExperience = serviceExperience
+        self.marketResearchExperience = marketResearchExperience
         self.monthlySalary = monthlySalary
+        self.commissionRate = commissionRate
+        self.assignment = assignment
+        self.recentCommissions = Array(recentCommissions.suffix(4))
+        self.currentWeekPerformance = currentWeekPerformance
+        self.lastWeekPerformance = lastWeekPerformance
         self.tenureWeeks = tenureWeeks
         self.lastTrainingTurn = lastTrainingTurn
     }
 
-    var overallSkill: Int { (salesSkill + appraisalSkill) / 2 }
+    init(
+        id: UUID = UUID(),
+        name: String,
+        salesSkill: Int,
+        appraisalSkill: Int,
+        procurementSkill: Int,
+        marketingSkill: Int,
+        serviceSkill: Int,
+        marketResearchSkill: Int,
+        compensation: EmployeeCompensationType,
+        assignment: EmployeeAssignment = .unassigned
+    ) {
+        let values = [salesSkill, appraisalSkill, procurementSkill, marketingSkill, serviceSkill, marketResearchSkill]
+        let topTwo = values.sorted(by: >).prefix(2)
+        let topAverage = topTwo.reduce(0, +) / max(1, topTwo.count)
+        let totalAverage = values.reduce(0, +) / values.count
+        let marketValue = Double(topAverage) * 0.6 + Double(totalAverage) * 0.4
+        let marketSalary = min(68, max(28, Int((12 + marketValue * 0.52).rounded())))
+        self.init(
+            id: id,
+            name: name,
+            salesSkill: salesSkill,
+            appraisalSkill: appraisalSkill,
+            procurementSkill: procurementSkill,
+            marketingSkill: marketingSkill,
+            serviceSkill: serviceSkill,
+            marketResearchSkill: marketResearchSkill,
+            monthlySalary: Int((Double(marketSalary) * compensation.salaryFactor).rounded()),
+            commissionRate: compensation.commissionRate,
+            assignment: assignment
+        )
+    }
+
+    var skills: [Int] { [salesSkill, appraisalSkill, procurementSkill, marketingSkill, serviceSkill, marketResearchSkill] }
+    var marketValueSkill: Int {
+        let topTwo = skills.sorted(by: >).prefix(2)
+        let topAverage = topTwo.reduce(0, +) / max(1, topTwo.count)
+        let totalAverage = skills.reduce(0, +) / skills.count
+        return Int((Double(topAverage) * 0.6 + Double(totalAverage) * 0.4).rounded())
+    }
+    var overallSkill: Int { marketValueSkill }
+    var marketMonthlySalary: Int { min(68, max(28, Int((12 + Double(marketValueSkill) * 0.52).rounded()))) }
+    var compensationType: EmployeeCompensationType {
+        commissionRate >= 10 ? .performance : commissionRate >= 5 ? .balanced : .fixed
+    }
+    var recentTotalCompensation: Int { monthlySalary + recentCommissions.reduce(0, +) }
+    var salesComposite: Double { Double(salesSkill) * 0.8 + Double(marketResearchSkill) * 0.2 }
+    var procurementComposite: Double { Double(procurementSkill) * 0.7 + Double(salesSkill) * 0.3 }
+    var appraisalComposite: Double { Double(appraisalSkill) * 0.8 + Double(marketResearchSkill) * 0.2 }
+    var marketingComposite: Double { Double(marketingSkill) * 0.8 + Double(marketResearchSkill) * 0.2 }
+    var serviceComposite: Double { Double(serviceSkill) * 0.8 + Double(appraisalSkill) * 0.2 }
     var rankName: String {
         switch overallSkill {
         case 82...: "エース"
@@ -1437,6 +1678,14 @@ struct Store: Identifiable, Codable, Hashable {
     var delegateProcurement: Bool
     var delegateMarketing: Bool
     var delegateService: Bool
+    var autoSales: Bool
+    var autoProcurement: Bool
+    var autoMarketing: Bool
+    var autoService: Bool
+    var salesPolicy: SalesAutomationPolicy
+    var procurementPolicy: ProcurementAutomationPolicy
+    var marketingPolicy: MarketingAutomationPolicy
+    var servicePolicy: ServiceAutomationPolicy
     var lastSales: Int
     var lastRevenue: Int
     var lastProfit: Int
@@ -1476,6 +1725,14 @@ struct Store: Identifiable, Codable, Hashable {
         delegateProcurement = false
         delegateMarketing = false
         delegateService = false
+        autoSales = false
+        autoProcurement = false
+        autoMarketing = false
+        autoService = false
+        salesPolicy = .balanced
+        procurementPolicy = .balanced
+        marketingPolicy = .balanced
+        servicePolicy = .balanced
         lastSales = 0
         lastRevenue = 0
         lastProfit = 0
@@ -1500,12 +1757,6 @@ struct Store: Identifiable, Codable, Hashable {
     var employeeMonthlyPayroll: Int { employees.reduce(0) { $0 + $1.monthlySalary } }
     var facilityMonthlyCost: Int { facilities.reduce(0) { $0 + $1.monthlyCost } }
     var facilityInvestment: Int { facilities.reduce(0) { $0 + $1.installationCost } }
-    var averageSalesSkill: Double? {
-        employees.isEmpty ? nil : Double(employees.reduce(0) { $0 + $1.salesSkill }) / Double(employees.count)
-    }
-    var averageAppraisalSkill: Double? {
-        employees.isEmpty ? nil : Double(employees.reduce(0) { $0 + $1.appraisalSkill }) / Double(employees.count)
-    }
     var isOperational: Bool { openingMonthsRemaining == nil }
     var isRenovating: Bool { pendingType != nil && renovationMonthsRemaining != nil }
     var hasManager: Bool { manager != nil }
