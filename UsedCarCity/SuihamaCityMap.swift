@@ -22,6 +22,123 @@ enum SuihamaCityMap {
     private static let parcelSize = GridSize.fourByFour
     private static let slotStride = 5
 
+    /// Purpose-built industrial campuses. A 9×4 site replaces two former
+    /// 4×4 plots and a 9×9 site replaces four, including the one-cell
+    /// divider that used to cut the factory artwork apart.
+    private struct IndustrialCampus {
+        let rect: GridRect
+        let assetID: CityAssetID?
+
+        var standardPlotCount: Int {
+            rect.size == .nineByNine ? 4 : 2
+        }
+    }
+
+    private static let industrialCampuses: [IndustrialCampus] = [
+        .init(
+            rect: GridRect(
+                origin: GridCoordinate(column: 46, row: 62),
+                size: .nineByNine
+            ),
+            assetID: .industrialFactory
+        ),
+        .init(
+            rect: GridRect(
+                origin: GridCoordinate(column: 56, row: 62),
+                size: .nineByNine
+            ),
+            assetID: .industrialTankWorks
+        ),
+        .init(
+            rect: GridRect(
+                origin: GridCoordinate(column: 46, row: 72),
+                size: .nineByFour
+            ),
+            assetID: .industrialWarehouse
+        ),
+        .init(
+            rect: GridRect(
+                origin: GridCoordinate(column: 56, row: 72),
+                size: .nineByFour
+            ),
+            assetID: .industrialLoadingWarehouse
+        ),
+        .init(
+            rect: GridRect(
+                origin: GridCoordinate(column: 46, row: 77),
+                size: .nineByNine
+            ),
+            assetID: .industrialSmokestack
+        ),
+        .init(
+            rect: GridRect(
+                origin: GridCoordinate(column: 56, row: 77),
+                size: .nineByNine
+            ),
+            assetID: nil
+        )
+    ]
+
+    /// Landmark campuses use the same continuous-site rule as the factories:
+    /// the former divider roads are absorbed into a mall or tower plaza, while
+    /// a perimeter street still supplies valid road access.
+    private struct UrbanCampus {
+        let district: DistrictKind
+        let rect: GridRect
+        let assetID: CityAssetID
+        let facing: CardinalDirection
+
+        var standardPlotCount: Int {
+            rect.size.width * rect.size.depth == 81 ? 4 : 2
+        }
+    }
+
+    private static let urbanCampuses: [UrbanCampus] = [
+        // Half of the former central park becomes an active mixed skyline;
+        // the southern half remains as an urban green.
+        .init(
+            district: .downtown,
+            rect: GridRect(origin: .init(column: 18, row: 32), size: .nineByFour),
+            assetID: .downtownTwinTower,
+            facing: .south
+        ),
+        .init(
+            district: .downtown,
+            rect: GridRect(origin: .init(column: 18, row: 37), size: .nineByFour),
+            assetID: .downtownOfficePlaza,
+            facing: .south
+        ),
+        // A narrow tower plaza activates the green strip beside the north-south arterial.
+        .init(
+            district: .downtown,
+            rect: GridRect(
+                origin: .init(column: 38, row: 42),
+                size: GridSize(width: 4, depth: 9)
+            ),
+            assetID: .downtownOfficePlaza,
+            facing: .west
+        ),
+        // Two ordinary downtown plots are consolidated into a residential tower site.
+        .init(
+            district: .downtown,
+            rect: GridRect(origin: .init(column: 28, row: 52), size: .nineByFour),
+            assetID: .downtownResidentialTower,
+            facing: .north
+        ),
+        .init(
+            district: .station,
+            rect: GridRect(origin: .init(column: 56, row: 42), size: .nineByNine),
+            assetID: .commercialRegionalMall,
+            facing: .south
+        ),
+        .init(
+            district: .highway,
+            rect: GridRect(origin: .init(column: 2, row: 62), size: .nineByNine),
+            assetID: .commercialRegionalMall,
+            facing: .south
+        )
+    ]
+
     // MARK: - Water geometry
 
     /// Bay: everything at or east of the stair-stepped coastline.
@@ -65,6 +182,9 @@ enum SuihamaCityMap {
         let vacantLocals: Set<Int>
         /// One-based district-local numbers used as surface parking lots.
         let parkingLocals: Set<Int>
+        /// Coastal edge blocks can face a single safe perimeter road instead
+        /// of alternating toward the water.
+        var forcedFacing: CardinalDirection? = nil
 
         struct SlotIndex: Hashable {
             let column: Int
@@ -95,6 +215,15 @@ enum SuihamaCityMap {
             parkingLocals: [9, 18]
         ),
         DistrictBlock(
+            district: .downtown,
+            origin: GridCoordinate(column: 2, row: 32),
+            slotColumns: 1,
+            slotRows: 5,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: []
+        ),
+        DistrictBlock(
             district: .station,
             origin: GridCoordinate(column: 56, row: 42),
             slotColumns: 3,
@@ -104,6 +233,15 @@ enum SuihamaCityMap {
             parkingLocals: [7]
         ),
         DistrictBlock(
+            district: .station,
+            origin: GridCoordinate(column: 48, row: 42),
+            slotColumns: 1,
+            slotRows: 3,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: [3]
+        ),
+        DistrictBlock(
             district: .emerging,
             origin: GridCoordinate(column: 56, row: 2),
             slotColumns: 4,
@@ -111,6 +249,15 @@ enum SuihamaCityMap {
             parkSlots: [.init(column: 1, row: 2)],
             vacantLocals: [4, 9],
             parkingLocals: [13]
+        ),
+        DistrictBlock(
+            district: .emerging,
+            origin: GridCoordinate(column: 56, row: 22),
+            slotColumns: 4,
+            slotRows: 1,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: []
         ),
         DistrictBlock(
             district: .suburb,
@@ -138,6 +285,52 @@ enum SuihamaCityMap {
             parkSlots: [.init(column: 4, row: 2)],
             vacantLocals: [7, 21, 33],
             parkingLocals: [14, 28]
+        ),
+        DistrictBlock(
+            district: .highway,
+            origin: GridCoordinate(column: 2, row: 90),
+            slotColumns: 13,
+            slotRows: 2,
+            parkSlots: [],
+            vacantLocals: [25],
+            parkingLocals: [7, 20]
+        ),
+        DistrictBlock(
+            district: .downtown,
+            origin: GridCoordinate(column: 38, row: 32),
+            slotColumns: 1,
+            slotRows: 5,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: []
+        ),
+        DistrictBlock(
+            district: .station,
+            origin: GridCoordinate(column: 56, row: 30),
+            slotColumns: 4,
+            slotRows: 1,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: []
+        ),
+        DistrictBlock(
+            district: .emerging,
+            origin: GridCoordinate(column: 77, row: 2),
+            slotColumns: 1,
+            slotRows: 3,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: []
+        ),
+        DistrictBlock(
+            district: .emerging,
+            origin: GridCoordinate(column: 76, row: 17),
+            slotColumns: 1,
+            slotRows: 2,
+            parkSlots: [],
+            vacantLocals: [],
+            parkingLocals: [],
+            forcedFacing: .west
         )
     ]
 
@@ -148,7 +341,7 @@ enum SuihamaCityMap {
         let roads = GridRoadNetwork.compile(roadClasses: roadClasses)
         let content = makeParcelsAndObjects()
         let map = GridCityMap(
-            id: "suihama-coastal-v1",
+            id: "suihama-coastal-v4",
             name: "翠浜市 湾岸シティマップ",
             size: mapSize,
             metrics: metrics,
@@ -157,14 +350,14 @@ enum SuihamaCityMap {
             objects: content.objects,
             anchors: [
                 .auction: GridCoordinate(column: 43, row: 84),
-                .bank: GridCoordinate(column: 39, row: 44),
+                .bank: GridCoordinate(column: 43, row: 54),
                 .realEstate: GridCoordinate(column: 43, row: 12),
                 .workshop: GridCoordinate(column: 66, row: 70),
                 .advertising: GridCoordinate(column: 57, row: 40),
                 .recruiting: GridCoordinate(column: 76, row: 21),
-                .cityHall: GridCoordinate(column: 20, row: 34)
+                .cityHall: GridCoordinate(column: 43, row: 39)
             ],
-            terrain: makeTerrain(roadClasses: roadClasses)
+            terrain: makeTerrain(roadClasses: roadClasses, parcels: content.parcels)
         )
         let issues = GridMapValidator.validate(map)
         precondition(
@@ -201,15 +394,25 @@ enum SuihamaCityMap {
         for column in [60, 65, 70, 75] {  // emerging hills
             addVertical(column: column, rows: 2...27, .local)
         }
-        for row in [6, 11, 16, 21] {
-            addHorizontal(row: row, columns: 54...75, .local)
+        for row in [6, 11, 16] {
+            addHorizontal(row: row, columns: 54...81, .local)
         }
+        for row in [21, 26] {
+            addHorizontal(row: row, columns: 54...79, .local)
+        }
+        addVertical(column: 81, rows: 2...16, .local)  // northern coastal edge
+        for column in [60, 65, 70, 75] {  // riverfront boulevard blocks
+            addVertical(column: column, rows: 28...35, .local)
+        }
+        addHorizontal(row: 34, columns: 54...79, .local)
+        addVertical(column: 6, rows: 30...57, .local)  // west downtown extension
         for column in [12, 17, 22, 27, 32, 37] {  // downtown
             addVertical(column: column, rows: 30...57, .local)
         }
         for row in [36, 41, 46, 51] {
             addHorizontal(row: row, columns: 8...43, .local)
         }
+        addVertical(column: 42, rows: 30...57, .local)  // east downtown infill
         for column in [60, 65] {  // station quarter
             addVertical(column: column, rows: 42...57, .local)
         }
@@ -228,6 +431,15 @@ enum SuihamaCityMap {
         }
         for row in [66, 71, 76, 81, 86] {
             addHorizontal(row: row, columns: 2...45, .local)
+        }
+
+        // The southern roadside quarter now fills both sides of its central
+        // street, extending the city almost to the map's southern edge.
+        for row in [94, 99] {
+            addHorizontal(row: row, columns: 0...65, .local)
+        }
+        for column in [6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61] {
+            addVertical(column: column, rows: 88...99, .local)
         }
 
         // Arterials overwrite locals at shared cells so junctions carry the
@@ -250,13 +462,27 @@ enum SuihamaCityMap {
         for row in [88, 89] {
             addHorizontal(row: row, columns: 0...99, .expressway)
         }
+
+        // The internal streets of each industrial campus become secured yard
+        // space. Perimeter streets remain intact and provide road access.
+        for campus in industrialCampuses {
+            for coordinate in campus.rect.cells {
+                result[coordinate] = nil
+            }
+        }
+        for campus in urbanCampuses {
+            for coordinate in campus.rect.cells {
+                result[coordinate] = nil
+            }
+        }
         return result
     }
 
     // MARK: - Terrain
 
     private static func makeTerrain(
-        roadClasses: [GridCoordinate: GridRoadClass]
+        roadClasses: [GridCoordinate: GridRoadClass],
+        parcels: [GridParcel]
     ) -> [GridCoordinate: GridTerrainFeature] {
         var result: [GridCoordinate: GridTerrainFeature] = [:]
 
@@ -298,8 +524,8 @@ enum SuihamaCityMap {
         fill(columns: 61...64, rows: 12...15, .park)
         fill(columns: 22...25, rows: 72...75, .park)
 
-        // Southern green belt in front of the expressway.
-        fill(columns: 0...65, rows: 90...92, .park)
+        // A narrow planted buffer remains immediately north of the expressway.
+        fill(columns: 0...65, rows: 87...87, .park)
 
         // Civic paving.
         fill(columns: 54...69, rows: 40...41, .plaza)
@@ -309,6 +535,15 @@ enum SuihamaCityMap {
         fill(columns: 84...85, rows: 0...19, .beach)
         fill(columns: 78...79, rows: 20...39, .beach)
         fill(columns: 71...71, rows: 40...59, .beach)
+
+        // Development blocks may intentionally reclaim older scenery bands.
+        // Clear every parcel footprint here so expanded districts remain one
+        // uninterrupted and validator-safe site.
+        for parcel in parcels {
+            for coordinate in parcel.rect.cells {
+                result[coordinate] = nil
+            }
+        }
 
         // Bay and river last: water legitimately passes under bridge decks,
         // and must win over any scenery authored into the same cell.
@@ -332,20 +567,67 @@ enum SuihamaCityMap {
         var nextPlotID = 0
 
         for (districtIndex, block) in districtBlocks.enumerated() {
+            if block.district == .industrial {
+                for (campusIndex, campus) in industrialCampuses.enumerated() {
+                    let plotID = nextPlotID
+                    nextPlotID += 1
+                    let parcelID = "parcel-\(plotID)"
+                    let objectID = campus.assetID.map { _ in "object-\(plotID)" }
+                    let area = 420 * campus.standardPlotCount
+                    let price = basePrice(for: .industrial, plotID: plotID)
+                        * campus.standardPlotCount
+
+                    parcels.append(GridParcel(
+                        id: parcelID,
+                        legacyPlotID: plotID,
+                        rect: campus.rect,
+                        district: .industrial,
+                        areaSquareMeters: area,
+                        ownership: .market,
+                        isPurchasable: true,
+                        isBuildable: true,
+                        roadAccess: [.south],
+                        currentBuildingID: objectID,
+                        price: price
+                    ))
+
+                    guard let objectID, let assetID = campus.assetID else { continue }
+                    let asset = CityAssetCatalog.definition(for: assetID)
+                    objects.append(GridPlacedObject(
+                        id: objectID,
+                        parcelID: parcelID,
+                        rect: campus.rect,
+                        kind: .building,
+                        style: .industrial,
+                        assetID: assetID,
+                        facing: .south,
+                        height: asset.nominalHeight
+                            + Float((campusIndex + districtIndex) % 3)
+                                * heightVariation(for: .industrial)
+                    ))
+                }
+                continue
+            }
             let districtAssets = CityAssetCatalog.ambientAssets(for: block.district)
             var localNumber = 0
             for slotRow in 0..<block.slotRows {
                 for slotColumn in 0..<block.slotColumns {
                     let slot = DistrictBlock.SlotIndex(column: slotColumn, row: slotRow)
                     guard !block.parkSlots.contains(slot) else { continue }
+                    let rect = block.slotRect(column: slotColumn, row: slotRow)
+                    guard !urbanCampuses.contains(where: {
+                        $0.district == block.district && $0.rect.intersects(rect)
+                    }) else { continue }
                     localNumber += 1
                     let plotID = nextPlotID
                     nextPlotID += 1
 
-                    let rect = block.slotRect(column: slotColumn, row: slotRow)
-                    let facing: CardinalDirection = slotColumn == 0
-                        ? .east
-                        : ((slotColumn + slotRow).isMultiple(of: 2) ? .east : .west)
+                    let facing: CardinalDirection = block.forcedFacing
+                        ?? (slotColumn == 0
+                            ? .east
+                            : (slotColumn == block.slotColumns - 1
+                                ? .west
+                                : ((slotColumn + slotRow).isMultiple(of: 2) ? .east : .west)))
                     let isVacant = block.vacantLocals.contains(localNumber)
                     let isParking = block.parkingLocals.contains(localNumber)
                     let objectID = isVacant ? nil : "object-\(plotID)"
@@ -398,6 +680,40 @@ enum SuihamaCityMap {
                     ))
                 }
             }
+        }
+
+        for (campusIndex, campus) in urbanCampuses.enumerated() {
+            let plotID = nextPlotID
+            nextPlotID += 1
+            let parcelID = "parcel-\(plotID)"
+            let objectID = "object-\(plotID)"
+            let asset = CityAssetCatalog.definition(for: campus.assetID)
+
+            parcels.append(GridParcel(
+                id: parcelID,
+                legacyPlotID: plotID,
+                rect: campus.rect,
+                district: campus.district,
+                areaSquareMeters: 420 * campus.standardPlotCount,
+                ownership: .market,
+                isPurchasable: true,
+                isBuildable: true,
+                roadAccess: [campus.facing],
+                currentBuildingID: objectID,
+                price: basePrice(for: campus.district, plotID: plotID)
+                    * campus.standardPlotCount
+            ))
+            objects.append(GridPlacedObject(
+                id: objectID,
+                parcelID: parcelID,
+                rect: campus.rect,
+                kind: .building,
+                style: style(for: campus.district),
+                assetID: campus.assetID,
+                facing: campus.facing,
+                height: asset.nominalHeight
+                    + Float(campusIndex % 3) * heightVariation(for: campus.district)
+            ))
         }
         return (parcels, objects)
     }

@@ -385,7 +385,14 @@ private final class GridCitySceneController {
         self.sceneView = sceneView
         configureView(sceneView)
         buildScene()
-        updateLayout(viewSize: sceneView.bounds.size)
+        // UIViewRepresentable is initially created with a zero-sized SCNView
+        // on a cold launch. Seed the camera from the screen until SwiftUI
+        // supplies its final bounds; otherwise the first frame is magnified
+        // into a featureless patch of ground.
+        let initialViewSize = sceneView.bounds.size == .zero
+            ? UIScreen.main.bounds.size
+            : sceneView.bounds.size
+        updateLayout(viewSize: initialViewSize)
         applyCamera(animated: false)
     }
 
@@ -1557,7 +1564,11 @@ private final class GridCitySceneController {
                 color: UIColor(red: 0.06, green: 0.58, blue: 0.55, alpha: 1)
             )
             label.renderingOrder = 160
-            label.position = SCNVector3(bounds.center.x, 32, bounds.center.z)
+            let storeDefinition = CityAssetCatalog.definition(for: store.type.cityAssetID)
+            let labelHeight = store.type.cityAssetHeight
+                * CityAssetScale.heightMultiplier(for: storeDefinition.category)
+                + 14
+            label.position = SCNVector3(bounds.center.x, labelHeight, bounds.center.z)
             setInteractionMetadata(on: label, parcel: parcel)
             root.addChildNode(label)
         }
@@ -1579,7 +1590,16 @@ private final class GridCitySceneController {
             let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
             let root = SCNNode()
             root.name = "competitor-label:\(rival.plot.id)"
-            root.position = SCNVector3(bounds.center.x, 32, bounds.center.z)
+            let ambientHeight: Float
+            if let object = map.objects.first(where: { $0.parcelID == parcel.id }) {
+                let definition = CityAssetCatalog.definition(for: object.assetID)
+                ambientHeight = object.height
+                    * CityAssetScale.heightMultiplier(for: definition.category)
+                    + 14
+            } else {
+                ambientHeight = 32
+            }
+            root.position = SCNVector3(bounds.center.x, ambientHeight, bounds.center.z)
             setInteractionMetadata(on: root, parcel: parcel)
             let label = makeSemanticMapLabel(
                 text: "競合｜\(rival.name)",

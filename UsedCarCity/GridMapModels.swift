@@ -25,6 +25,10 @@ struct GridSize: Hashable, Codable, Sendable {
     static let twoByThree = GridSize(width: 2, depth: 3)
     static let threeByThree = GridSize(width: 3, depth: 3)
     static let fourByFour = GridSize(width: 4, depth: 4)
+    /// Two and four standard 4×4 parcels with the former one-cell divider
+    /// absorbed into one continuous site.
+    static let nineByFour = GridSize(width: 9, depth: 4)
+    static let nineByNine = GridSize(width: 9, depth: 9)
 }
 
 struct GridRect: Hashable, Codable, Sendable {

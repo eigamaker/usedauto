@@ -130,7 +130,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v32"
+    private static let saveKey = "UsedCarCity.save.v35"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -1400,12 +1400,17 @@ final class GameEngine: ObservableObject {
         default:
             multiplier = 1.22; weeks = 2; label = "希少・広域探索"
         }
+        // 車種と台数を確約する探索の利便性を、需給が逼迫した車種ほど価格へ反映する。
+        let demand = vehicleDemand(category, in: plot.district)
+        let scarcityPremium = min(0.12, max(0, demand - availability) * 0.10)
+        let categorySearchPremium: Double = [.suv, .imported].contains(category) ? 0.04 : 0.02
+        let sourcingMultiplier = multiplier + scarcityPremium + categorySearchPremium
         return ProcurementQuote(
             source: .dealerTrade,
             modelID: model.id,
             category: category,
             count: count,
-            unitCost: Int((Double(modelWholesale) * multiplier).rounded()),
+            unitCost: Int((Double(modelWholesale) * sourcingMultiplier).rounded()),
             fee: 8 + max(0, count - 3) * 2,
             weeks: weeks,
             quality: availability >= 0.85 ? 0.80 : 0.77,
@@ -3087,6 +3092,9 @@ final class GameEngine: ObservableObject {
         updateLandValues(notes: &notes)
         progressDevelopments(notes: &notes)
         simulateCompetitors(notes: &notes)
+        for index in stores.indices where stores[index].isOperational {
+            arrangeAutomaticNetworkPurchase(for: index, notes: &notes)
+        }
         expireWeeklyCustomerLeads(notes: &notes)
         turn += 1
         announceNewModels(notes: &notes)
@@ -4489,6 +4497,55 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    private func arrangeAutomaticNetworkPurchase(for storeIndex: Int, notes: inout [String]) {
+        guard stores.indices.contains(storeIndex), stores[storeIndex].autoProcurement,
+              stores[storeIndex].employees.contains(where: { $0.assignment == .procurement }),
+              let plot = plot(id: stores[storeIndex].plotID) else { return }
+        let store = stores[storeIndex]
+        let committedStock = store.inventoryCount + incomingCount(for: store.id)
+        let targetRate: Double
+        switch store.procurementPolicy {
+        case .profit: targetRate = 0.42
+        case .balanced: targetRate = 0.58
+        case .volume: targetRate = 0.72
+        }
+        let targetStock = Int((Double(store.type.capacity) * targetRate).rounded(.up))
+        let shortage = min(3, max(0, targetStock - committedStock))
+        guard shortage > 0 else { return }
+
+        let requestedCategories = buyerLeads.filter { $0.storeID == store.id }.compactMap(\.preference.category)
+        let candidates = VehicleCategory.allCases.filter { category in
+            let held = store.inventory.filter { $0.category == category }.reduce(0) { $0 + $1.count }
+            let incoming = inboundShipments.filter { $0.storeID == store.id && $0.category == category }.reduce(0) { $0 + $1.count }
+            return held + incoming < max(1, targetStock / 3)
+        }
+        let category = candidates.max { left, right in
+            let leftScore = Double(requestedCategories.filter { $0 == left }.count) * 2
+                + vehicleDemand(left, in: plot.district) - vehicleSupply(left, in: plot.district) * 0.25
+            let rightScore = Double(requestedCategories.filter { $0 == right }.count) * 2
+                + vehicleDemand(right, in: plot.district) - vehicleSupply(right, in: plot.district) * 0.25
+            return leftScore < rightScore
+        }
+        guard let category,
+              let quote = dealerTradeQuote(category: category, count: shortage, storeID: store.id) else { return }
+
+        let cashReserve = max(monthlyPersonnelCost(for: store), 100)
+        let expectedRetail = vehicleRetailValue(
+            modelID: quote.modelID ?? "", category: category, modelYear: year - 4,
+            mileage: 55_000, quality: quote.quality, in: plot.district
+        )
+        let minimumMargin: Double = store.procurementPolicy == .profit ? 0.16 : store.procurementPolicy == .balanced ? 0.11 : 0.07
+        guard cash - quote.totalCost >= cashReserve,
+              Double(quote.unitCost) <= Double(expectedRetail) * (1 - minimumMargin) else { return }
+        cash -= quote.totalCost
+        inboundShipments.append(InboundShipment(
+            id: UUID(), storeID: store.id, source: .dealerTrade, modelID: quote.modelID,
+            category: category, count: shortage, unitCost: quote.unitCost + quote.fee / shortage,
+            quality: quote.quality, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: quote.weeks
+        ))
+        notes.append("\(store.name)仕入担当：在庫不足と商談需要を見て\(category.name)\(shortage)台を業者間手配")
+    }
+
     private func resolveAutomaticService(for storeIndex: Int) {
         guard stores.indices.contains(storeIndex), stores[storeIndex].autoService else { return }
         let storeID = stores[storeIndex].id
@@ -5175,10 +5232,23 @@ final class GameEngine: ObservableObject {
         return weighted.last?.0 ?? .compact
     }
 
-    private func sellerCategory(in kind: DistrictKind, seed: Int) -> VehicleCategory {
+    func sellerCategory(in kind: DistrictKind, seed: Int) -> VehicleCategory {
         guard let district = districts.first(where: { $0.kind == kind }) else { return .compact }
         let weighted = VehicleCategory.allCases.map { category in
-            (category, max(0.05, district.supplies[category] ?? 0.42))
+            let ownershipTurnover: Double
+            switch category {
+            case .kei: ownershipTurnover = 1.05
+            case .compact: ownershipTurnover = 1.0
+            case .minivan: ownershipTurnover = 0.90
+            case .suv: ownershipTurnover = 0.82
+            case .imported: ownershipTurnover = 0.58
+            case .pickup: ownershipTurnover = 0.62
+            case .commercial: ownershipTurnover = 0.76
+            }
+            let highIncomeTurnover = [.suv, .imported].contains(category)
+                ? 0.88 + district.incomeIndex * 0.24
+                : 1.0
+            return (category, max(0.08, (district.supplies[category] ?? 0.58) * ownershipTurnover * highIncomeTurnover))
         }
         let total = weighted.reduce(0.0) { $0 + $1.1 }
         var cursor = transactionRoll(seed: seed) * total

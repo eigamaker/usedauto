@@ -1498,7 +1498,7 @@ private struct ManagerPanel: View {
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(title: "社員の自動運用", subtitle: "ONの部門は、手動で対応した後の残り案件を担当社員が週間処理します")
+                SectionTitle(title: "社員の自動運用", subtitle: "ONの部門は残り案件を週間処理し、仕入担当は不足在庫も手配します")
                 AutomationPolicyRow(
                     title: "販売",
                     icon: "person.line.dotted.person.fill",
@@ -1539,7 +1539,7 @@ private struct ManagerPanel: View {
                         ForEach(ServiceAutomationPolicy.allCases) { Text($0.name).tag($0) }
                     }
                 }
-                Label("オーナーの手動枠は週7件。販売・買取担当は別に1人週7件を自動処理します。", systemImage: "hand.raised.fill")
+                Label("オーナーの手動枠は週7件。販売・買取担当は別に1人週7件を処理し、仕入担当は不足時に週1回だけ業者間手配します。", systemImage: "hand.raised.fill")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .gameCard()

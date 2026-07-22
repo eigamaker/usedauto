@@ -18,6 +18,7 @@ import UIKit
 final class CityBuildingFactory {
     static let nearDetailNodeName = "near-details"
     static let propDetailNodeName = "prop-details"
+    static let vehicleScale: Float = 2
 
     private let cellSize: Float
     private var assetTemplates: [String: SCNNode] = [:]
@@ -95,14 +96,11 @@ final class CityBuildingFactory {
         let key = "\(id.rawValue)|\(facing.rawValue)|\(Int((height * 10).rounded()))"
         if let template = assetTemplates[key] { return template.clone() }
 
-        // Orthographic 2.5D flattens vertical scale, so buildings carry a
-        // per-category height exaggeration. The visual height still leaves
-        // prop headroom inside the selection volume, whose cap is tighter
-        // for player facilities than for ambient buildings.
-        let headroomBudget = definition.isPlayerFacility
-            ? definition.nominalHeight * 1.25
-            : definition.nominalHeight * 1.25 + 7
-        let visualHeight = min(headroomBudget, height * Self.heightExaggeration(definition.category))
+        // Orthographic 2.5D strongly flattens vertical scale. Keep the catalog
+        // and renderer on the same explicit exaggeration policy so every
+        // building is at least twice its former rendered height, with the
+        // overall city close to three times taller.
+        let visualHeight = height * CityAssetScale.heightMultiplier(for: definition.category)
         let footprint = definition.footprint
         let context = BuildContext(
             width: Float(footprint.width) * cellSize,
@@ -156,19 +154,6 @@ final class CityBuildingFactory {
 
         infillTemplates[key] = node
         return node.clone()
-    }
-
-    private static func heightExaggeration(_ category: CityAssetCategory) -> Float {
-        switch category {
-        case .generalResidential: 2.4
-        case .luxuryResidential: 2.2
-        case .commercial: 2.0
-        case .industrial: 1.9
-        case .downtown: 1.5
-        case .highway: 1.9
-        case .parking: 1.0
-        case .playerFacility: 2.0
-        }
     }
 
     private static func rotation(
@@ -257,6 +242,7 @@ final class CityBuildingFactory {
         case .commercialRestaurant: buildRestaurant(context, parts)
         case .commercialShopping: buildShopping(context, parts)
         case .commercialRoadside: buildRoadsideRetail(context, parts)
+        case .commercialRegionalMall: buildShopping(context, parts)
         case .industrialFactory: buildFactory(context, parts)
         case .industrialWarehouse: buildWarehouse(context, parts, loading: false)
         case .industrialLoadingWarehouse: buildWarehouse(context, parts, loading: true)
@@ -267,6 +253,9 @@ final class CityBuildingFactory {
         case .downtownApartment: buildTower(context, parts, kind: .apartment)
         case .downtownParkingStructure: buildParkingStructure(context, parts)
         case .downtownCornerBlock: buildTower(context, parts, kind: .cornerBlock)
+        case .downtownOfficePlaza: buildTower(context, parts, kind: .office)
+        case .downtownTwinTower: buildTower(context, parts, kind: .cornerBlock)
+        case .downtownResidentialTower: buildTower(context, parts, kind: .apartment)
         case .highwayLogistics: buildLogistics(context, parts)
         case .highwayBigBox: buildBigBox(context, parts)
         case .highwayMotorHotel: buildMotorHotel(context, parts)
@@ -350,7 +339,10 @@ final class CityBuildingFactory {
             (c.width * 0.24, -c.depth * 0.20, c.width * 0.36, c.depth * 0.30, c.height * 0.58, Paint.sand)
         ] {
             addGroundShadow(to: p, x: dx, z: dz, width: w + 2, depth: d + 2)
-            let body = SCNNode(geometry: box(width: w, height: h, depth: d, chamfer: 0.2, paint: wall))
+            let body = SCNNode(geometry: facadeBox(
+                width: w, height: h, depth: d, chamfer: 0.2,
+                wall: wall, style: .punched(floors: 2, columns: 4, balconies: false)
+            ))
             body.position = SCNVector3(dx, h / 2, dz)
             p.root.addChildNode(body)
 
@@ -1381,6 +1373,7 @@ final class CityBuildingFactory {
 
     private func addCar(to parent: SCNNode, x: Float, z: Float, paint: Paint, rotated: Bool) {
         let car = SCNNode()
+        car.name = "vehicle:car"
         let body = SCNNode(geometry: box(width: 6.0, height: 1.65, depth: 2.8, chamfer: 0.58, paint: paint))
         body.position.y = 1.15
         car.addChildNode(body)
@@ -1398,6 +1391,7 @@ final class CityBuildingFactory {
             wheels.position = SCNVector3(0, 0.58, zOffset)
             car.addChildNode(wheels)
         }
+        car.scale = SCNVector3(Self.vehicleScale, Self.vehicleScale, Self.vehicleScale)
         car.position = SCNVector3(x, 0, z)
         if rotated { car.eulerAngles.y = .pi / 2 }
         parent.addChildNode(car)
@@ -1405,19 +1399,23 @@ final class CityBuildingFactory {
 
     private func addTruck(to parent: SCNNode, x: Float, z: Float) {
         let truck = SCNNode()
+        truck.name = "vehicle:truck"
         let cab = SCNNode(geometry: box(width: 1.9, height: 2.3, depth: 2.2, chamfer: 0.25, paint: .brandBlue))
         cab.position = SCNVector3(-2.9, 1.35, 0)
         truck.addChildNode(cab)
         let cargo = SCNNode(geometry: box(width: 5.4, height: 2.7, depth: 2.3, chamfer: 0.15, paint: .warmWhite))
         cargo.position = SCNVector3(0.5, 1.55, 0)
         truck.addChildNode(cargo)
+        truck.scale = SCNVector3(Self.vehicleScale, Self.vehicleScale, Self.vehicleScale)
         truck.position = SCNVector3(x, 0, z)
         parent.addChildNode(truck)
     }
 
     private func addTrailer(to parent: SCNNode, x: Float, z: Float) {
         let trailer = SCNNode(geometry: box(width: 3.4, height: 2.5, depth: 2.2, chamfer: 0.12, paint: .metalLight))
-        trailer.position = SCNVector3(x, 1.45, z)
+        trailer.name = "vehicle:trailer"
+        trailer.position = SCNVector3(x, 2.9, z)
+        trailer.scale = SCNVector3(Self.vehicleScale, Self.vehicleScale, Self.vehicleScale)
         parent.addChildNode(trailer)
     }
 
@@ -1908,19 +1906,23 @@ enum CityFacadeArt {
                 UIRectFill(CGRect(x: 0, y: y + levelHeight * 0.80, width: size.width, height: levelHeight * 0.16))
             }
         case .cottage:
-            let windowWidth = size.width * 0.18
-            let windowHeight = size.height * 0.30
-            for x in [size.width * 0.16, size.width * 0.64] {
-                let window = CGRect(x: x, y: size.height * 0.30, width: windowWidth, height: windowHeight)
-                UIColor(white: 1, alpha: 0.9).setFill()
-                UIRectFill(window.insetBy(dx: -2.5, dy: -2.5))
-                glass.setFill()
-                UIRectFill(window)
-                UIColor(white: 1, alpha: 0.9).setFill()
-                UIRectFill(CGRect(x: window.midX - 1, y: window.minY, width: 2, height: window.height))
-                UIRectFill(CGRect(x: window.minX, y: window.midY - 1, width: window.width, height: 2))
+            // Two clearly separated window rows make even the smallest house
+            // read as a two-storey residence at the default map zoom.
+            let windowWidth = size.width * 0.17
+            let windowHeight = size.height * 0.20
+            for y in [size.height * 0.16, size.height * 0.51] {
+                for x in [size.width * 0.14, size.width * 0.68] {
+                    let window = CGRect(x: x, y: y, width: windowWidth, height: windowHeight)
+                    UIColor(white: 1, alpha: 0.9).setFill()
+                    UIRectFill(window.insetBy(dx: -2.5, dy: -2.5))
+                    glass.setFill()
+                    UIRectFill(window)
+                    UIColor(white: 1, alpha: 0.9).setFill()
+                    UIRectFill(CGRect(x: window.midX - 1, y: window.minY, width: 2, height: window.height))
+                    UIRectFill(CGRect(x: window.minX, y: window.midY - 1, width: window.width, height: 2))
+                }
             }
-            let door = CGRect(x: size.width * 0.44, y: size.height * 0.42, width: size.width * 0.13, height: size.height * 0.52)
+            let door = CGRect(x: size.width * 0.44, y: size.height * 0.66, width: size.width * 0.13, height: size.height * 0.30)
             UIColor(red: 0.49, green: 0.35, blue: 0.25, alpha: 1).setFill()
             UIRectFill(door)
         }

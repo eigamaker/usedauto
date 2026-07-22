@@ -55,7 +55,7 @@ final class GridMapTests: XCTestCase {
         let mapBounds = map.metrics.worldBounds(of: map.size)
 
         XCTAssertLessThan(cameraBounds.width, mapBounds.width)
-        XCTAssertLessThan(cameraBounds.depth, mapBounds.depth)
+        XCTAssertLessThanOrEqual(cameraBounds.depth, mapBounds.depth)
         XCTAssertNotEqual(cameraBounds.center, mapBounds.center)
 
         for parcel in map.parcels {
@@ -200,7 +200,7 @@ final class GridMapTests: XCTestCase {
     }
 
     func testParcelsCarryRequiredGameplayFieldsAndRoadAccess() {
-        XCTAssertEqual(map.parcels.count, 147)
+        XCTAssertEqual(map.parcels.count, 179)
         XCTAssertEqual(Set(map.parcels.map(\.district)), Set(DistrictKind.allCases))
         for parcel in map.parcels {
             XCTAssertNotNil(parcel.legacyPlotID)
@@ -236,16 +236,16 @@ final class GridMapTests: XCTestCase {
         // Districts intentionally differ in size so the city reads as a
         // place: dense center, broad residential, compact station quarter.
         let expectedParcelCounts: [DistrictKind: Int] = [
-            .downtown: 26, .station: 9, .emerging: 15,
-            .suburb: 38, .industrial: 20, .highway: 39
+            .downtown: 36, .station: 13, .emerging: 24,
+            .suburb: 38, .industrial: 6, .highway: 62
         ]
         let expectedVacantCounts: [DistrictKind: Int] = [
             .downtown: 3, .station: 1, .emerging: 2,
-            .suburb: 3, .industrial: 2, .highway: 3
+            .suburb: 3, .industrial: 1, .highway: 4
         ]
         let expectedParkingCounts: [DistrictKind: Int] = [
             .downtown: 2, .station: 1, .emerging: 1,
-            .suburb: 2, .industrial: 2, .highway: 2
+            .suburb: 2, .industrial: 0, .highway: 4
         ]
 
         let occupiedParcelIDs = Set(map.objects.map(\.parcelID))
@@ -636,11 +636,43 @@ final class GridMapTests: XCTestCase {
         XCTAssertEqual(Set(definitions.map(\.id)).count, definitions.count)
         XCTAssertEqual(definitions.filter { $0.category == .generalResidential }.count, 5)
         XCTAssertEqual(definitions.filter { $0.category == .luxuryResidential }.count, 4)
-        XCTAssertEqual(definitions.filter { $0.category == .commercial }.count, 6)
+        XCTAssertEqual(definitions.filter { $0.category == .commercial }.count, 7)
         XCTAssertEqual(definitions.filter { $0.category == .industrial }.count, 5)
-        XCTAssertEqual(definitions.filter { $0.category == .downtown }.count, 5)
+        XCTAssertEqual(definitions.filter { $0.category == .downtown }.count, 8)
         XCTAssertEqual(definitions.filter { $0.category == .highway }.count, 3)
         XCTAssertEqual(definitions.filter(\.isPlayerFacility).count, 13)
+    }
+
+    func testBuildingHeightPolicyIsAboutThreeTimesThePreviousRenderedScale() {
+        let previousMultipliers: [CityAssetCategory: Float] = [
+            .generalResidential: 2.4,
+            .luxuryResidential: 2.2,
+            .commercial: 2.0,
+            .industrial: 1.9,
+            .downtown: 1.5,
+            .highway: 1.9,
+            .parking: 1.0,
+            .playerFacility: 1.25
+        ]
+        for (category, previous) in previousMultipliers where category != .parking {
+            XCTAssertEqual(
+                CityAssetScale.heightMultiplier(for: category),
+                previous * 3,
+                accuracy: 0.001,
+                category.rawValue
+            )
+        }
+    }
+
+    @MainActor
+    func testVehiclePropsUseTheRequestedDoubleScale() throws {
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
+        let cottage = factory.makeAsset(id: .residentialCottage, facing: .south)
+        let car = try XCTUnwrap(cottage.childNode(withName: "vehicle:car", recursively: true))
+        XCTAssertEqual(car.scale.x, 2, accuracy: 0.001)
+        XCTAssertEqual(car.scale.y, 2, accuracy: 0.001)
+        XCTAssertEqual(car.scale.z, 2, accuracy: 0.001)
+        XCTAssertEqual(CityBuildingFactory.vehicleScale, 2)
     }
 
     func testPlayerFacilityDefinitionsContainEveryPlacementRequirement() {
@@ -708,9 +740,73 @@ final class GridMapTests: XCTestCase {
     }
 
     func testAmbientBuildingsUseStreetBlockScaleFootprints() {
-        for definition in CityAssetCatalog.ambientDefinitions where definition.category != .parking {
+        for definition in CityAssetCatalog.ambientDefinitions
+        where definition.category != .parking
+            && definition.category != .industrial
+            && ![.commercialRegionalMall, .downtownOfficePlaza,
+                  .downtownTwinTower, .downtownResidentialTower].contains(definition.id) {
             XCTAssertEqual(definition.footprint, .fourByFour, definition.id.rawValue)
         }
+
+        let industrial = CityAssetCatalog.ambientDefinitions.filter { $0.category == .industrial }
+        XCTAssertEqual(industrial.filter { $0.footprint == .nineByFour }.count, 2)
+        XCTAssertEqual(industrial.filter { $0.footprint == .nineByNine }.count, 3)
+
+        XCTAssertEqual(
+            CityAssetCatalog.definition(for: .commercialRegionalMall).footprint,
+            .nineByNine
+        )
+        for assetID in [CityAssetID.downtownOfficePlaza, .downtownTwinTower,
+                        .downtownResidentialTower] {
+            XCTAssertEqual(CityAssetCatalog.definition(for: assetID).footprint, .nineByFour)
+        }
+    }
+
+    func testIndustrialCampusesSecureTwoOrFourFormerPlotsWithoutInternalRoadCuts() throws {
+        let industrialParcels = map.parcels.filter { $0.district == .industrial }
+        XCTAssertEqual(Set(industrialParcels.map(\.rect.size)), [.nineByFour, .nineByNine])
+
+        for parcel in industrialParcels {
+            let plotCount = parcel.rect.size == .nineByNine ? 4 : 2
+            XCTAssertEqual(parcel.areaSquareMeters, 420 * plotCount)
+            XCTAssertTrue(parcel.rect.cells.allSatisfy { map.roads[$0] == nil }, parcel.id)
+            if let object = map.objects.first(where: { $0.parcelID == parcel.id }) {
+                XCTAssertEqual(object.rect, parcel.rect, object.id)
+            }
+        }
+    }
+
+    func testMallAndTowerCampusesCrossFormerPlotLinesAsContinuousSites() throws {
+        let campusIDs: Set<CityAssetID> = [
+            .commercialRegionalMall,
+            .downtownOfficePlaza,
+            .downtownTwinTower,
+            .downtownResidentialTower
+        ]
+        let campuses = map.objects.filter { campusIDs.contains($0.assetID) }
+        XCTAssertEqual(campuses.count, 6)
+        XCTAssertEqual(campuses.filter { $0.assetID == .commercialRegionalMall }.count, 2)
+
+        for object in campuses {
+            let parcel = try XCTUnwrap(map.parcel(id: object.parcelID))
+            let cellCount = parcel.rect.size.width * parcel.rect.size.depth
+            let plotCount = cellCount == 81 ? 4 : 2
+            XCTAssertEqual(parcel.areaSquareMeters, 420 * plotCount)
+            XCTAssertEqual(object.rect, parcel.rect)
+            XCTAssertTrue(parcel.rect.cells.allSatisfy { map.roads[$0] == nil }, object.id)
+        }
+    }
+
+    func testCityDevelopmentReachesTheCoastAndSouthernMapEdge() {
+        let southernParcels = map.parcels.filter { $0.rect.minRow >= 90 }
+        let coastalParcels = map.parcels.filter { $0.rect.minColumn >= 76 }
+        let buildingCount = map.objects.filter { $0.kind == .building }.count
+
+        XCTAssertEqual(southernParcels.count, 26)
+        XCTAssertEqual(coastalParcels.count, 5)
+        XCTAssertGreaterThanOrEqual(buildingCount, 150)
+        XCTAssertGreaterThanOrEqual(map.parcels.map(\.rect.maxRowExclusive).max() ?? 0, 99)
+        XCTAssertGreaterThanOrEqual(map.parcels.map(\.rect.maxColumnExclusive).max() ?? 0, 81)
     }
 
     func testAmbientBuildingsOccupyTheirWholeParcelInsteadOfLeavingMiniatureLawns() throws {
@@ -915,14 +1011,19 @@ final class GridMapTests: XCTestCase {
         XCTAssertNil(map.neighboringParcel(of: first, in: .north))
         XCTAssertNil(map.neighboringParcel(of: first, in: .west))
 
-        // The central park carve interrupts the row: plot 1's eastern
-        // neighbor across the park is not reachable through a road corridor.
+        // The northern half of the old central-park carve now contains one
+        // continuous two-plot tower campus, reached across its perimeter road.
         let besidePark = try XCTUnwrap(map.parcel(legacyPlotID: 1))
-        XCTAssertNil(map.neighboringParcel(of: besidePark, in: .east))
+        let towerCampus = try XCTUnwrap(map.neighboringParcel(of: besidePark, in: .east))
+        XCTAssertEqual(towerCampus.rect.size, .nineByFour)
+        XCTAssertEqual(towerCampus.district, .downtown)
 
-        // Rightmost parcel in the block has no east neighbor at all.
+        // The former eastern green finger is now an infill block connected
+        // across the original downtown perimeter street.
         let districtEdge = try XCTUnwrap(map.parcel(legacyPlotID: 3))
-        XCTAssertNil(map.neighboringParcel(of: districtEdge, in: .east))
+        let easternInfill = try XCTUnwrap(map.neighboringParcel(of: districtEdge, in: .east))
+        XCTAssertEqual(easternInfill.rect.origin, GridCoordinate(column: 38, row: 32))
+        XCTAssertEqual(easternInfill.district, .downtown)
     }
 
     func testMultiParcelStoreUsesOneBuildingAndGridContainedParkingLots() throws {

@@ -81,7 +81,7 @@ final class GameEngineTests: XCTestCase {
         let game = GameEngine()
         game.resetGame()
         let map = CityMapDefinition.suihama
-        XCTAssertEqual(game.plots.count, 147)
+        XCTAssertEqual(game.plots.count, 179)
         XCTAssertEqual(game.districts.count, 6)
         XCTAssertEqual(game.plots.count, map.parcels.compactMap(\.legacyPlotID).count)
         for district in DistrictKind.allCases {
@@ -420,6 +420,45 @@ final class GameEngineTests: XCTestCase {
         )
         XCTAssertTrue((2...4).contains(game.procurementLotSize(for: store, category: .kei, seed: 11)))
         XCTAssertEqual(game.procurementLotSize(for: store, category: .imported, seed: 11), 1)
+    }
+
+    func testHighValueVehiclesAppearInDowntownSellerMix() {
+        let game = GameEngine()
+        game.resetGame()
+        let categories = (0..<1_000).map { game.sellerCategory(in: .downtown, seed: $0 * 97 + 13) }
+
+        XCTAssertGreaterThan(categories.filter { $0 == .suv }.count, 120)
+        XCTAssertGreaterThan(categories.filter { $0 == .imported }.count, 90)
+        XCTAssertLessThan(categories.filter { $0 == .imported }.count, categories.filter { $0 == .compact }.count)
+    }
+
+    func testProcurementEmployeeAutomaticallyOrdersDemandedStockWhenInventoryIsLow() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        game.stores[0].inventory = []
+        game.stores[0].employees = [StoreEmployee(
+            name: "自動仕入", salesSkill: 50, appraisalSkill: 85,
+            procurementSkill: 90, monthlySalary: 45, assignment: .procurement
+        )]
+        game.stores[0].autoProcurement = true
+        game.stores[0].procurementPolicy = .volume
+        game.purchaseCases = []
+        game.buyerLeads = (0..<3).map { offset in
+            BuyerLead(
+                id: UUID(), storeID: storeID, preference: .category(.suv),
+                budget: 10_000 + offset, minimumQuality: 0.5,
+                priceSensitivity: 0.5, generatedTurn: game.turn
+            )
+        }
+
+        game.advanceWeek()
+
+        XCTAssertTrue(game.inboundShipments.contains {
+            $0.storeID == storeID && $0.category == .suv && $0.source == .dealerTrade
+        })
     }
 
     func testUpdatedCatalogUsesHighPriceImportsAndSixHundredClassSUVs() {
