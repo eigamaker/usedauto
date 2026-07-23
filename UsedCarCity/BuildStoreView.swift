@@ -7,21 +7,19 @@ struct BuildStoreView: View {
     @State private var step = 0
     @State private var mode: AcquisitionMode = .lease
     @State private var type: StoreType = .standard
-    @State private var focus: CustomerFocus = .family
-    @State private var concept: StoreConcept = .general
+    @State private var marketPolicy = StoreMarketPolicy()
+    @State private var facilities: Set<StoreFacility> = []
     @State private var loan = 0
     @State private var completed = false
     @State private var foundingBuildCompleted = false
 
     private var footprint: [LandPlot] { game.footprintPlots(startingAt: plot, type: type, mode: mode) }
     private var availableTypes: [StoreType] {
-        StoreType.allCases.filter {
-            game.footprintPlots(startingAt: plot, type: $0, mode: mode).count == $0.requiredGridCells
-        }
+        StoreType.allCases.filter { game.footprintPlots(startingAt: plot, type: $0, mode: mode).count == $0.requiredGridCells }
     }
     private var landCost: Int { game.landAcquisitionCost(for: footprint, mode: mode) }
     private var demolitionCost: Int { game.demolitionCost(for: footprint) }
-    private var total: Int { game.totalBuildCost(for: footprint, type: type, mode: mode) }
+    private var total: Int { game.totalBuildCost(for: footprint, type: type, mode: mode, facilities: facilities) }
     private var neededLoan: Int { max(0, total - game.cash) }
     private var monthlyOccupancyCost: Int { mode == .lease ? footprint.reduce(0) { $0 + $1.monthlyRent } : 0 }
 
@@ -70,13 +68,15 @@ struct BuildStoreView: View {
             }
             .onAppear {
                 type = availableTypes.contains(.standard) ? .standard : (availableTypes.first ?? type)
-                concept = game.recommendedConcept(for: plot.district)
-                focus = recommendedFocus
+                ensureCompatibleStoreType()
             }
             .onChange(of: mode) { _, _ in
                 if !availableTypes.contains(type), let fallback = availableTypes.first {
                     type = fallback
                 }
+            }
+            .onChange(of: type) { _, _ in
+                facilities = facilities.filter { $0.minimumGridCells <= type.requiredGridCells }
             }
         }
     }
@@ -111,16 +111,54 @@ struct BuildStoreView: View {
             Label("大きい店舗ほど隣接する同一サイズのセルを多く使用します", systemImage: "square.grid.3x3.fill")
                 .font(.caption).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 10) {
-                SectionTitle(title: "商売の方針", subtitle: "立地と仕入れ網に合う客層・専門性を選択")
-                Picker("狙う客層", selection: $focus) {
-                    ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) }
+                SectionTitle(title: "最初の市場方針", subtitle: "固定業態ではなく、重点車種と用途を後から変更できます")
+                Picker("狙う用途", selection: $marketPolicy.targetPurpose) {
+                    ForEach(CustomerPurpose.allCases) { Text($0.name).tag($0) }
                 }
                 .pickerStyle(.menu)
-                Picker("店舗コンセプト", selection: $concept) {
-                    ForEach(StoreConcept.allCases) { Text($0.name).tag($0) }
+                Text("重点車種（最大3車種）").font(.subheadline.bold())
+                ForEach(VehicleCategory.allCases) { category in
+                    Button {
+                        if marketPolicy.priorityCategories.contains(category) {
+                            marketPolicy.priorityCategories.remove(category)
+                        } else if marketPolicy.priorityCategories.count < 3 {
+                            marketPolicy.priorityCategories.insert(category)
+                        }
+                    } label: {
+                        HStack {
+                            Text(category.name)
+                            Spacer()
+                            Image(systemName: marketPolicy.priorityCategories.contains(category) ? "checkmark.circle.fill" : "circle")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!marketPolicy.priorityCategories.contains(category) && marketPolicy.priorityCategories.count >= 3)
                 }
-                .pickerStyle(.menu)
-                Text(concept.summary).font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Text("店舗施設").font(.subheadline.bold())
+                ForEach(StoreFacility.allCases) { facility in
+                    let compatible = facility.minimumGridCells <= type.requiredGridCells
+                    Button {
+                        guard compatible else { return }
+                        if facilities.contains(facility) { facilities.remove(facility) }
+                        else { facilities.insert(facility) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: facility.icon).foregroundStyle(GameTheme.teal).frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(facility.name).font(.subheadline.bold())
+                                Text("設置 (facility.installationCost.currency)・月(facility.monthlyCost.currency)　\(facility.summary)")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: facilities.contains(facility) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(facilities.contains(facility) ? GameTheme.teal : .gray)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!compatible)
+                    .opacity(compatible ? 1 : 0.42)
+                }
                 HStack {
                     MetricView(title: "需要上位", value: game.recommendedCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・"))
                     MetricView(title: "供給上位", value: game.recommendedSupplyCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・"))
@@ -132,15 +170,16 @@ struct BuildStoreView: View {
 
     private var forecastStep: some View {
         VStack(spacing: 14) {
-            let sales = game.estimatedSales(for: plot, type: type, focus: focus, concept: concept)
+            let sales = game.estimatedSales(for: plot, type: type, marketPolicy: marketPolicy)
             VStack(alignment: .leading, spacing: 14) {
-                SectionTitle(title: "\(concept.name)のシナリオ", subtitle: "需要・供給と客層を含む初期計画")
+                SectionTitle(title: "初期方針のシナリオ", subtitle: "需要・供給と重点市場を含む初期計画")
                 HStack { MetricView(title: "初期投資", value: total.currency, detail: "土地 \(landCost.currency)＋解体 \(demolitionCost.currency)"); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
-                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
+                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode, facilities: facilities))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
                 Divider()
-                ScenarioRow(name: "最悪", sales: max(1, sales.lowerBound - 3), profit: (sales.lowerBound - 3) * 32 - type.monthlyFixedCost - monthlyOccupancyCost, color: GameTheme.danger)
-                ScenarioRow(name: "標準", sales: (sales.lowerBound + sales.upperBound) / 2, profit: ((sales.lowerBound + sales.upperBound) / 2) * 32 - type.monthlyFixedCost - monthlyOccupancyCost, color: GameTheme.teal)
-                ScenarioRow(name: "好調", sales: sales.upperBound + 2, profit: (sales.upperBound + 2) * 32 - type.monthlyFixedCost - monthlyOccupancyCost, color: .blue)
+                let facilityCost = facilities.reduce(0) { $0 + $1.monthlyCost }
+                ScenarioRow(name: "最悪", sales: max(1, sales.lowerBound - 3), profit: (sales.lowerBound - 3) * 32 - type.monthlyFixedCost - facilityCost - monthlyOccupancyCost, color: GameTheme.danger)
+                ScenarioRow(name: "標準", sales: (sales.lowerBound + sales.upperBound) / 2, profit: ((sales.lowerBound + sales.upperBound) / 2) * 32 - type.monthlyFixedCost - facilityCost - monthlyOccupancyCost, color: GameTheme.teal)
+                ScenarioRow(name: "好調", sales: sales.upperBound + 2, profit: (sales.upperBound + 2) * 32 - type.monthlyFixedCost - facilityCost - monthlyOccupancyCost, color: .blue)
             }
             .gameCard()
             VStack(alignment: .leading, spacing: 10) {
@@ -156,20 +195,18 @@ struct BuildStoreView: View {
 
     private func completeBuild() {
         let isFounding = game.stores.isEmpty && game.tutorialStep == .buildStore
-        if game.buildStore(on: plot, type: type, mode: mode, focus: focus, concept: concept, loanAmount: loan) {
+        if game.buildStore(on: plot, type: type, mode: mode, marketPolicy: marketPolicy, facilities: facilities, loanAmount: loan) {
             foundingBuildCompleted = isFounding
             completed = true
         }
     }
 
-    private var recommendedFocus: CustomerFocus {
-        switch plot.district {
-        case .downtown: .affluent
-        case .industrial, .highway: .business
-        case .station: .young
-        case .suburb, .emerging: .family
+    private func ensureCompatibleStoreType() {
+        if !availableTypes.contains(type), let fallback = availableTypes.first {
+            type = fallback
         }
     }
+
 }
 
 private struct ChoiceCard: View {

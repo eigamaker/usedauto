@@ -55,7 +55,7 @@ struct GridCityMapSurface: View {
                             zoomStep = GridCameraZoom.clamped(zoomStep - 1)
                         }
                         GridCameraButton(icon: "scope", label: "街の中心に戻す") {
-                            zoomStep = 0
+                            zoomStep = GridCameraZoom.defaultStep
                             cameraCommand = .reset()
                         }
                         GridCameraButton(
@@ -148,6 +148,8 @@ private struct GridCameraButton: View {
 
 enum GridCameraZoom {
     static let scaleFactors = GridOrthographicCameraSpec.foundation.zoomScaleFactors.map(CGFloat.init)
+    static let defaultStep = 3
+    static var baselineFactor: CGFloat { scaleFactors[clamped(defaultStep)] }
     static let demoFocusRequestID = UUID()
 
     static func clamped(_ step: Int) -> Int {
@@ -155,7 +157,7 @@ enum GridCameraZoom {
     }
 
     static func percentage(for step: Int) -> Int {
-        Int((1 / scaleFactors[clamped(step)] * 100).rounded())
+        Int((baselineFactor / scaleFactors[clamped(step)] * 100).rounded())
     }
 
     static func nearestStep(to factor: CGFloat) -> Int {
@@ -169,7 +171,7 @@ enum GridCameraZoom {
            let value = Int(argument.split(separator: "=").last ?? "") {
             return clamped(value)
         }
-        return arguments.contains("-demo-map-zoom") ? 2 : 0
+        return arguments.contains("-demo-map-zoom") ? clamped(defaultStep + 2) : defaultStep
     }
 
     static func demoFocusPlotID(arguments: [String] = CommandLine.arguments) -> Int? {
@@ -252,7 +254,7 @@ private struct GridSceneRepresentable: UIViewRepresentable {
         if context.coordinator.lastFocusRequestID != focusRequestID {
             context.coordinator.lastFocusRequestID = focusRequestID
             if let focusPlotID {
-                let focusedZoomStep = max(zoomStep, 2)
+                let focusedZoomStep = max(zoomStep, GridCameraZoom.defaultStep + 1)
                 controller.focus(onLegacyPlotID: focusPlotID, animated: true)
                 if focusedZoomStep != zoomStep { onZoomStepChanged(focusedZoomStep) }
             }
@@ -358,6 +360,7 @@ private final class GridCitySceneController {
     private var vacantMarkerNodes: [String: SCNNode] = [:]
     private var runtimeStoreNodes: [UUID: SCNNode] = [:]
     private var runtimeStoreSignatures: [UUID: String] = [:]
+    private var competitorLabelNodes: [Int: SCNNode] = [:]
     private var interactionPlotIDs: [ObjectIdentifier: Int] = [:]
     private var interactionFacilities: [ObjectIdentifier: MapFacility] = [:]
     private var facilityNodes: [MapFacility: SCNNode] = [:]
@@ -367,8 +370,8 @@ private final class GridCitySceneController {
     private var focusPoint = SCNVector3Zero
     private var panStartFocus = SCNVector3Zero
     private var baseOrthographicScale: CGFloat = 1
-    private var currentZoomStep = 0
-    private var currentZoomFactor: CGFloat = 1
+    private var currentZoomStep = GridCameraZoom.defaultStep
+    private var currentZoomFactor = GridCameraZoom.baselineFactor
     private var lastViewSize = CGSize.zero
     private lazy var assetFactory = CityBuildingFactory(cellSize: map.metrics.cellSize)
 
@@ -382,7 +385,14 @@ private final class GridCitySceneController {
         self.sceneView = sceneView
         configureView(sceneView)
         buildScene()
-        updateLayout(viewSize: sceneView.bounds.size)
+        // UIViewRepresentable is initially created with a zero-sized SCNView
+        // on a cold launch. Seed the camera from the screen until SwiftUI
+        // supplies its final bounds; otherwise the first frame is magnified
+        // into a featureless patch of ground.
+        let initialViewSize = sceneView.bounds.size == .zero
+            ? UIScreen.main.bounds.size
+            : sceneView.bounds.size
+        updateLayout(viewSize: initialViewSize)
         applyCamera(animated: false)
     }
 
@@ -407,26 +417,29 @@ private final class GridCitySceneController {
         currentZoomFactor = GridCameraZoom.scaleFactors[clamped]
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: animated)
     }
 
     func setContinuousZoomFactor(_ factor: CGFloat) {
         currentZoomFactor = min(
             GridCameraZoom.scaleFactors.first ?? 1,
-            max(GridCameraZoom.scaleFactors.last ?? 0.22, factor)
+            max(GridCameraZoom.scaleFactors.last ?? 0.0314286, factor)
         )
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: false)
     }
 
     func resetCamera(animated: Bool) {
         let cityCenter = map.cameraContentBounds.center
         focusPoint = SCNVector3(cityCenter.x, 0, cityCenter.z)
-        currentZoomStep = 0
-        currentZoomFactor = GridCameraZoom.scaleFactors[0]
+        currentZoomStep = GridCameraZoom.defaultStep
+        currentZoomFactor = GridCameraZoom.baselineFactor
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: animated)
     }
 
@@ -434,12 +447,14 @@ private final class GridCitySceneController {
         guard let parcel = map.parcel(legacyPlotID: plotID) else { return }
         let center = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size).center
         focusPoint = SCNVector3(center.x, 0, center.z)
-        if currentZoomStep < 2 {
-            currentZoomStep = 2
-            currentZoomFactor = GridCameraZoom.scaleFactors[2]
+        let focusStep = GridCameraZoom.defaultStep + 1
+        if currentZoomStep < focusStep {
+            currentZoomStep = focusStep
+            currentZoomFactor = GridCameraZoom.scaleFactors[focusStep]
         }
         updateFacilityVisibility()
         updateAssetLODVisibility()
+        updateSemanticMapLabelScale()
         applyCamera(animated: animated)
     }
 
@@ -543,15 +558,19 @@ private final class GridCitySceneController {
             stores: game.stores,
             plotByID: Dictionary(uniqueKeysWithValues: game.plots.map { ($0.id, $0) })
         )
+        updateCompetitorLabels(game: game)
         sceneView?.setNeedsDisplay()
     }
 
     private func configureView(_ view: SCNView) {
         view.scene = scene
-        view.backgroundColor = UIColor(red: 0.76, green: 0.89, blue: 0.94, alpha: 1)
-        view.antialiasingMode = .multisampling2X
+        view.backgroundColor = UIColor(red: 0.82, green: 0.91, blue: 0.91, alpha: 1)
+        view.antialiasingMode = .multisampling4X
         view.preferredFramesPerSecond = 30
-        view.rendersContinuously = false
+        // SceneKit can drop the first on-demand frame while SwiftUI is still
+        // resolving this view's size. A steady 30 fps also keeps pan and pinch
+        // motion fluid without changing any simulation state.
+        view.rendersContinuously = true
         view.isJitteringEnabled = false
         view.autoenablesDefaultLighting = false
         view.allowsCameraControl = false
@@ -798,9 +817,9 @@ private final class GridCitySceneController {
             }
         }
         let image: UIImage = switch roadClass {
-        case .local: CityGroundArt.asphaltTexture(brightness: 0.36)
-        case .arterial: CityGroundArt.asphaltTexture(brightness: 0.30)
-        case .expressway: CityGroundArt.asphaltTexture(brightness: 0.25)
+        case .local: CityGroundArt.asphaltTexture(brightness: 0.29)
+        case .arterial: CityGroundArt.asphaltTexture(brightness: 0.25)
+        case .expressway: CityGroundArt.asphaltTexture(brightness: 0.22)
         }
         let geometry = makeHorizontalGeometry(
             rectangles: rectangles,
@@ -1360,6 +1379,16 @@ private final class GridCitySceneController {
             badge.position.y = 14.5
             root.addChildNode(badge)
 
+            let label = makeSemanticMapLabel(
+                text: facility == .auction ? "オークション会場" : facility.name,
+                iconName: facility.icon,
+                color: facilityColor(facility)
+            )
+            if facility == .auction { label.renderingOrder = 150 }
+            label.position.y = 25
+            interactionFacilities[ObjectIdentifier(label)] = facility
+            root.addChildNode(label)
+
             facilityNodes[facility] = root
             scene.rootNode.addChildNode(root)
         }
@@ -1399,16 +1428,16 @@ private final class GridCitySceneController {
         ambientLight.type = .ambient
         // A restrained cool ambient fill; the warm key light carries the
         // modelling and the soft shadow pass gives the town its depth.
-        ambientLight.intensity = 420
-        ambientLight.color = UIColor(red: 0.80, green: 0.87, blue: 0.94, alpha: 1)
+        ambientLight.intensity = 520
+        ambientLight.color = UIColor(red: 0.74, green: 0.84, blue: 0.94, alpha: 1)
         let ambient = SCNNode()
         ambient.light = ambientLight
         scene.rootNode.addChildNode(ambient)
 
         let directionalLight = SCNLight()
         directionalLight.type = .directional
-        directionalLight.intensity = 1_250
-        directionalLight.color = UIColor(red: 1, green: 0.95, blue: 0.83, alpha: 1)
+        directionalLight.intensity = 1_450
+        directionalLight.color = UIColor(red: 1, green: 0.91, blue: 0.71, alpha: 1)
         // Shadow maps under a fixed orthographic camera produced acne on
         // faceted roofs while ground shadows stayed invisible, so depth-map
         // shadows stay off. Grounding comes from baked blob shadows that
@@ -1420,6 +1449,18 @@ private final class GridCitySceneController {
         directional.position = SCNVector3(mapCenter.x + 850, 1_150, mapCenter.z + 1_250)
         directional.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
         scene.rootNode.addChildNode(directional)
+
+        // A weaker opposite fill separates navy roofs and tree silhouettes
+        // from their shaded walls without flattening the warm key light.
+        let fillLight = SCNLight()
+        fillLight.type = .directional
+        fillLight.intensity = 280
+        fillLight.color = UIColor(red: 0.54, green: 0.73, blue: 1.00, alpha: 1)
+        let fill = SCNNode()
+        fill.light = fillLight
+        fill.position = SCNVector3(mapCenter.x - 900, 720, mapCenter.z - 1_050)
+        fill.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
+        scene.rootNode.addChildNode(fill)
     }
 
     private func buildCamera() {
@@ -1451,7 +1492,7 @@ private final class GridCitySceneController {
             let parcelSignature = store.plotIDs.sorted().map { plotID in
                 "\(plotID):\(plotByID[plotID].map(parcelUseSignature) ?? "missing")"
             }.joined(separator: ",")
-            let signature = "\(store.type.rawValue)-\(store.pendingType?.rawValue ?? "none")-\(parcelSignature)"
+            let signature = "\(store.name)-\(store.type.rawValue)-\(store.pendingType?.rawValue ?? "none")-\(parcelSignature)"
             if runtimeStoreSignatures[store.id] == signature { continue }
             if let oldNode = runtimeStoreNodes[store.id] {
                 interactionPlotIDs[ObjectIdentifier(oldNode)] = nil
@@ -1515,7 +1556,61 @@ private final class GridCitySceneController {
                 : "player-store-parking:\(store.id.uuidString):\(placement.plotID)"
             root.addChildNode(node)
         }
+        if let parcel = map.parcel(legacyPlotID: store.plotID) {
+            let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            let label = makeSemanticMapLabel(
+                text: "自店舗｜\(store.name)",
+                iconName: "star.fill",
+                color: UIColor(red: 0.06, green: 0.58, blue: 0.55, alpha: 1)
+            )
+            label.renderingOrder = 160
+            let storeDefinition = CityAssetCatalog.definition(for: store.type.cityAssetID)
+            let labelHeight = store.type.cityAssetHeight
+                * CityAssetScale.heightMultiplier(for: storeDefinition.category)
+                + 14
+            label.position = SCNVector3(bounds.center.x, labelHeight, bounds.center.z)
+            setInteractionMetadata(on: label, parcel: parcel)
+            root.addChildNode(label)
+        }
         return root
+    }
+
+    private func updateCompetitorLabels(game: GameEngine) {
+        let rivals: [(plot: LandPlot, name: String)] = game.plots.compactMap { plot in
+            guard case .competitor(let name) = plot.occupant else { return nil }
+            return (plot, name)
+        }
+        let activePlotIDs = Set(rivals.map { $0.plot.id })
+        for plotID in Array(competitorLabelNodes.keys) where !activePlotIDs.contains(plotID) {
+            competitorLabelNodes[plotID]?.removeFromParentNode()
+            competitorLabelNodes[plotID] = nil
+        }
+        for rival in rivals where competitorLabelNodes[rival.plot.id] == nil {
+            guard let parcel = map.parcel(legacyPlotID: rival.plot.id) else { continue }
+            let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            let root = SCNNode()
+            root.name = "competitor-label:\(rival.plot.id)"
+            let ambientHeight: Float
+            if let object = map.objects.first(where: { $0.parcelID == parcel.id }) {
+                let definition = CityAssetCatalog.definition(for: object.assetID)
+                ambientHeight = object.height
+                    * CityAssetScale.heightMultiplier(for: definition.category)
+                    + 14
+            } else {
+                ambientHeight = 32
+            }
+            root.position = SCNVector3(bounds.center.x, ambientHeight, bounds.center.z)
+            setInteractionMetadata(on: root, parcel: parcel)
+            let label = makeSemanticMapLabel(
+                text: "競合｜\(rival.name)",
+                iconName: "flag.fill",
+                color: UIColor(red: 0.91, green: 0.38, blue: 0.12, alpha: 1)
+            )
+            setInteractionMetadata(on: label, parcel: parcel)
+            root.addChildNode(label)
+            competitorLabelNodes[rival.plot.id] = root
+            scene.rootNode.addChildNode(root)
+        }
     }
 
     private func parcelUseSignature(_ plot: LandPlot) -> String {
@@ -1598,9 +1693,71 @@ private final class GridCitySceneController {
     }
 
     private func updateFacilityVisibility() {
-        let showsSecondaryFacilities = currentZoomFactor <= GridCameraZoom.scaleFactors[2] + 0.02
+        // In a wide overview, reserve label space for the player's store,
+        // competitors and the auction route that drives procurement. Other
+        // service locations return at 75% and closer zoom levels.
+        let showsSecondaryServices = currentZoomFactor < GridCameraZoom.scaleFactors[2] + 0.001
         for (facility, node) in facilityNodes {
-            node.isHidden = !facility.isPrimary && !showsSecondaryFacilities
+            node.isHidden = !facility.isPrimary && !showsSecondaryServices
+        }
+    }
+
+    private func makeSemanticMapLabel(text: String, iconName: String, color: UIColor) -> SCNNode {
+        let imageSize = CGSize(width: 900, height: 200)
+        let renderer = UIGraphicsImageRenderer(size: imageSize)
+        let image = renderer.image { _ in
+            let cardRect = CGRect(x: 4, y: 4, width: imageSize.width - 8, height: imageSize.height - 8)
+            UIColor(white: 0.99, alpha: 0.96).setFill()
+            UIBezierPath(roundedRect: cardRect, cornerRadius: 46).fill()
+            color.setStroke()
+            let border = UIBezierPath(roundedRect: cardRect, cornerRadius: 46)
+            border.lineWidth = 10
+            border.stroke()
+
+            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 92, weight: .bold)
+            let symbol = UIImage(systemName: iconName, withConfiguration: symbolConfiguration)?
+                .withTintColor(color, renderingMode: .alwaysOriginal)
+            symbol?.draw(in: CGRect(x: 34, y: 52, width: 96, height: 96))
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail
+            paragraph.alignment = .left
+            (text as NSString).draw(
+                in: CGRect(x: 158, y: 47, width: 700, height: 110),
+                withAttributes: [
+                    .font: UIFont.systemFont(ofSize: 88, weight: .bold),
+                    .foregroundColor: UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1),
+                    .paragraphStyle: paragraph
+                ]
+            )
+        }
+
+        let plane = SCNPlane(width: 145, height: 32)
+        let labelMaterial = SCNMaterial()
+        labelMaterial.diffuse.contents = image
+        labelMaterial.lightingModel = .constant
+        labelMaterial.isDoubleSided = true
+        labelMaterial.transparencyMode = .aOne
+        labelMaterial.readsFromDepthBuffer = false
+        labelMaterial.writesToDepthBuffer = false
+        plane.firstMaterial = labelMaterial
+
+        let node = SCNNode(geometry: plane)
+        node.name = "semantic-map-label"
+        node.renderingOrder = 120
+        let billboard = SCNBillboardConstraint()
+        billboard.influenceFactor = 1
+        node.constraints = [billboard]
+        let scale = Float(currentZoomFactor / GridCameraZoom.baselineFactor)
+        node.scale = SCNVector3(scale, scale, scale)
+        return node
+    }
+
+    private func updateSemanticMapLabelScale() {
+        let scale = Float(currentZoomFactor / GridCameraZoom.baselineFactor)
+        scene.rootNode.enumerateChildNodes { node, _ in
+            guard node.name == "semantic-map-label" else { return }
+            node.scale = SCNVector3(scale, scale, scale)
         }
     }
 
@@ -1710,8 +1867,9 @@ private final class GridCitySceneController {
         if let cached = materialCache[key] { return cached }
         let result = SCNMaterial()
         result.diffuse.contents = color
-        result.lightingModel = .lambert
-        result.isDoubleSided = true
+        result.lightingModel = .blinn
+        result.shininess = 0.08
+        result.isDoubleSided = false
         materialCache[key] = result
         return result
     }
@@ -1760,12 +1918,12 @@ private final class GridCitySceneController {
         // Lot aprons stay close to one warm neutral so the buildings, not the
         // ground checkerboard, carry the color of every district.
         switch district {
-        case .downtown: UIColor(red: 0.71, green: 0.69, blue: 0.66, alpha: 1)
-        case .station: UIColor(red: 0.72, green: 0.71, blue: 0.65, alpha: 1)
-        case .emerging: UIColor(red: 0.70, green: 0.72, blue: 0.62, alpha: 1)
-        case .suburb: UIColor(red: 0.71, green: 0.72, blue: 0.63, alpha: 1)
-        case .industrial: UIColor(red: 0.68, green: 0.68, blue: 0.66, alpha: 1)
-        case .highway: UIColor(red: 0.71, green: 0.70, blue: 0.63, alpha: 1)
+        case .downtown: UIColor(red: 0.76, green: 0.70, blue: 0.58, alpha: 1)
+        case .station: UIColor(red: 0.75, green: 0.71, blue: 0.57, alpha: 1)
+        case .emerging: UIColor(red: 0.63, green: 0.70, blue: 0.39, alpha: 1)
+        case .suburb: UIColor(red: 0.60, green: 0.70, blue: 0.35, alpha: 1)
+        case .industrial: UIColor(red: 0.69, green: 0.65, blue: 0.56, alpha: 1)
+        case .highway: UIColor(red: 0.71, green: 0.67, blue: 0.49, alpha: 1)
         }
     }
 

@@ -59,7 +59,7 @@ struct OnboardingView: View {
                     Text("安く仕入れ、値引きを判断し、1台ずつ商談")
                         .font(.caption.bold())
                         .foregroundStyle(.white.opacity(0.8))
-                    Text("店員は対応枠を増やし、店長は委任業務を自動化します")
+                    Text("社員は担当業務を自動実行し、店長は配置と方針を最適化します")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.55))
                     Text("1ターン＝1週間")

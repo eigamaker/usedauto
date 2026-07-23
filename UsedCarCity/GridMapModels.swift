@@ -25,6 +25,10 @@ struct GridSize: Hashable, Codable, Sendable {
     static let twoByThree = GridSize(width: 2, depth: 3)
     static let threeByThree = GridSize(width: 3, depth: 3)
     static let fourByFour = GridSize(width: 4, depth: 4)
+    /// Two and four standard 4×4 parcels with the former one-cell divider
+    /// absorbed into one continuous site.
+    static let nineByFour = GridSize(width: 9, depth: 4)
+    static let nineByNine = GridSize(width: 9, depth: 9)
 }
 
 struct GridRect: Hashable, Codable, Sendable {
@@ -395,10 +399,25 @@ struct GridOrthographicCameraSpec: Hashable, Sendable {
 
     static let foundation = GridOrthographicCameraSpec(
         azimuthDegrees: 45,
-        elevationDegrees: 38.16,
-        // The final close inspection step is for reading asset silhouettes,
-        // doors and forecourts; it keeps the same orthographic camera angle.
-        zoomScaleFactors: [1.0, 0.62, 0.38, 0.22, 0.14]
+        // True isometric elevation. Combined with the 45 degree azimuth this
+        // keeps both ground axes at the same on-screen scale as the artwork
+        // reference, at every zoom level.
+        elevationDegrees: 35.26439,
+        // The former roughly 400% view (0.22) remains the 100% baseline.
+        // Wider overview steps sit before it, while closer inspection steps
+        // continue through 700% without changing the camera angle.
+        zoomScaleFactors: [
+            0.88,
+            0.44,
+            0.2933333,
+            0.22,
+            0.11,
+            0.0733333,
+            0.055,
+            0.044,
+            0.0366667,
+            0.0314286
+        ]
     )
 
     func cameraOffset(groundDistance: Float) -> GridCameraOffset {

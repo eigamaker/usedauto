@@ -13,6 +13,7 @@ struct CityMapView: View {
     @State private var showNotifications = false
     @State private var showNationalMap = false
     @State private var showCompanyDashboard = false
+    @State private var didOpenDemoFacility = false
 
     var body: some View {
         NavigationStack {
@@ -138,7 +139,22 @@ struct CityMapView: View {
             .fullScreenCover(isPresented: $showNationalMap) {
                 NationalExpansionView()
             }
+            .onAppear(perform: openDemoFacilityIfNeeded)
         }
+    }
+
+    private func openDemoFacilityIfNeeded() {
+        guard !didOpenDemoFacility else { return }
+        let facility: MapFacility? = if CommandLine.arguments.contains("-demo-auction") {
+            .auction
+        } else if CommandLine.arguments.contains("-demo-workshop") {
+            .workshop
+        } else {
+            nil
+        }
+        guard let facility else { return }
+        selectedFacility = facility
+        didOpenDemoFacility = true
     }
 
     private func tutorialActionTitle(for step: TutorialStep) -> String? {

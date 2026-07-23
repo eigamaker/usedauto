@@ -25,13 +25,14 @@ enum CityAssetID: String, Codable, CaseIterable, Sendable {
     case luxuryPool
     case luxuryTerrace
 
-    // Road-facing commercial: six variants.
+    // Road-facing commercial: six standard blocks plus a four-plot mall.
     case commercialAutoDealer
     case commercialGasStation
     case commercialConvenience
     case commercialRestaurant
     case commercialShopping
     case commercialRoadside
+    case commercialRegionalMall
 
     // Industrial: five large-mass variants.
     case industrialFactory
@@ -40,12 +41,15 @@ enum CityAssetID: String, Codable, CaseIterable, Sendable {
     case industrialTankWorks
     case industrialSmokestack
 
-    // Downtown: five medium-rise variants.
+    // Downtown: five standard blocks plus multi-plot tower campuses.
     case downtownMixedUse
     case downtownOffice
     case downtownApartment
     case downtownParkingStructure
     case downtownCornerBlock
+    case downtownOfficePlaza
+    case downtownTwinTower
+    case downtownResidentialTower
 
     // Highway / interchange surroundings.
     case highwayLogistics
@@ -156,10 +160,41 @@ struct CityAssetLODVisibility: Equatable, Sendable {
 
 enum CityAssetLODPolicy {
     static func visibility(zoomFactor: CGFloat) -> CityAssetLODVisibility {
-        CityAssetLODVisibility(
-            showsNearDetails: zoomFactor <= GridCameraZoom.scaleFactors[1] + 0.02,
-            showsProps: zoomFactor <= GridCameraZoom.scaleFactors[2] + 0.02
+        // The new baseline is already as close as the former inspection view,
+        // so its architectural details and props should remain visible.
+        let baseline = GridCameraZoom.baselineFactor
+        return CityAssetLODVisibility(
+            showsNearDetails: zoomFactor <= baseline + 0.02,
+            showsProps: zoomFactor <= baseline + 0.02
         )
+    }
+}
+
+/// World-space scale policy shared by the catalog's selection bounds and the
+/// SceneKit asset factory. The isometric camera compresses vertical distance,
+/// so architecture needs a deliberately exaggerated height to read as real
+/// buildings rather than tabletop slabs.
+enum CityAssetScale {
+    static func heightMultiplier(for category: CityAssetCategory) -> Float {
+        switch category {
+        case .generalResidential: 7.2
+        case .luxuryResidential: 6.6
+        case .commercial: 6.0
+        case .industrial: 5.7
+        case .downtown: 4.5
+        case .highway: 5.7
+        case .parking: 1.0
+        // Player facilities previously hit a tighter 1.25× headroom cap,
+        // so 3.75× is the true three-times-rendered-height equivalent.
+        case .playerFacility: 3.75
+        }
+    }
+
+    static func selectionMaximumHeight(
+        nominalHeight: Float,
+        category: CityAssetCategory
+    ) -> Float {
+        max(5, nominalHeight * heightMultiplier(for: category) * 1.5 + 12)
     }
 }
 
@@ -192,9 +227,9 @@ enum CityAssetCatalog {
     static let definitions: [CityAssetDefinition] = ambientDefinitions + playerFacilityDefinitions
 
     static let ambientDefinitions: [CityAssetDefinition] = [
-        // Ambient buildings occupy their entire four-by-four city parcel. The
-        // parcel count, not an arbitrary lawn around a miniature building,
-        // communicates land area on the city map.
+        // Ambient buildings occupy their entire parcel. Most districts use a
+        // 4×4 street block; industrial campuses intentionally use larger
+        // two- and four-plot equivalents below.
         ambient(.residentialCottage, .generalResidential, .fourByFour, [.suburb], 7),
         ambient(.residentialGable, .generalResidential, .fourByFour, [.suburb], 8),
         ambient(.residentialFlat, .generalResidential, .fourByFour, [.suburb], 7),
@@ -212,18 +247,25 @@ enum CityAssetCatalog {
         ambient(.commercialRestaurant, .commercial, .fourByFour, [.station, .highway], 8, clearance: .frontOne),
         ambient(.commercialShopping, .commercial, .fourByFour, [.station, .highway], 12, clearance: .frontOne),
         ambient(.commercialRoadside, .commercial, .fourByFour, [.station, .highway], 9, clearance: .frontOne),
+        ambient(.commercialRegionalMall, .commercial, .nineByNine, [.station, .highway], 17, clearance: .vehicleApron),
 
-        ambient(.industrialFactory, .industrial, .fourByFour, [.industrial], 13, clearance: .frontOne),
-        ambient(.industrialWarehouse, .industrial, .fourByFour, [.industrial, .highway], 12, clearance: .frontOne),
-        ambient(.industrialLoadingWarehouse, .industrial, .fourByFour, [.industrial, .highway], 11, clearance: .vehicleApron),
-        ambient(.industrialTankWorks, .industrial, .fourByFour, [.industrial], 12, clearance: .frontOne),
-        ambient(.industrialSmokestack, .industrial, .fourByFour, [.industrial], 18, clearance: .frontOne),
+        // Industrial sites absorb the old divider between two or four
+        // standard parcels. Their geometry and paved infill therefore cross
+        // the former plot seam as one uninterrupted factory campus.
+        ambient(.industrialFactory, .industrial, .nineByNine, [.industrial], 13, clearance: .frontOne),
+        ambient(.industrialWarehouse, .industrial, .nineByFour, [.industrial], 12, clearance: .frontOne),
+        ambient(.industrialLoadingWarehouse, .industrial, .nineByFour, [.industrial], 11, clearance: .vehicleApron),
+        ambient(.industrialTankWorks, .industrial, .nineByNine, [.industrial], 12, clearance: .frontOne),
+        ambient(.industrialSmokestack, .industrial, .nineByNine, [.industrial], 18, clearance: .frontOne),
 
         ambient(.downtownMixedUse, .downtown, .fourByFour, [.downtown], 28),
         ambient(.downtownOffice, .downtown, .fourByFour, [.downtown], 34),
         ambient(.downtownApartment, .downtown, .fourByFour, [.downtown], 30),
         ambient(.downtownParkingStructure, .downtown, .fourByFour, [.downtown], 18),
         ambient(.downtownCornerBlock, .downtown, .fourByFour, [.downtown], 36),
+        ambient(.downtownOfficePlaza, .downtown, .nineByFour, [.downtown], 44),
+        ambient(.downtownTwinTower, .downtown, .nineByFour, [.downtown], 50),
+        ambient(.downtownResidentialTower, .downtown, .nineByFour, [.downtown], 40),
 
         ambient(.highwayLogistics, .highway, .fourByFour, [.highway, .industrial], 12, clearance: .vehicleApron),
         ambient(.highwayBigBox, .highway, .fourByFour, [.highway], 11, clearance: .vehicleApron),
@@ -255,13 +297,18 @@ enum CityAssetCatalog {
     }
 
     static func ambientAssets(for district: DistrictKind) -> [CityAssetDefinition] {
+        if district == .industrial {
+            return ambientDefinitions.filter { $0.category == .industrial }
+        }
         if district == .highway {
             // Interchanges naturally mix logistics, roadside retail, service
             // stations, and large commercial buildings. Using every compatible
             // non-parking asset prevents a highway district made from only the
             // same three silhouettes.
             return ambientDefinitions.filter {
-                $0.category != .parking && $0.allowedDistricts.contains(.highway)
+                $0.category != .parking
+                    && $0.footprint == .fourByFour
+                    && $0.allowedDistricts.contains(.highway)
             }
         }
         let category: CityAssetCategory = switch district {
@@ -272,7 +319,9 @@ enum CityAssetCatalog {
         case .downtown: .downtown
         case .highway: .highway
         }
-        return ambientDefinitions.filter { $0.category == category }
+        return ambientDefinitions.filter {
+            $0.category == category && $0.footprint == .fourByFour
+        }
     }
 
     private static func ambient(
@@ -299,7 +348,10 @@ enum CityAssetCatalog {
                 // Include the distinct roof, tower and sign silhouettes as
                 // well as authored map height variation.  The horizontal
                 // volume remains the exact grid footprint.
-                maximumHeight: max(5, height * 1.25 + 10)
+                maximumHeight: CityAssetScale.selectionMaximumHeight(
+                    nominalHeight: height,
+                    category: category
+                )
             ),
             nominalHeight: height
         )
@@ -326,7 +378,10 @@ enum CityAssetCatalog {
             selectionVolume: .init(
                 footprint: footprint,
                 horizontalInset: 0.25,
-                maximumHeight: max(5, height * 1.25 + 5)
+                maximumHeight: CityAssetScale.selectionMaximumHeight(
+                    nominalHeight: height,
+                    category: .playerFacility
+                )
             ),
             nominalHeight: height
         )

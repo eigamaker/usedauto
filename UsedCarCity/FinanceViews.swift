@@ -86,7 +86,7 @@ private struct ProfitLossCard: View {
             FinanceRow(title: "売上原価", value: -game.finance.costOfSales, negative: true)
             FinanceRow(title: "売上総利益", value: game.finance.revenue - game.finance.costOfSales, total: true)
             FinanceRow(title: "人件費", value: -game.finance.personnel, negative: true)
-            Text("店員と店長の月額給与を週ごとに按分し、4週間で全額を人件費として計上しています。")
+            Text("店員と店長の固定給を週ごとに按分し、社員が自動販売で得た成約粗利歩合も人件費へ計上しています。")
                 .font(.caption2).foregroundStyle(.secondary)
             FinanceRow(title: "賃料", value: -game.finance.rent, negative: true)
             FinanceRow(title: "広告費", value: -game.finance.advertising, negative: true)

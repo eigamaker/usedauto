@@ -115,6 +115,8 @@ struct FacilityHubSheet: View {
                 }.padding(15)
             }
             .background(GameTheme.cream)
+            .navigationTitle(facility.shortName)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
         }
     }
@@ -176,6 +178,7 @@ private struct CompanyDashboardContent: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack { MetricView(title: "企業価値", value: game.companyValue.currency, tint: GameTheme.teal); MetricView(title: "店舗", value: "\(game.stores.count)店"); MetricView(title: "在庫", value: "\(game.totalInventory)台") }.gameCard()
+            MarketEnvironmentCard()
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(title: "全社ダッシュボード", subtitle: "会社全体のPL・BS・資金繰り")
                 FacilityRow("売上高", game.finance.revenue.currency)
@@ -193,13 +196,37 @@ private struct CompanyDashboardContent: View {
     }
 }
 
+private struct MarketEnvironmentCard: View {
+    @EnvironmentObject private var game: GameEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            SectionTitle(title: "市場環境", subtitle: "通常時は緩やかなトレンド、世界情勢のイベント時は大きく変動")
+            HStack {
+                MetricView(title: "ガソリン", value: "\(game.gasolinePricePerLiter)円/L", detail: "基準155円")
+                MetricView(title: "日経平均", value: "\(game.nikkeiAverageYen.formatted())円", detail: "基準60,000円")
+            }
+            HStack {
+                MetricView(title: "中古車需要", value: "\(game.marketDemandPercentage)%", detail: "100%が平常")
+                MetricView(title: "来店指数", value: "\(game.customerTrafficPercentage)%", detail: "景気と需要を反映", tint: GameTheme.teal)
+            }
+            ForEach(game.activeMarketShocks) { shock in
+                Label("\(shock.kind.title)・残り\(shock.remainingWeeks)週間", systemImage: shock.kind.eventKind.icon)
+                    .font(.caption.bold())
+                    .foregroundStyle(shock.kind.isPositive ? GameTheme.teal : GameTheme.orange)
+            }
+        }
+        .gameCard()
+    }
+}
+
 private struct StoreNetworkContent: View {
     @EnvironmentObject private var game: GameEngine
     @State private var message: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫を融通し、店長への自動化委任を確認")
+            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫を融通し、社員自動化と店長への管理委任を確認")
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 7) {
                     HStack {
@@ -256,7 +283,7 @@ private struct AuctionContent: View {
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "オークション会場", subtitle: "出品機会は多い一方、競合入札で落札率は低め。会場費と輸送費も加算されます")
+                SectionTitle(title: "オークション会場", subtitle: "常時30台規模。競合3社も実際に入札し、会場費と輸送費が加算されます")
                 Picker("会場", selection: $venue) {
                     ForEach(AuctionVenue.allCases) { item in Text(item.name.replacingOccurrences(of: "オートオークション", with: "AA")).tag(item) }
                 }.pickerStyle(.segmented)
@@ -272,12 +299,35 @@ private struct AuctionContent: View {
                 MetricView(title: "陸送", value: venue.shippingCost.currency)
                 MetricView(title: "入庫", value: "\(venue.shippingMonths)週間後", tint: venue.tint)
             }.gameCard()
+            if let store = selectedStore {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle(title: "競合のAA仕入れ動向", subtitle: "直近12週間の落札から在庫増加を推定")
+                    if game.hasMarketResearcher(storeID: store.id) {
+                        Label("調査担当：\(game.marketResearcherName(for: store.id))・調査力 \(Int(game.marketResearchScore(for: store.id)))", systemImage: "binoculars.fill")
+                            .font(.caption.bold()).foregroundStyle(GameTheme.teal)
+                        ForEach(game.competitors) { competitor in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(competitor.name).font(.subheadline.bold())
+                                Text(game.competitorAuctionTrend(competitorID: competitor.id, storeID: store.id))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if competitor.id != game.competitors.last?.id { Divider() }
+                        }
+                    } else {
+                        Label("社員を「集客・市場調査」に配置すると、競合が増やしているカテゴリ・車種が判明します", systemImage: "eye.slash.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }.gameCard()
+            }
             VStack(alignment: .leading, spacing: 11) {
                 SectionTitle(title: "出品車両・上限入札", subtitle: "今週は上限額を予約し、落札結果は翌週に確定します")
+                Label("業者間落札相場はAAでの落札目安、店頭販売参考は選択店舗の立地で販売する場合の目安です。", systemImage: "info.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 if let store = selectedStore {
-                    ForEach(listings.prefix(7)) { listing in
+                    ForEach(listings.prefix(10)) { listing in
                         AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
-                        if listing.id != listings.prefix(7).last?.id { Divider() }
+                        if listing.id != listings.prefix(10).last?.id { Divider() }
                     }
                 }
             }.gameCard()
@@ -340,6 +390,25 @@ private struct AuctionBidRow: View {
 
     private var reservation: BidReservation? { game.bidReservations.first { $0.listingID == listing.id } }
     private var reserved: Bool { reservation != nil }
+    private var retailReferencePrice: Int? {
+        guard let store = game.stores.first(where: { $0.id == storeID }),
+              let plot = game.plot(id: store.plotID) else { return nil }
+        return game.vehicleRetailValue(
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            quality: listing.quality,
+            in: plot.district
+        )
+    }
+    private var bidStep: Int { game.auctionBidStep(for: listing) }
+    private var bidUpperBound: Int {
+        max(listing.reservePrice + bidStep, listing.marketPrice * 8 / 5, (retailReferencePrice ?? 0) * 11 / 10)
+    }
+    private var marketForecast: ClosedRange<Int> {
+        game.auctionMarketForecast(for: listing, storeID: storeID)
+    }
 
     var body: some View {
         VStack(spacing: 7) {
@@ -351,18 +420,31 @@ private struct AuctionBidRow: View {
                         if VehicleCatalog.entry(id: listing.modelID)?.isRareClassic == true {
                             Text("希少旧車").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(GameTheme.orange).clipShape(Capsule())
                         }
+                        if let model = VehicleCatalog.entry(id: listing.modelID), model.category == .imported {
+                            Text("指名需要 \(Int((model.customerDemandIndex * 100).rounded()))")
+                                .font(.caption2.bold())
+                                .foregroundStyle(listing.venue.tint)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(listing.venue.tint.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
                     }
                     Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・評価\(Int(listing.quality * 100))・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
                     Text("開始 \(listing.reservePrice.currency)").font(.caption.bold())
-                    Text("相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                    Text("業者間落札相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(game.marketForecastHorizon(for: storeID))週後AA予測 \(marketForecast.lowerBound.currency)〜\(marketForecast.upperBound.currency)").font(.caption2).foregroundStyle(.blue)
+                    if let retailReferencePrice {
+                        Text("店頭販売参考 \(retailReferencePrice.currency)").font(.caption2).foregroundStyle(GameTheme.teal)
+                    }
                     Text("諸費用 +\((listing.venue.fee + listing.venue.shippingCost).currency)").font(.caption2).foregroundStyle(GameTheme.orange)
                 }
             }
             HStack {
-                Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...max(listing.reservePrice + 10, listing.marketPrice * 13 / 10), step: 5)
+                Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
                     .font(.caption.bold())
                 Text("落札見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
                     .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.venue.tint)
@@ -385,6 +467,7 @@ private struct AuctionBidRow: View {
 }
 
 private struct AuctionBidResultRow: View {
+    @EnvironmentObject private var game: GameEngine
     let result: AuctionBidResult
     let currentTurn: Int
 
@@ -416,6 +499,9 @@ private struct AuctionBidResultRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(result.status.name).font(.caption.bold()).foregroundStyle(tint)
                 Text("確定 \(result.hammerPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                if let winner = game.auctionWinnerName(for: result) {
+                    Text("落札者 \(winner)").font(.caption2.bold()).foregroundStyle(GameTheme.orange)
+                }
             }
         }
     }
@@ -462,11 +548,15 @@ private struct WorkshopContent: View {
     @State private var message: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "整備・商品化・カスタム", subtitle: "軽整備は即時。レストアとカスタム製作は高額で、完成まで数週間は販売できません")
+            SectionTitle(title: "整備・商品化キュー", subtitle: "整備士の週次工数とベイ数の両方が処理量を制約します")
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack { Text(store.name).font(.subheadline.bold()); Spacer(); Text("整備 \(Int(store.serviceAllocation * 100))%").font(.caption.bold()) }
-                    Slider(value: Binding(get: { game.stores.first(where: { $0.id == store.id })?.serviceAllocation ?? store.serviceAllocation }, set: { value in var changed = store; changed.serviceAllocation = value; game.updateStore(changed) }), in: 0.2...0.65, step: 0.05).tint(GameTheme.teal)
+                    let inHouseProjects = store.inventory.filter { $0.workshopProject?.outsourced == false }.count
+                    HStack {
+                        Text(store.name).font(.subheadline.bold())
+                        Spacer()
+                        Text("週\(store.weeklyWorkshopLabor)工数・ベイ\(inHouseProjects)/\(store.workshopBays)").font(.caption.bold())
+                    }
                     ForEach(store.inventory.filter { $0.count > 0 }.prefix(6)) { batch in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
@@ -493,45 +583,31 @@ private struct WorkshopContent: View {
                             if let project = batch.workshopProject {
                                 HStack {
                                     Label(project.kind.name, systemImage: project.kind.icon).font(.caption2.bold()).foregroundStyle(.purple)
-                                    ProgressView(value: Double(project.totalWeeks - project.remainingWeeks), total: Double(project.totalWeeks)).tint(.purple)
-                                    Text("あと\(project.remainingWeeks)週").font(.caption2.bold().monospacedDigit())
+                                    if project.outsourced {
+                                        ProgressView(value: Double(max(0, project.totalWeeks - project.remainingWeeks)), total: Double(project.totalWeeks)).tint(.purple)
+                                        Text("外注・あと\(project.remainingWeeks)週").font(.caption2.bold().monospacedDigit())
+                                    } else {
+                                        ProgressView(value: Double(project.requiredWork - project.remainingWork), total: Double(project.requiredWork)).tint(.purple)
+                                        Text("残り\(project.remainingWork)工数").font(.caption2.bold().monospacedDigit())
+                                    }
                                 }
                             } else {
-                                HStack(spacing: 6) {
-                                    if let preview = game.servicePreview(storeID: store.id, inventoryID: batch.id) {
-                                        Button("軽整備 +\(preview.qualityGain)・\(preview.cost.currency)") {
-                                            message = game.serviceInventory(storeID: store.id, inventoryID: batch.id)
-                                                ? "\(batch.vehicleName)を整備し、品質が\(preview.resultingQuality)になりました。"
-                                                : "現金が不足しています。"
+                                let previews = WorkshopProjectKind.allCases.compactMap { kind in
+                                    game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: kind)
+                                }
+                                if previews.isEmpty {
+                                    Text("対応設備・整備担当・車種条件を確認してください").font(.caption2).foregroundStyle(.secondary)
+                                } else {
+                                    Menu {
+                                        ForEach(previews, id: \.kind) { preview in
+                                            Button("\(preview.kind.name)：\(preview.cost.currency)・\(preview.requiredWork)工数\(preview.outsourced ? "・外注" : "")") {
+                                                message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: preview.kind)
+                                                    ? "\(preview.kind.name)を開始しました。販売目安は\(preview.projectedSalePrice.currency)です。"
+                                                    : "現金、ベイ、担当者を確認してください。"
+                                            }.disabled(game.cash < preview.cost)
                                         }
-                                        .font(.caption2.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
-                                        .disabled(game.cash < preview.cost)
-                                    }
-                                    let restoration = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: .restoration)
-                                    let customization = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: .customization)
-                                    if restoration != nil || customization != nil {
-                                        Menu {
-                                            if let preview = restoration {
-                                                Button("レストア：\(preview.cost.currency)・\(preview.weeks)週・品質+\(preview.qualityGain)") {
-                                                    message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: .restoration)
-                                                        ? "商品化・レストアを開始しました。完成後の販売目安は\(preview.projectedSalePrice.currency)です。"
-                                                        : "現金が不足しています。"
-                                                }.disabled(game.cash < preview.cost)
-                                            }
-                                            if let preview = customization {
-                                                Button("カスタム：\(preview.cost.currency)・\(preview.weeks)週・品質+\(preview.qualityGain)") {
-                                                    message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: .customization)
-                                                        ? "カスタム製作を開始しました。完成後の販売目安は\(preview.projectedSalePrice.currency)です。"
-                                                        : "現金が不足しています。"
-                                                }.disabled(game.cash < preview.cost)
-                                            }
-                                        } label: {
-                                            Label("商品化プロジェクト", systemImage: "hammer.fill")
-                                        }
-                                        .font(.caption2.bold()).buttonStyle(.borderedProminent).tint(.purple)
-                                    } else if VehicleCatalog.entry(id: batch.modelID)?.isPopularCustomBase != true {
-                                        Text("カスタム需要のない車種").font(.caption2).foregroundStyle(.secondary)
-                                    }
+                                    } label: { Label("商品化を追加", systemImage: "hammer.fill") }
+                                    .font(.caption2.bold()).buttonStyle(.borderedProminent).tint(.purple)
                                 }
                             }
                         }
@@ -562,7 +638,7 @@ private struct RecruitingContent: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "店員採用", subtitle: "営業・査定能力と個別給与を比較")
+            SectionTitle(title: "店員採用", subtitle: "販売・仕入・調査・整備の4能力と個別給与を比較")
             ForEach(game.stores) { store in
                 HStack {
                     VStack(alignment: .leading) {
@@ -570,7 +646,7 @@ private struct RecruitingContent: View {
                         Text("店員 \(store.staff)名・給与 \(store.employeeMonthlyPayroll.currency)/月")
                             .font(.caption).foregroundStyle(.secondary)
                         if let candidate = game.employeeCandidates(for: store.id).first {
-                            Text("候補 \(candidate.name)｜営業\(candidate.salesSkill)・査定\(candidate.appraisalSkill)・\(candidate.monthlySalary.currency)/月")
+                            Text("候補 \(candidate.name)｜販売\(candidate.salesSkill)・仕入\(candidate.procurementSkill)・\(candidate.monthlySalary.currency)/月")
                                 .font(.caption2).foregroundStyle(GameTheme.teal)
                         }
                     }
@@ -595,7 +671,7 @@ private struct CityHallContent: View {
             Label("中古車品質認証：有効", systemImage: "checkmark.seal.fill").foregroundStyle(GameTheme.teal)
             Label("整備設備導入補助金：申請可能", systemImage: "yensign.circle.fill").foregroundStyle(.blue)
             Label("次回法人税納付：12週間後", systemImage: "calendar").foregroundStyle(.secondary)
-            Text("燃料価格とEV普及率は毎年変化します。充電設備補助や環境規制は今後の市場イベントに影響します。").font(.caption).foregroundStyle(.secondary)
+            Text("ガソリン価格・日経平均・中古車需要は毎週緩やかに変化します。戦争や原油供給、金融市場のイベント時は大きく動きます。").font(.caption).foregroundStyle(.secondary)
         }.gameCard()
     }
 }

@@ -1,8 +1,8 @@
 import UIKit
 
-/// Procedurally drawn, tileable ground textures. Everything is generated once
-/// and cached, so the map ships zero raster assets while still reading as
-/// painted ground instead of flat vector fills.
+/// Procedurally drawn, tileable ground textures. Broad tonal patches and a
+/// small amount of grain give the terrain a hand-painted strategy-game finish
+/// without turning the grid into visual noise.
 @MainActor
 enum CityGroundArt {
     private static var cache: [String: UIImage] = [:]
@@ -12,35 +12,35 @@ enum CityGroundArt {
     static func grassTexture() -> UIImage {
         speckled(
             key: "grass",
-            base: UIColor(red: 0.47, green: 0.63, blue: 0.35, alpha: 1),
+            base: UIColor(red: 0.52, green: 0.67, blue: 0.23, alpha: 1),
             speckles: [
-                (UIColor(red: 0.54, green: 0.70, blue: 0.40, alpha: 0.55), 260, 1.2...2.6),
-                (UIColor(red: 0.40, green: 0.55, blue: 0.29, alpha: 0.50), 240, 1.2...2.8),
-                (UIColor(red: 0.62, green: 0.74, blue: 0.42, alpha: 0.30), 90, 2.0...4.5)
+                (UIColor(red: 0.66, green: 0.77, blue: 0.27, alpha: 0.24), 62, 1.6...3.4),
+                (UIColor(red: 0.40, green: 0.57, blue: 0.17, alpha: 0.22), 54, 1.6...3.6),
+                (UIColor(red: 0.77, green: 0.81, blue: 0.32, alpha: 0.14), 18, 2.2...5.0)
             ],
-            patches: 7,
-            patchColor: UIColor(red: 0.43, green: 0.60, blue: 0.32, alpha: 0.35)
+            patches: 9,
+            patchColor: UIColor(red: 0.47, green: 0.63, blue: 0.18, alpha: 0.24)
         )
     }
 
     static func parkTexture() -> UIImage {
         speckled(
             key: "park",
-            base: UIColor(red: 0.52, green: 0.68, blue: 0.38, alpha: 1),
+            base: UIColor(red: 0.57, green: 0.72, blue: 0.27, alpha: 1),
             speckles: [
-                (UIColor(red: 0.60, green: 0.75, blue: 0.44, alpha: 0.55), 250, 1.2...2.6),
-                (UIColor(red: 0.45, green: 0.61, blue: 0.32, alpha: 0.50), 220, 1.2...2.8),
-                (UIColor(red: 0.86, green: 0.83, blue: 0.55, alpha: 0.25), 40, 1.0...2.0)
+                (UIColor(red: 0.69, green: 0.80, blue: 0.34, alpha: 0.26), 62, 1.4...3.0),
+                (UIColor(red: 0.43, green: 0.61, blue: 0.18, alpha: 0.22), 54, 1.4...3.2),
+                (UIColor(red: 0.93, green: 0.74, blue: 0.25, alpha: 0.15), 16, 1.0...2.2)
             ],
-            patches: 6,
-            patchColor: UIColor(red: 0.57, green: 0.72, blue: 0.41, alpha: 0.35)
+            patches: 7,
+            patchColor: UIColor(red: 0.62, green: 0.76, blue: 0.30, alpha: 0.28)
         )
     }
 
     static func sandTexture() -> UIImage {
         speckled(
             key: "sand",
-            base: UIColor(red: 0.88, green: 0.80, blue: 0.60, alpha: 1),
+            base: UIColor(red: 0.91, green: 0.77, blue: 0.49, alpha: 1),
             speckles: [
                 (UIColor(red: 0.93, green: 0.86, blue: 0.68, alpha: 0.6), 260, 1.0...2.2),
                 (UIColor(red: 0.80, green: 0.71, blue: 0.51, alpha: 0.5), 220, 1.0...2.4)
@@ -52,13 +52,13 @@ enum CityGroundArt {
 
     static func waterTexture() -> UIImage {
         cached("water") { size in
-            UIColor(red: 0.33, green: 0.60, blue: 0.78, alpha: 1).setFill()
+            UIColor(red: 0.18, green: 0.58, blue: 0.78, alpha: 1).setFill()
             UIRectFill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 11)
             // Horizontal glints suggest ripples without any animation cost.
             for _ in 0..<70 {
                 let alpha = 0.05 + generator.unit() * 0.10
-                UIColor(red: 0.55, green: 0.78, blue: 0.90, alpha: alpha).setFill()
+                UIColor(red: 0.63, green: 0.88, blue: 0.94, alpha: alpha).setFill()
                 let width = 6 + generator.unit() * 26
                 let rect = CGRect(
                     x: generator.unit() * size.width,
@@ -70,7 +70,7 @@ enum CityGroundArt {
             }
             for _ in 0..<26 {
                 let alpha = 0.05 + generator.unit() * 0.07
-                UIColor(red: 0.20, green: 0.44, blue: 0.64, alpha: alpha).setFill()
+                UIColor(red: 0.08, green: 0.37, blue: 0.62, alpha: alpha).setFill()
                 let width = 8 + generator.unit() * 30
                 let rect = CGRect(
                     x: generator.unit() * size.width,
@@ -85,7 +85,7 @@ enum CityGroundArt {
 
     static func plazaTexture() -> UIImage {
         cached("plaza") { size in
-            UIColor(red: 0.80, green: 0.78, blue: 0.73, alpha: 1).setFill()
+            UIColor(red: 0.84, green: 0.78, blue: 0.65, alpha: 1).setFill()
             UIRectFill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 23)
             for _ in 0..<160 {
@@ -111,7 +111,7 @@ enum CityGroundArt {
 
     static func sidewalkTexture() -> UIImage {
         cached("sidewalk") { size in
-            UIColor(red: 0.76, green: 0.74, blue: 0.68, alpha: 1).setFill()
+            UIColor(red: 0.80, green: 0.76, blue: 0.66, alpha: 1).setFill()
             UIRectFill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 31)
             for _ in 0..<170 {
@@ -144,8 +144,8 @@ enum CityGroundArt {
             ).setFill()
             UIRectFill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: UInt64(brightness * 991) + 7)
-            for _ in 0..<240 {
-                let alpha = 0.05 + generator.unit() * 0.09
+            for _ in 0..<90 {
+                let alpha = 0.035 + generator.unit() * 0.065
                 let tone = brightness + (generator.unit() - 0.45) * 0.16
                 UIColor(red: tone, green: tone + 0.01, blue: tone + 0.02, alpha: alpha).setFill()
                 UIRectFill(CGRect(
@@ -161,7 +161,7 @@ enum CityGroundArt {
     static func gravelTexture() -> UIImage {
         speckled(
             key: "gravel",
-            base: UIColor(red: 0.72, green: 0.66, blue: 0.53, alpha: 1),
+            base: UIColor(red: 0.73, green: 0.63, blue: 0.45, alpha: 1),
             speckles: [
                 (UIColor(red: 0.79, green: 0.74, blue: 0.62, alpha: 0.6), 250, 1.2...2.6),
                 (UIColor(red: 0.62, green: 0.56, blue: 0.44, alpha: 0.55), 230, 1.2...2.6)

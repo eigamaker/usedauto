@@ -18,6 +18,7 @@ import UIKit
 final class CityBuildingFactory {
     static let nearDetailNodeName = "near-details"
     static let propDetailNodeName = "prop-details"
+    static let vehicleScale: Float = 2
 
     private let cellSize: Float
     private var assetTemplates: [String: SCNNode] = [:]
@@ -31,53 +32,54 @@ final class CityBuildingFactory {
 
     // MARK: - Palette
 
-    /// One curated palette. Ambient districts stay muted and harmonious;
-    /// player facilities carry the teal brand so owned buildings pop.
+    /// A saturated, toy-like palette shared by every district. Player-owned
+    /// facilities use royal blue, while warm walls and orange accents keep the
+    /// whole set readable against yellow-green terrain.
     enum Paint: String {
         case cream, warmWhite, sand, terracottaWall, brick, sage, slateWall
         case graphite, concrete, glassTower
         case roofTerracotta, roofBrickRed, roofSlate, roofCharcoal, roofSage
         case roofNavy, roofSand, roofTeal
         case glazing, glazingSky, doorWood, metalLight, metalDark
-        case signWhite, brandTeal, brandOrange, asphalt, lotConcrete, lawn
+        case signWhite, brandBlue, brandOrange, asphalt, lotConcrete, lawn
         case poolWater, gravel, safetyYellow, brandRed, treeGreen
 
         var color: UIColor {
             switch self {
-            case .cream: UIColor(red: 0.93, green: 0.89, blue: 0.80, alpha: 1)
-            case .warmWhite: UIColor(red: 0.96, green: 0.94, blue: 0.88, alpha: 1)
-            case .sand: UIColor(red: 0.88, green: 0.81, blue: 0.66, alpha: 1)
-            case .terracottaWall: UIColor(red: 0.86, green: 0.67, blue: 0.53, alpha: 1)
-            case .brick: UIColor(red: 0.72, green: 0.46, blue: 0.37, alpha: 1)
-            case .sage: UIColor(red: 0.73, green: 0.77, blue: 0.63, alpha: 1)
-            case .slateWall: UIColor(red: 0.64, green: 0.71, blue: 0.76, alpha: 1)
-            case .graphite: UIColor(red: 0.43, green: 0.46, blue: 0.51, alpha: 1)
-            case .concrete: UIColor(red: 0.79, green: 0.78, blue: 0.74, alpha: 1)
-            case .glassTower: UIColor(red: 0.58, green: 0.71, blue: 0.78, alpha: 1)
-            case .roofTerracotta: UIColor(red: 0.79, green: 0.43, blue: 0.31, alpha: 1)
-            case .roofBrickRed: UIColor(red: 0.71, green: 0.35, blue: 0.27, alpha: 1)
-            case .roofSlate: UIColor(red: 0.37, green: 0.43, blue: 0.51, alpha: 1)
-            case .roofCharcoal: UIColor(red: 0.31, green: 0.33, blue: 0.37, alpha: 1)
-            case .roofSage: UIColor(red: 0.47, green: 0.57, blue: 0.42, alpha: 1)
-            case .roofNavy: UIColor(red: 0.29, green: 0.39, blue: 0.53, alpha: 1)
-            case .roofSand: UIColor(red: 0.83, green: 0.73, blue: 0.53, alpha: 1)
-            case .roofTeal: UIColor(red: 0.13, green: 0.60, blue: 0.58, alpha: 1)
-            case .glazing: UIColor(red: 0.26, green: 0.34, blue: 0.43, alpha: 1)
-            case .glazingSky: UIColor(red: 0.64, green: 0.79, blue: 0.87, alpha: 1)
-            case .doorWood: UIColor(red: 0.49, green: 0.35, blue: 0.25, alpha: 1)
-            case .metalLight: UIColor(red: 0.86, green: 0.88, blue: 0.89, alpha: 1)
-            case .metalDark: UIColor(red: 0.52, green: 0.55, blue: 0.58, alpha: 1)
-            case .signWhite: UIColor(red: 0.97, green: 0.96, blue: 0.92, alpha: 1)
-            case .brandTeal: UIColor(red: 0.11, green: 0.62, blue: 0.60, alpha: 1)
-            case .brandOrange: UIColor(red: 0.92, green: 0.53, blue: 0.22, alpha: 1)
-            case .brandRed: UIColor(red: 0.80, green: 0.28, blue: 0.22, alpha: 1)
-            case .asphalt: UIColor(red: 0.36, green: 0.38, blue: 0.41, alpha: 1)
-            case .lotConcrete: UIColor(red: 0.71, green: 0.70, blue: 0.66, alpha: 1)
-            case .lawn: UIColor(red: 0.52, green: 0.67, blue: 0.38, alpha: 1)
-            case .poolWater: UIColor(red: 0.42, green: 0.72, blue: 0.83, alpha: 1)
-            case .gravel: UIColor(red: 0.70, green: 0.66, blue: 0.57, alpha: 1)
-            case .safetyYellow: UIColor(red: 0.94, green: 0.77, blue: 0.28, alpha: 1)
-            case .treeGreen: UIColor(red: 0.26, green: 0.47, blue: 0.24, alpha: 1)
+            case .cream: UIColor(red: 0.96, green: 0.86, blue: 0.66, alpha: 1)
+            case .warmWhite: UIColor(red: 0.98, green: 0.93, blue: 0.80, alpha: 1)
+            case .sand: UIColor(red: 0.91, green: 0.76, blue: 0.50, alpha: 1)
+            case .terracottaWall: UIColor(red: 0.91, green: 0.57, blue: 0.37, alpha: 1)
+            case .brick: UIColor(red: 0.72, green: 0.30, blue: 0.22, alpha: 1)
+            case .sage: UIColor(red: 0.70, green: 0.78, blue: 0.49, alpha: 1)
+            case .slateWall: UIColor(red: 0.56, green: 0.69, blue: 0.76, alpha: 1)
+            case .graphite: UIColor(red: 0.26, green: 0.29, blue: 0.32, alpha: 1)
+            case .concrete: UIColor(red: 0.78, green: 0.73, blue: 0.63, alpha: 1)
+            case .glassTower: UIColor(red: 0.30, green: 0.61, blue: 0.76, alpha: 1)
+            case .roofTerracotta: UIColor(red: 0.91, green: 0.38, blue: 0.18, alpha: 1)
+            case .roofBrickRed: UIColor(red: 0.76, green: 0.25, blue: 0.17, alpha: 1)
+            case .roofSlate: UIColor(red: 0.25, green: 0.34, blue: 0.49, alpha: 1)
+            case .roofCharcoal: UIColor(red: 0.20, green: 0.23, blue: 0.27, alpha: 1)
+            case .roofSage: UIColor(red: 0.30, green: 0.50, blue: 0.29, alpha: 1)
+            case .roofNavy: UIColor(red: 0.10, green: 0.30, blue: 0.58, alpha: 1)
+            case .roofSand: UIColor(red: 0.88, green: 0.63, blue: 0.27, alpha: 1)
+            case .roofTeal: UIColor(red: 0.06, green: 0.55, blue: 0.57, alpha: 1)
+            case .glazing: UIColor(red: 0.16, green: 0.28, blue: 0.38, alpha: 1)
+            case .glazingSky: UIColor(red: 0.34, green: 0.67, blue: 0.82, alpha: 1)
+            case .doorWood: UIColor(red: 0.48, green: 0.27, blue: 0.14, alpha: 1)
+            case .metalLight: UIColor(red: 0.86, green: 0.84, blue: 0.78, alpha: 1)
+            case .metalDark: UIColor(red: 0.39, green: 0.41, blue: 0.40, alpha: 1)
+            case .signWhite: UIColor(red: 1.00, green: 0.95, blue: 0.82, alpha: 1)
+            case .brandBlue: UIColor(red: 0.08, green: 0.38, blue: 0.72, alpha: 1)
+            case .brandOrange: UIColor(red: 1.00, green: 0.49, blue: 0.10, alpha: 1)
+            case .brandRed: UIColor(red: 0.87, green: 0.20, blue: 0.13, alpha: 1)
+            case .asphalt: UIColor(red: 0.27, green: 0.28, blue: 0.29, alpha: 1)
+            case .lotConcrete: UIColor(red: 0.70, green: 0.66, blue: 0.57, alpha: 1)
+            case .lawn: UIColor(red: 0.51, green: 0.68, blue: 0.22, alpha: 1)
+            case .poolWater: UIColor(red: 0.18, green: 0.67, blue: 0.86, alpha: 1)
+            case .gravel: UIColor(red: 0.69, green: 0.59, blue: 0.43, alpha: 1)
+            case .safetyYellow: UIColor(red: 1.00, green: 0.72, blue: 0.10, alpha: 1)
+            case .treeGreen: UIColor(red: 0.24, green: 0.51, blue: 0.14, alpha: 1)
             }
         }
     }
@@ -94,14 +96,11 @@ final class CityBuildingFactory {
         let key = "\(id.rawValue)|\(facing.rawValue)|\(Int((height * 10).rounded()))"
         if let template = assetTemplates[key] { return template.clone() }
 
-        // Orthographic 2.5D flattens vertical scale, so buildings carry a
-        // per-category height exaggeration. The visual height still leaves
-        // prop headroom inside the selection volume, whose cap is tighter
-        // for player facilities than for ambient buildings.
-        let headroomBudget = definition.isPlayerFacility
-            ? definition.nominalHeight * 1.25
-            : definition.nominalHeight * 1.25 + 7
-        let visualHeight = min(headroomBudget, height * Self.heightExaggeration(definition.category))
+        // Orthographic 2.5D strongly flattens vertical scale. Keep the catalog
+        // and renderer on the same explicit exaggeration policy so every
+        // building is at least twice its former rendered height, with the
+        // overall city close to three times taller.
+        let visualHeight = height * CityAssetScale.heightMultiplier(for: definition.category)
         let footprint = definition.footprint
         let context = BuildContext(
             width: Float(footprint.width) * cellSize,
@@ -116,6 +115,7 @@ final class CityBuildingFactory {
         props.name = Self.propDetailNodeName
         let parts = AssetParts(root: built, near: near, props: props)
 
+        addFootprintPlinth(to: built, context: context, category: definition.category)
         build(id: id, context: context, into: parts)
         built.addChildNode(near)
         built.addChildNode(props)
@@ -156,19 +156,6 @@ final class CityBuildingFactory {
         return node.clone()
     }
 
-    private static func heightExaggeration(_ category: CityAssetCategory) -> Float {
-        switch category {
-        case .generalResidential: 2.4
-        case .luxuryResidential: 2.2
-        case .commercial: 2.0
-        case .industrial: 1.9
-        case .downtown: 1.5
-        case .highway: 1.9
-        case .parking: 1.0
-        case .playerFacility: 2.0
-        }
-    }
-
     private static func rotation(
         for facing: CardinalDirection,
         from front: CardinalDirection
@@ -202,6 +189,42 @@ final class CityBuildingFactory {
         let props: SCNNode
     }
 
+    /// A thin exact-size base makes the grid contract visible. Its outer edge
+    /// follows the authored footprint after rotation, while all decorative
+    /// geometry remains slightly inset from it.
+    private func addFootprintPlinth(
+        to root: SCNNode,
+        context: BuildContext,
+        category: CityAssetCategory
+    ) {
+        let surface: Paint = switch category {
+        case .generalResidential, .luxuryResidential: .lawn
+        case .commercial, .highway, .parking, .playerFacility: .asphalt
+        case .industrial, .downtown: .lotConcrete
+        }
+        let edge = SCNNode(geometry: box(
+            width: context.width,
+            height: 0.22,
+            depth: context.depth,
+            chamfer: 0.55,
+            paint: .concrete
+        ))
+        edge.name = "footprint-edge"
+        edge.position.y = 0.11
+        root.addChildNode(edge)
+
+        let top = SCNNode(geometry: box(
+            width: max(0.1, context.width - 1.0),
+            height: 0.10,
+            depth: max(0.1, context.depth - 1.0),
+            chamfer: 0.40,
+            paint: surface
+        ))
+        top.name = "footprint-surface"
+        top.position.y = 0.25
+        root.addChildNode(top)
+    }
+
     private func build(id: CityAssetID, context: BuildContext, into parts: AssetParts) {
         switch id {
         case .residentialCottage: buildCottageBlock(context, parts, twin: false)
@@ -219,6 +242,7 @@ final class CityBuildingFactory {
         case .commercialRestaurant: buildRestaurant(context, parts)
         case .commercialShopping: buildShopping(context, parts)
         case .commercialRoadside: buildRoadsideRetail(context, parts)
+        case .commercialRegionalMall: buildShopping(context, parts)
         case .industrialFactory: buildFactory(context, parts)
         case .industrialWarehouse: buildWarehouse(context, parts, loading: false)
         case .industrialLoadingWarehouse: buildWarehouse(context, parts, loading: true)
@@ -229,6 +253,9 @@ final class CityBuildingFactory {
         case .downtownApartment: buildTower(context, parts, kind: .apartment)
         case .downtownParkingStructure: buildParkingStructure(context, parts)
         case .downtownCornerBlock: buildTower(context, parts, kind: .cornerBlock)
+        case .downtownOfficePlaza: buildTower(context, parts, kind: .office)
+        case .downtownTwinTower: buildTower(context, parts, kind: .cornerBlock)
+        case .downtownResidentialTower: buildTower(context, parts, kind: .apartment)
         case .highwayLogistics: buildLogistics(context, parts)
         case .highwayBigBox: buildBigBox(context, parts)
         case .highwayMotorHotel: buildMotorHotel(context, parts)
@@ -312,7 +339,10 @@ final class CityBuildingFactory {
             (c.width * 0.24, -c.depth * 0.20, c.width * 0.36, c.depth * 0.30, c.height * 0.58, Paint.sand)
         ] {
             addGroundShadow(to: p, x: dx, z: dz, width: w + 2, depth: d + 2)
-            let body = SCNNode(geometry: box(width: w, height: h, depth: d, chamfer: 0.2, paint: wall))
+            let body = SCNNode(geometry: facadeBox(
+                width: w, height: h, depth: d, chamfer: 0.2,
+                wall: wall, style: .punched(floors: 2, columns: 4, balconies: false)
+            ))
             body.position = SCNVector3(dx, h / 2, dz)
             p.root.addChildNode(body)
 
@@ -471,7 +501,7 @@ final class CityBuildingFactory {
         addGroundShadow(to: p, x: -c.width * 0.14, z: -c.depth * 0.20, width: c.width * 0.56 + 4, depth: c.depth * 0.38 + 4)
         let store = SCNNode(geometry: facadeBox(
             width: c.width * 0.56, height: 4.4, depth: c.depth * 0.38, chamfer: 0.2,
-            wall: .warmWhite, style: .shopfront(fascia: .brandTeal)
+            wall: .warmWhite, style: .shopfront(fascia: .brandBlue)
         ))
         store.position = SCNVector3(-c.width * 0.14, 2.2, -c.depth * 0.20)
         p.root.addChildNode(store)
@@ -521,7 +551,7 @@ final class CityBuildingFactory {
         wing.position = SCNVector3(c.width * 0.30, c.height * 0.20, c.depth * 0.16)
         p.root.addChildNode(wing)
 
-        let arcade = SCNNode(geometry: box(width: c.width * 0.78, height: 0.7, depth: c.depth * 0.14, chamfer: 0.2, paint: .brandTeal))
+        let arcade = SCNNode(geometry: box(width: c.width * 0.78, height: 0.7, depth: c.depth * 0.14, chamfer: 0.2, paint: .brandBlue))
         arcade.position = SCNVector3(0, 3.5, c.depth * 0.06)
         p.root.addChildNode(arcade)
         let roofSign = SCNNode(geometry: box(width: c.width * 0.30, height: 2.6, depth: 0.7, chamfer: 0.2, paint: .signWhite))
@@ -678,7 +708,7 @@ final class CityBuildingFactory {
         let podium = SCNNode(geometry: facadeBox(
             width: podiumWidth, height: podiumHeight, depth: podiumDepth, chamfer: 0.25,
             wall: kind == .apartment ? .cream : .concrete,
-            style: .shopfront(fascia: kind == .mixedUse ? .brandTeal : .graphite)
+            style: .shopfront(fascia: kind == .mixedUse ? .brandBlue : .graphite)
         ))
         podium.position = SCNVector3(0, podiumHeight / 2, c.depth * 0.05)
         p.root.addChildNode(podium)
@@ -753,7 +783,7 @@ final class CityBuildingFactory {
         deck.position = SCNVector3(0, height / 2, -c.depth * 0.04)
         p.root.addChildNode(deck)
 
-        let core = SCNNode(geometry: box(width: c.width * 0.16, height: height + 2.0, depth: c.depth * 0.18, chamfer: 0.2, paint: .brandTeal))
+        let core = SCNNode(geometry: box(width: c.width * 0.16, height: height + 2.0, depth: c.depth * 0.18, chamfer: 0.2, paint: .brandBlue))
         core.position = SCNVector3(c.width * 0.30, (height + 2.0) / 2, c.depth * 0.16)
         p.root.addChildNode(core)
 
@@ -772,7 +802,7 @@ final class CityBuildingFactory {
         ))
         hall.position = SCNVector3(0, hallHeight / 2, -c.depth * 0.18)
         p.root.addChildNode(hall)
-        let band = SCNNode(geometry: box(width: c.width * 0.80 + 1.0, height: 1.4, depth: c.depth * 0.44 + 1.0, chamfer: 0.2, paint: .brandTeal))
+        let band = SCNNode(geometry: box(width: c.width * 0.80 + 1.0, height: 1.4, depth: c.depth * 0.44 + 1.0, chamfer: 0.2, paint: .brandBlue))
         band.position = SCNVector3(0, hallHeight + 0.7, -c.depth * 0.18)
         p.root.addChildNode(band)
 
@@ -867,17 +897,45 @@ final class CityBuildingFactory {
         addGroundShadow(to: p, x: -c.width * 0.10, z: -c.depth * 0.18, width: showroomWidth + 4, depth: showroomDepth + 4)
         let showroom = SCNNode(geometry: facadeBox(
             width: showroomWidth, height: showroomHeight, depth: showroomDepth, chamfer: 0.3,
-            wall: .warmWhite, style: .curtain(floors: floors + 1)
+            wall: .warmWhite, style: tier == 2 ? .curtain(floors: floors + 1) : .shopfront(fascia: .brandBlue)
         ))
         showroom.position = SCNVector3(-c.width * 0.10, showroomHeight / 2, -c.depth * 0.18)
         p.root.addChildNode(showroom)
 
         let fascia = SCNNode(geometry: box(
             width: showroomWidth + 1.4, height: 1.7, depth: showroomDepth + 1.4,
-            chamfer: 0.3, paint: .brandTeal
+            chamfer: 0.3, paint: .brandBlue
         ))
         fascia.position = SCNVector3(-c.width * 0.10, showroomHeight + 0.85, -c.depth * 0.18)
         p.root.addChildNode(fascia)
+
+        let roofDeck = SCNNode(geometry: box(
+            width: showroomWidth * 0.82,
+            height: 0.42,
+            depth: showroomDepth * 0.76,
+            chamfer: 0.18,
+            paint: .roofCharcoal
+        ))
+        roofDeck.position = SCNVector3(
+            -c.width * 0.10,
+            showroomHeight + 1.78,
+            -c.depth * 0.18
+        )
+        p.near.addChildNode(roofDeck)
+
+        let entrance = SCNNode(geometry: box(
+            width: max(3.6, showroomWidth * 0.22),
+            height: min(3.8, showroomHeight * 0.54),
+            depth: 2.0,
+            chamfer: 0.28,
+            paint: .brandOrange
+        ))
+        entrance.position = SCNVector3(
+            -c.width * 0.10,
+            min(3.8, showroomHeight * 0.54) / 2,
+            -c.depth * 0.18 + showroomDepth / 2 + 0.72
+        )
+        p.near.addChildNode(entrance)
 
         if tier >= 1 {
             let service = SCNNode(geometry: facadeBox(
@@ -909,7 +967,7 @@ final class CityBuildingFactory {
         for index in 0..<(tier + 2) {
             addFlag(to: p.near, x: -c.width * 0.38 + Float(index) * c.width * 0.16, z: c.depth * 0.42)
         }
-        addPylonSign(to: p, x: c.width * 0.40, z: c.depth * 0.38, height: c.height * 0.92, brand: .brandTeal)
+        addPylonSign(to: p, x: c.width * 0.40, z: c.depth * 0.38, height: c.height * 0.92, brand: .brandBlue)
     }
 
     private func buildDisplayParking(_ c: BuildContext, _ p: AssetParts) {
@@ -917,7 +975,7 @@ final class CityBuildingFactory {
         lot.position = SCNVector3(0, 0.10, 0)
         p.root.addChildNode(lot)
 
-        let banner = SCNNode(geometry: box(width: c.width * 0.7, height: 1.1, depth: 0.3, chamfer: 0.1, paint: .brandTeal))
+        let banner = SCNNode(geometry: box(width: c.width * 0.7, height: 1.1, depth: 0.3, chamfer: 0.1, paint: .brandBlue))
         banner.position = SCNVector3(0, 1.5, -c.depth * 0.42)
         p.near.addChildNode(banner)
 
@@ -949,7 +1007,7 @@ final class CityBuildingFactory {
         roofCap.position = SCNVector3(0, hallHeight, -c.depth * 0.14)
         p.root.addChildNode(roofCap)
 
-        let band = SCNNode(geometry: box(width: c.width * 0.72, height: 1.0, depth: 0.5, chamfer: 0.15, paint: .brandTeal))
+        let band = SCNNode(geometry: box(width: c.width * 0.72, height: 1.0, depth: 0.5, chamfer: 0.15, paint: .brandBlue))
         band.position = SCNVector3(0, hallHeight * 0.78, c.depth * 0.10)
         p.near.addChildNode(band)
 
@@ -973,7 +1031,7 @@ final class CityBuildingFactory {
         roofBand.position = SCNVector3(0, tunnelHeight + 0.45, -c.depth * 0.10)
         p.root.addChildNode(roofBand)
 
-        let sign = SCNNode(geometry: box(width: 1.6, height: 2.6, depth: 0.5, chamfer: 0.2, paint: .brandTeal))
+        let sign = SCNNode(geometry: box(width: 1.6, height: 2.6, depth: 0.5, chamfer: 0.2, paint: .brandBlue))
         sign.position = SCNVector3(-c.width * 0.30, 1.3, c.depth * 0.36)
         p.near.addChildNode(sign)
         addCar(to: p.props, x: c.width * 0.10, z: c.depth * 0.32, paint: .brandRed, rotated: false)
@@ -984,7 +1042,7 @@ final class CityBuildingFactory {
         yard.position = SCNVector3(0, 0.12, 0)
         p.root.addChildNode(yard)
 
-        let office = SCNNode(geometry: box(width: c.width * 0.22, height: 3.2, depth: c.depth * 0.14, chamfer: 0.2, paint: .brandTeal))
+        let office = SCNNode(geometry: box(width: c.width * 0.22, height: 3.2, depth: c.depth * 0.14, chamfer: 0.2, paint: .brandBlue))
         office.position = SCNVector3(-c.width * 0.32, 1.8, c.depth * 0.36)
         p.root.addChildNode(office)
 
@@ -1012,7 +1070,7 @@ final class CityBuildingFactory {
         body.position = SCNVector3(0, height / 2, -c.depth * 0.04)
         p.root.addChildNode(body)
 
-        let entrance = SCNNode(geometry: box(width: c.width * 0.30, height: 3.0, depth: c.depth * 0.14, chamfer: 0.2, paint: .brandTeal))
+        let entrance = SCNNode(geometry: box(width: c.width * 0.30, height: 3.0, depth: c.depth * 0.14, chamfer: 0.2, paint: .brandBlue))
         entrance.position = SCNVector3(0, 1.5, c.depth * 0.32)
         p.root.addChildNode(entrance)
         let crown = SCNNode(geometry: box(width: c.width * 0.5, height: 1.0, depth: c.depth * 0.4, chamfer: 0.2, paint: .graphite))
@@ -1029,7 +1087,7 @@ final class CityBuildingFactory {
         ))
         hall.position = SCNVector3(0, hallHeight / 2, -c.depth * 0.12)
         p.root.addChildNode(hall)
-        let band = SCNNode(geometry: box(width: c.width * 0.76 + 1.0, height: 1.2, depth: c.depth * 0.52 + 1.0, chamfer: 0.2, paint: .brandTeal))
+        let band = SCNNode(geometry: box(width: c.width * 0.76 + 1.0, height: 1.2, depth: c.depth * 0.52 + 1.0, chamfer: 0.2, paint: .brandBlue))
         band.position = SCNVector3(0, hallHeight + 0.6, -c.depth * 0.12)
         p.root.addChildNode(band)
 
@@ -1070,7 +1128,7 @@ final class CityBuildingFactory {
         ))
         hall.position = SCNVector3(0, hallHeight / 2, -c.depth * 0.20)
         p.root.addChildNode(hall)
-        let band = SCNNode(geometry: box(width: c.width * 0.82 + 1.2, height: 1.5, depth: c.depth * 0.42 + 1.2, chamfer: 0.2, paint: .brandTeal))
+        let band = SCNNode(geometry: box(width: c.width * 0.82 + 1.2, height: 1.5, depth: c.depth * 0.42 + 1.2, chamfer: 0.2, paint: .brandBlue))
         band.position = SCNVector3(0, hallHeight + 0.75, -c.depth * 0.20)
         p.root.addChildNode(band)
 
@@ -1084,7 +1142,7 @@ final class CityBuildingFactory {
         let podiumHeight = c.height * 0.14
         let podium = SCNNode(geometry: facadeBox(
             width: c.width * 0.84, height: podiumHeight, depth: c.depth * 0.64, chamfer: 0.3,
-            wall: .warmWhite, style: .shopfront(fascia: .brandTeal)
+            wall: .warmWhite, style: .shopfront(fascia: .brandBlue)
         ))
         podium.position = SCNVector3(0, podiumHeight / 2, c.depth * 0.04)
         p.root.addChildNode(podium)
@@ -1098,7 +1156,7 @@ final class CityBuildingFactory {
         tower.position = SCNVector3(-c.width * 0.08, podiumHeight + towerHeight / 2, -c.depth * 0.05)
         p.root.addChildNode(tower)
 
-        let crown = SCNNode(geometry: box(width: c.width * 0.34, height: 1.6, depth: c.depth * 0.30, chamfer: 0.25, paint: .brandTeal))
+        let crown = SCNNode(geometry: box(width: c.width * 0.34, height: 1.6, depth: c.depth * 0.30, chamfer: 0.25, paint: .brandBlue))
         crown.position = SCNVector3(-c.width * 0.08, podiumHeight + towerHeight + 0.8, -c.depth * 0.05)
         p.near.addChildNode(crown)
 
@@ -1155,7 +1213,7 @@ final class CityBuildingFactory {
             addPlate(.asphalt)
         case .playerFacility:
             addPlate(.asphalt)
-            let welcome = SCNNode(geometry: box(width: width * 0.24, height: 0.06, depth: depth * 0.10, chamfer: 0.1, paint: .brandTeal))
+            let welcome = SCNNode(geometry: box(width: width * 0.24, height: 0.06, depth: depth * 0.10, chamfer: 0.1, paint: .brandBlue))
             welcome.position = SCNVector3(0, plateHeight + 0.03, plateDepth / 2 - depth * 0.05)
             near.addChildNode(welcome)
         }
@@ -1278,7 +1336,7 @@ final class CityBuildingFactory {
         let pole = SCNNode(geometry: cylinder(radius: 0.10, height: 5.4, paint: .metalLight))
         pole.position = SCNVector3(x, 2.7, z)
         parent.addChildNode(pole)
-        let flag = SCNNode(geometry: box(width: 1.7, height: 1.1, depth: 0.08, chamfer: 0, paint: .brandTeal))
+        let flag = SCNNode(geometry: box(width: 1.7, height: 1.1, depth: 0.08, chamfer: 0, paint: .brandBlue))
         flag.position = SCNVector3(x + 0.9, 4.7, z)
         parent.addChildNode(flag)
     }
@@ -1315,12 +1373,25 @@ final class CityBuildingFactory {
 
     private func addCar(to parent: SCNNode, x: Float, z: Float, paint: Paint, rotated: Bool) {
         let car = SCNNode()
-        let body = SCNNode(geometry: box(width: 5.2, height: 1.5, depth: 2.4, chamfer: 0.45, paint: paint))
-        body.position.y = 1.0
+        car.name = "vehicle:car"
+        let body = SCNNode(geometry: box(width: 6.0, height: 1.65, depth: 2.8, chamfer: 0.58, paint: paint))
+        body.position.y = 1.15
         car.addChildNode(body)
-        let cabin = SCNNode(geometry: box(width: 2.9, height: 1.1, depth: 2.15, chamfer: 0.42, paint: .glazing))
-        cabin.position = SCNVector3(-0.25, 2.05, 0)
+        let cabin = SCNNode(geometry: box(width: 3.2, height: 1.25, depth: 2.4, chamfer: 0.50, paint: .glazing))
+        cabin.position = SCNVector3(-0.30, 2.30, 0)
         car.addChildNode(cabin)
+        for zOffset in [-1.32 as Float, 1.32] {
+            let wheels = SCNNode(geometry: box(
+                width: 4.5,
+                height: 0.72,
+                depth: 0.34,
+                chamfer: 0.12,
+                paint: .graphite
+            ))
+            wheels.position = SCNVector3(0, 0.58, zOffset)
+            car.addChildNode(wheels)
+        }
+        car.scale = SCNVector3(Self.vehicleScale, Self.vehicleScale, Self.vehicleScale)
         car.position = SCNVector3(x, 0, z)
         if rotated { car.eulerAngles.y = .pi / 2 }
         parent.addChildNode(car)
@@ -1328,19 +1399,23 @@ final class CityBuildingFactory {
 
     private func addTruck(to parent: SCNNode, x: Float, z: Float) {
         let truck = SCNNode()
-        let cab = SCNNode(geometry: box(width: 1.9, height: 2.3, depth: 2.2, chamfer: 0.25, paint: .brandTeal))
+        truck.name = "vehicle:truck"
+        let cab = SCNNode(geometry: box(width: 1.9, height: 2.3, depth: 2.2, chamfer: 0.25, paint: .brandBlue))
         cab.position = SCNVector3(-2.9, 1.35, 0)
         truck.addChildNode(cab)
         let cargo = SCNNode(geometry: box(width: 5.4, height: 2.7, depth: 2.3, chamfer: 0.15, paint: .warmWhite))
         cargo.position = SCNVector3(0.5, 1.55, 0)
         truck.addChildNode(cargo)
+        truck.scale = SCNVector3(Self.vehicleScale, Self.vehicleScale, Self.vehicleScale)
         truck.position = SCNVector3(x, 0, z)
         parent.addChildNode(truck)
     }
 
     private func addTrailer(to parent: SCNNode, x: Float, z: Float) {
         let trailer = SCNNode(geometry: box(width: 3.4, height: 2.5, depth: 2.2, chamfer: 0.12, paint: .metalLight))
-        trailer.position = SCNVector3(x, 1.45, z)
+        trailer.name = "vehicle:trailer"
+        trailer.position = SCNVector3(x, 2.9, z)
+        trailer.scale = SCNVector3(Self.vehicleScale, Self.vehicleScale, Self.vehicleScale)
         parent.addChildNode(trailer)
     }
 
@@ -1357,7 +1432,7 @@ final class CityBuildingFactory {
         let face = SCNMaterial()
         face.diffuse.contents = CityFacadeArt.dealerSignTexture()
         face.lightingModel = .lambert
-        let side = material(.brandTeal)
+        let side = material(.brandBlue)
         geometry.materials = [face, side, face, side, side, side]
         geometries[key] = geometry
         return geometry
@@ -1436,7 +1511,8 @@ final class CityBuildingFactory {
         if let cached = materials[key] { return cached }
         let result = SCNMaterial()
         result.diffuse.contents = CityFacadeArt.texture(style: style, wall: wall.color, wide: wide)
-        result.lightingModel = .lambert
+        result.lightingModel = .blinn
+        result.shininess = 0.12
         result.locksAmbientWithDiffuse = true
         materials[key] = result
         return result
@@ -1471,7 +1547,11 @@ final class CityBuildingFactory {
         default:
             result.diffuse.contents = paint.color
         }
-        result.lightingModel = .lambert
+        result.lightingModel = .blinn
+        result.shininess = switch paint {
+        case .glazing, .glazingSky, .glassTower, .metalLight, .metalDark: 0.42
+        default: 0.10
+        }
         result.locksAmbientWithDiffuse = true
         materials[paint.rawValue] = result
         return result
@@ -1826,19 +1906,23 @@ enum CityFacadeArt {
                 UIRectFill(CGRect(x: 0, y: y + levelHeight * 0.80, width: size.width, height: levelHeight * 0.16))
             }
         case .cottage:
-            let windowWidth = size.width * 0.18
-            let windowHeight = size.height * 0.30
-            for x in [size.width * 0.16, size.width * 0.64] {
-                let window = CGRect(x: x, y: size.height * 0.30, width: windowWidth, height: windowHeight)
-                UIColor(white: 1, alpha: 0.9).setFill()
-                UIRectFill(window.insetBy(dx: -2.5, dy: -2.5))
-                glass.setFill()
-                UIRectFill(window)
-                UIColor(white: 1, alpha: 0.9).setFill()
-                UIRectFill(CGRect(x: window.midX - 1, y: window.minY, width: 2, height: window.height))
-                UIRectFill(CGRect(x: window.minX, y: window.midY - 1, width: window.width, height: 2))
+            // Two clearly separated window rows make even the smallest house
+            // read as a two-storey residence at the default map zoom.
+            let windowWidth = size.width * 0.17
+            let windowHeight = size.height * 0.20
+            for y in [size.height * 0.16, size.height * 0.51] {
+                for x in [size.width * 0.14, size.width * 0.68] {
+                    let window = CGRect(x: x, y: y, width: windowWidth, height: windowHeight)
+                    UIColor(white: 1, alpha: 0.9).setFill()
+                    UIRectFill(window.insetBy(dx: -2.5, dy: -2.5))
+                    glass.setFill()
+                    UIRectFill(window)
+                    UIColor(white: 1, alpha: 0.9).setFill()
+                    UIRectFill(CGRect(x: window.midX - 1, y: window.minY, width: 2, height: window.height))
+                    UIRectFill(CGRect(x: window.minX, y: window.midY - 1, width: window.width, height: 2))
+                }
             }
-            let door = CGRect(x: size.width * 0.44, y: size.height * 0.42, width: size.width * 0.13, height: size.height * 0.52)
+            let door = CGRect(x: size.width * 0.44, y: size.height * 0.66, width: size.width * 0.13, height: size.height * 0.30)
             UIColor(red: 0.49, green: 0.35, blue: 0.25, alpha: 1).setFill()
             UIRectFill(door)
         }

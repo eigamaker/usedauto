@@ -143,7 +143,7 @@ private struct StoreOperatingCard: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.name).font(.headline).foregroundStyle(GameTheme.ink)
-                    Text(store.hasManager ? "\(store.concept.name)・\(store.focus.name)狙い・店長あり" : "\(store.concept.name)・オーナー直営")
+                    Text(store.hasManager ? "\(game.derivedBusinessName(for: store))・\(store.marketPolicy.targetPurpose.name)狙い・店長あり" : "\(game.derivedBusinessName(for: store))・オーナー直営")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -156,7 +156,7 @@ private struct StoreOperatingCard: View {
             }
             HStack(spacing: 10) {
                 Label("在庫 \(store.inventoryCount)/\(store.type.capacity)", systemImage: "car.2.fill")
-                Label("満足度 \(store.satisfaction)", systemImage: "hand.thumbsup.fill")
+                Label("口コミ \(store.reviewRatingText)（\(store.reviewCount)件）", systemImage: "hand.thumbsup.fill")
                 Label("店員 \(store.staff)", systemImage: "person.2.fill")
             }
             .font(.caption.bold()).foregroundStyle(.secondary)
@@ -208,15 +208,74 @@ struct StoreSettingsView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 13))
                         }
                         VStack(alignment: .leading, spacing: 13) {
-                            SectionTitle(title: "オーナーの販売方針", subtitle: "店長がいなくても直接設定できます")
+                            SectionTitle(title: "オーナーの市場方針", subtitle: "保存した変更は次週の来店配分から反映されます")
+                            if store.wrappedValue.pendingMarketPolicy != nil {
+                                Label("次週反映予定の方針があります", systemImage: "clock.arrow.circlepath")
+                                    .font(.caption).foregroundStyle(GameTheme.orange)
+                            }
                             Text("価格水準  \(Int(store.wrappedValue.priceIndex * 100))").font(.subheadline.bold())
                             Slider(value: store.priceIndex, in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
                             HStack { Text("割安・販売量↑").font(.caption).foregroundStyle(.secondary); Spacer(); Text("高値・粗利↑").font(.caption).foregroundStyle(.secondary) }
-                            Picker("狙う客層", selection: store.focus) { ForEach(CustomerFocus.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
-                            Picker("店舗コンセプト", selection: store.concept) { ForEach(StoreConcept.allCases) { Text($0.name).tag($0) } }.pickerStyle(.menu)
-                            Text(store.wrappedValue.concept.summary).font(.caption).foregroundStyle(.secondary)
+                            Picker("狙う用途", selection: store.marketPolicy.targetPurpose) {
+                                ForEach(CustomerPurpose.allCases) { Text($0.name).tag($0) }
+                            }.pickerStyle(.menu)
+                            Text("重点車種（最大3車種）").font(.caption.bold())
+                            ForEach(VehicleCategory.allCases) { category in
+                                Button {
+                                    if store.wrappedValue.marketPolicy.priorityCategories.contains(category) {
+                                        store.wrappedValue.marketPolicy.priorityCategories.remove(category)
+                                    } else if store.wrappedValue.marketPolicy.priorityCategories.count < 3 {
+                                        store.wrappedValue.marketPolicy.priorityCategories.insert(category)
+                                    }
+                                } label: {
+                                    Label(category.name, systemImage: store.wrappedValue.marketPolicy.priorityCategories.contains(category) ? "checkmark.circle.fill" : "circle")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Text("受け入れる車両状態").font(.caption.bold())
+                            ForEach(VehicleConditionBand.allCases) { condition in
+                                Button {
+                                    guard condition != .normal else { return }
+                                    if store.wrappedValue.marketPolicy.acceptedConditions.contains(condition) {
+                                        store.wrappedValue.marketPolicy.acceptedConditions.remove(condition)
+                                    } else {
+                                        store.wrappedValue.marketPolicy.acceptedConditions.insert(condition)
+                                    }
+                                } label: {
+                                    Label(condition.name, systemImage: store.wrappedValue.marketPolicy.acceptedConditions.contains(condition) ? "checkmark.circle.fill" : "circle")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            if !store.wrappedValue.facilities.isEmpty {
+                                Divider()
+                                ForEach(store.wrappedValue.facilities.sorted(by: { $0.name < $1.name })) { facility in
+                                    Label("\(facility.name)・月\(facility.monthlyCost.currency)", systemImage: facility.icon)
+                                        .font(.caption.bold()).foregroundStyle(GameTheme.teal)
+                                }
+                            }
+                            let installable = StoreFacility.allCases.filter {
+                                !store.wrappedValue.facilities.contains($0) && $0.minimumGridCells <= store.wrappedValue.plotIDs.count
+                            }
+                            if !installable.isEmpty {
+                                Divider()
+                                Text("施設を追加（業態と独立）").font(.caption.bold())
+                                ForEach(installable) { facility in
+                                    HStack {
+                                        Label("\(facility.name)・\(facility.installationCost.currency)", systemImage: facility.icon)
+                                            .font(.caption)
+                                        Spacer()
+                                        Button("設置") {
+                                            if game.installFacility(facility, at: storeID) {
+                                                draft = game.stores.first(where: { $0.id == storeID })
+                                            }
+                                        }
+                                        .buttonStyle(.bordered).font(.caption.bold())
+                                        .disabled(game.cash < facility.installationCost)
+                                    }
+                                }
+                            }
                             if store.wrappedValue.hasManager && (store.wrappedValue.delegatePricing || store.wrappedValue.delegateProcurement) {
-                                Label("販売価格または仕入れは店長へ委任中です。週間処理で実行されます。", systemImage: "person.crop.circle.badge.checkmark")
+                                Label("販売または仕入方針は店長へ管理委任中です。社員の自動実行とは独立しています。", systemImage: "person.crop.circle.badge.checkmark")
                                     .font(.caption).foregroundStyle(GameTheme.teal)
                             }
                         }
@@ -229,11 +288,14 @@ struct StoreSettingsView: View {
                             .buttonStyle(.bordered)
                         }
                         VStack(alignment: .leading, spacing: 13) {
-                            SectionTitle(title: "広告と整備", subtitle: "オーナーが直接決める投資配分")
+                            SectionTitle(title: "広告と整備能力", subtitle: "整備担当の工数と設備ベイは独立した制約です")
                             Text("広告予算  \(store.wrappedValue.advertising.currency)/月").font(.subheadline.bold())
                             Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...500, step: 20).tint(GameTheme.orange)
-                            Text("整備スペース配分  \(Int(store.wrappedValue.serviceAllocation * 100))%").font(.subheadline.bold())
-                            Slider(value: store.serviceAllocation, in: 0.2...0.65, step: 0.05).tint(GameTheme.teal)
+                            HStack {
+                                MetricView(title: "週次工数", value: "\(store.wrappedValue.weeklyWorkshopLabor)")
+                                MetricView(title: "ベイ", value: "\(store.wrappedValue.workshopBays)")
+                                MetricView(title: "進行中", value: "\(store.wrappedValue.inventory.filter { $0.isInWorkshop }.count)台")
+                            }
                         }
                         .gameCard()
                         VStack(alignment: .leading, spacing: 13) {
@@ -241,9 +303,10 @@ struct StoreSettingsView: View {
                             HStack {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
-                                MetricView(title: "営業枠", value: "週\((store.wrappedValue.staff + 1) * 7)回")
+                                MetricView(title: "手動枠", value: "週7回")
+                                MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・解雇・研修・昇給は店舗画面の「店員」で行います。店員は自分では判断せず、オーナーの操作または店長への委任が必要です。")
+                            Text("採用・担当配置・4能力研修・自動化方針は店舗画面の「店員」で設定します。販売・仕入担当は1人週7件を自動処理します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

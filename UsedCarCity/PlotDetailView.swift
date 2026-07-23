@@ -135,15 +135,15 @@ private struct LandOpportunityCard: View {
                 MetricView(title: "供給量", value: "週\(game.weeklySellerPool(in: plot.district))台", detail: "地区全体・競合を含む")
             }
             HStack(spacing: 10) {
-                Image(systemName: game.recommendedConcept(for: plot.district).icon)
+                Image(systemName: "slider.horizontal.3")
                     .foregroundStyle(plot.district.color)
                     .frame(width: 34, height: 34)
                     .background(plot.district.color.opacity(0.12))
                     .clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("この立地の勝ち筋").font(.caption).foregroundStyle(.secondary)
-                    Text(game.recommendedConcept(for: plot.district).name).font(.subheadline.bold())
-                    Text(game.recommendedConcept(for: plot.district).summary).font(.caption2).foregroundStyle(.secondary)
+                    Text("業態は自由に選択できます").font(.subheadline.bold())
+                    Text("土地は業態を限定しません。周辺需要・持込車・交通量・競合によって結果が変わります。")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             .padding(10).background(plot.district.color.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 11))
@@ -218,10 +218,11 @@ private struct CompetitorDetailCard: View {
 }
 
 private struct StoreDetailCard: View {
+    @EnvironmentObject private var game: GameEngine
     let store: Store
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: store.name, subtitle: "\(store.type.name)・\(store.concept.name)")
+            SectionTitle(title: store.name, subtitle: "\(store.type.name)・\(game.derivedBusinessName(for: store))")
             HStack {
                 MetricView(title: "販売台数", value: "\(store.lastSales)台")
                 MetricView(title: "売上高", value: store.lastRevenue.currency)
@@ -229,7 +230,7 @@ private struct StoreDetailCard: View {
             }
             HStack {
                 MetricView(title: "在庫", value: "\(store.inventoryCount) / \(store.type.capacity)台")
-                MetricView(title: "顧客満足度", value: "\(store.satisfaction)")
+                MetricView(title: "来店客レビュー", value: store.reviewRatingText, detail: "\(store.reviewCount)件")
                 MetricView(title: "店員", value: "\(store.staff)名")
             }
             if !store.causes.isEmpty {
