@@ -1033,8 +1033,8 @@ final class GridMapTests: XCTestCase {
             plotIDs: [108, 109, 110],
             type: .roadside,
             acquisition: .lease,
-            focus: .business,
-            concept: .business,
+            marketPolicy: StoreMarketPolicy(priorityCategories: [.commercial, .pickup], targetPurpose: .corporate),
+            facilities: [.corporateDesk],
             inventory: []
         )
         let placements = GridStorePlacementAdapter.visualPlacements(for: store, map: map)

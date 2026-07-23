@@ -218,10 +218,11 @@ private struct CompetitorDetailCard: View {
 }
 
 private struct StoreDetailCard: View {
+    @EnvironmentObject private var game: GameEngine
     let store: Store
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: store.name, subtitle: "\(store.type.name)・\(store.concept.name)")
+            SectionTitle(title: store.name, subtitle: "\(store.type.name)・\(game.derivedBusinessName(for: store))")
             HStack {
                 MetricView(title: "販売台数", value: "\(store.lastSales)台")
                 MetricView(title: "売上高", value: store.lastRevenue.currency)

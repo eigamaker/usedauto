@@ -129,7 +129,7 @@ private struct CompetitorsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "競合企業", subtitle: "シェアを奪うと競合が弱体化し、店舗買収の機会が生まれます")
+            SectionTitle(title: "競合企業", subtitle: "実在庫・価格・広告・設備・資金と、利益市場への追随状況")
             ForEach(game.competitors) { competitor in
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 11) {
@@ -141,6 +141,31 @@ private struct CompetitorsCard: View {
                         }
                         Spacer()
                         Text(competitor.category.name).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 5).background(.gray.opacity(0.1)).clipShape(Capsule())
+                    }
+                    let researchStoreID = game.stores.first?.id
+                    let cashRange = game.competitorEstimateRange(value: competitor.cash, storeID: researchStoreID, seed: competitor.name.count)
+                    let inventoryCount = competitor.branches.reduce(0) { $0 + $1.inventoryCount }
+                    let inventoryRange = game.competitorEstimateRange(value: inventoryCount, storeID: researchStoreID, seed: competitor.name.count + 19)
+                    Text("推定現金 \(cashRange.lowerBound.currency)〜\(cashRange.upperBound.currency)・在庫 \(inventoryRange.lowerBound)〜\(inventoryRange.upperBound)台・誤差±\(Int(game.competitorInformationErrorRate(for: researchStoreID) * 100))%")
+                        .font(.caption2.bold()).foregroundStyle(GameTheme.navy)
+                    ForEach(competitor.branches) { branch in
+                        let district = game.plot(id: branch.plotID)?.district ?? .suburb
+                        let categoryText = branch.inventory.filter { $0.count > 0 }.map { "\($0.category.name)/\($0.purpose.name) \($0.count)" }.joined(separator: "・")
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text("\(district.shortName)店｜シェア\(Int(game.competitorMarketShare(competitor, in: district) * 100))%")
+                                Spacer()
+                                Text("価格\(Int(branch.priceIndex * 100))・広告\(branch.advertising.currency)")
+                            }
+                            Text("在庫 \(categoryText.isEmpty ? "なし" : categoryText)｜設備 \(branch.facilities.map(\.name).joined(separator: "・"))")
+                            Text("直近 売上\(branch.lastRevenue.currency)・利益\(branch.lastProfit.currency)")
+                        }
+                        .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    let following = competitor.profitableSegmentWeeks.filter { $0.value >= 4 }.sorted { $0.value > $1.value }
+                    if !following.isEmpty {
+                        Label("追随兆候：\(following.prefix(3).map { "\($0.key.name) \($0.value)週" }.joined(separator: "・"))", systemImage: "eye.trianglebadge.exclamationmark.fill")
+                            .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
                     }
                     if let offer = game.competitorAcquisitionOffers.first(where: { $0.competitorID == competitor.id }),
                        let targetPlot = game.plot(id: offer.plotID) {
@@ -214,7 +239,7 @@ private struct CompetitiveBattleCard: View {
                             .foregroundStyle(.purple).frame(width: 28)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(offer.employee.name).font(.subheadline.bold())
-                            Text("\(game.competitorName(for: offer.competitorID))・営業\(offer.employee.salesSkill) / 査定\(offer.employee.appraisalSkill)")
+                            Text("\(game.competitorName(for: offer.competitorID))・販売\(offer.employee.salesSkill) / 仕入\(offer.employee.procurementSkill)")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
