@@ -47,6 +47,10 @@ final class GameEngine: ObservableObject {
     @Published var financialDistressWeeks = 0
     @Published var companyExpertise = BusinessExpertise()
     @Published var corporateOpportunities: [CorporateOpportunity] = []
+    @Published var segmentMarkets: [MarketSegmentKey: SegmentMarketState] = [:]
+    @Published var segmentTrends: [SegmentTrend] = []
+    @Published private(set) var simulationSeed = 1
+    private var openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord] = [:]
 
     let maxTurns = 480
 
@@ -98,6 +102,10 @@ final class GameEngine: ObservableObject {
         let financialDistressWeeks: Int
         let companyExpertise: BusinessExpertise
         let corporateOpportunities: [CorporateOpportunity]
+        let segmentMarkets: [MarketSegmentKey: SegmentMarketState]
+        let segmentTrends: [SegmentTrend]
+        let simulationSeed: Int
+        let openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord]
     }
 
     private struct RegionalMonthResult {
@@ -134,7 +142,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v36"
+    private static let saveKey = "UsedCarCity.save.v37"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -378,12 +386,21 @@ final class GameEngine: ObservableObject {
         competitors.first(where: { $0.id == competitorID })?.name ?? "競合企業"
     }
 
-    func bestCompetitorSaleOffer(category: VehicleCategory, purpose: CustomerPurpose, district: DistrictKind) -> CompetitorOfferBenchmark? {
+    func bestCompetitorSaleOffer(
+        category: VehicleCategory,
+        purpose: CustomerPurpose,
+        district: DistrictKind,
+        productKind: MarketProductKind = .standard
+    ) -> CompetitorOfferBenchmark? {
         competitors.compactMap { competitor -> CompetitorOfferBenchmark? in
             let candidates = competitor.branches
                 .filter { plot(id: $0.plotID)?.district == district }
                 .flatMap(\.inventory)
-                .filter { $0.category == category && $0.count > 0 }
+                .filter {
+                    $0.category == category
+                        && $0.count > 0
+                        && marketProductMatches(actual: $0.marketProductKind, desired: productKind)
+                }
             guard let bucket = candidates.min(by: {
                 Double($0.averageCost) * $0.averageQuality < Double($1.averageCost) * $1.averageQuality
             }), let branch = competitor.branches.first(where: {
@@ -391,7 +408,7 @@ final class GameEngine: ObservableObject {
             }) else { return nil }
             let purposeFactor = bucket.purpose == purpose ? 1.08 : 1.0
             let price = max(25, Int(Double(bucket.averageCost) * (1.22 + competitor.strength * 0.10) * branch.priceIndex * purposeFactor))
-            return CompetitorOfferBenchmark(competitorID: competitor.id, price: price, quality: bucket.averageQuality, category: category, purpose: bucket.purpose)
+            return CompetitorOfferBenchmark(competitorID: competitor.id, price: price, quality: bucket.averageQuality, category: category, purpose: bucket.purpose, productKind: bucket.marketProductKind)
         }.min(by: { $0.price < $1.price })
     }
 
@@ -521,15 +538,17 @@ final class GameEngine: ObservableObject {
         gameOver = false
     }
 
-    func resetGame() {
-        resetState(removeSave: true)
+    func resetGame(simulationSeed: Int? = nil) {
+        resetState(removeSave: true, simulationSeed: simulationSeed)
     }
 
-    private func resetState(removeSave: Bool) {
+    private func resetState(removeSave: Bool, simulationSeed requestedSeed: Int? = nil) {
         hasStarted = false
         year = 2026; month = 1; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
         stores = []; reports = []; purchaseCases = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; corporateOpportunities = []
+        segmentMarkets = [:]; segmentTrends = []; openSegmentWeek = [:]
+        simulationSeed = requestedSeed ?? Int.random(in: 1...Int.max / 4)
         companyExpertise = BusinessExpertise()
         nationalBrandStrength = 0.48
         gasolinePrice = Self.gasolineBaseline
@@ -597,6 +616,10 @@ final class GameEngine: ObservableObject {
         financialDistressWeeks = saved.financialDistressWeeks
         companyExpertise = saved.companyExpertise
         corporateOpportunities = saved.corporateOpportunities
+        segmentMarkets = saved.segmentMarkets
+        segmentTrends = saved.segmentTrends
+        simulationSeed = saved.simulationSeed
+        openSegmentWeek = saved.openSegmentWeek
         lastReport = reports.first
     }
 
@@ -790,6 +813,23 @@ final class GameEngine: ObservableObject {
         vehicleMarketValue(modelID: modelID, category: category, modelYear: modelYear, mileage: mileage, quality: quality, in: kind, retail: true)
     }
 
+    private func trendProcurementPriceFactor(category: VehicleCategory, district: DistrictKind) -> Double {
+        segmentTrends.reduce(1.0) { result, trend in
+            guard turn >= trend.startTurn + 2,
+                  trend.districts.contains(district),
+                  trend.categories.contains(category) else { return result }
+            let representative = MarketSegmentKey(
+                district: district,
+                category: category,
+                purpose: trend.kind.productKind.customerPurpose,
+                productKind: trend.kind.productKind
+            )
+            let multiplier = trend.multiplier(at: turn)
+            guard trend.affects(representative) else { return result }
+            return max(result, 1 + max(0, multiplier - 1) * 0.18)
+        }
+    }
+
     private func vehicleMarketValue(modelID: String, category: VehicleCategory, modelYear: Int, mileage: Int, quality: Double, in kind: DistrictKind, retail: Bool) -> Int {
         let base: Int
         if let model = VehicleCatalog.entry(id: modelID) {
@@ -815,7 +855,8 @@ final class GameEngine: ObservableObject {
         let qualityFactor = model?.isRareClassic == true
             ? max(0.54, 0.35 + min(0.90, max(0.35, quality)) * 0.90)
             : max(0.64, 0.42 + min(0.94, max(0.40, quality)) * 0.72)
-        return max(retail ? 30 : 22, Int(Double(base) * ageFactor * mileageFactor * qualityFactor))
+        let procurementTrend = retail ? 1.0 : trendProcurementPriceFactor(category: category, district: kind)
+        return max(retail ? 30 : 22, Int(Double(base) * ageFactor * mileageFactor * qualityFactor * procurementTrend))
     }
 
     func catalogPriceTrendPercent(for model: VehicleCatalogEntry, in kind: DistrictKind) -> Int {
@@ -862,6 +903,43 @@ final class GameEngine: ObservableObject {
         return "一般需要"
     }
 
+    func marketProductKind(for batch: InventoryBatch) -> MarketProductKind {
+        MarketProductKind.resolve(productState: batch.productState, isRareClassic: batch.isRareClassic)
+    }
+
+    private func marketProductMatches(actual: MarketProductKind, desired: MarketProductKind) -> Bool {
+        switch desired {
+        case .standard:
+            [.standard, .repaired, .refurbished].contains(actual)
+        case .repaired:
+            [.repaired, .refurbished].contains(actual)
+        case .refurbished:
+            actual == .refurbished
+        case .camper, .workCargo, .outdoor, .collector:
+            actual == desired
+        }
+    }
+
+    func marketSegmentKey(for batch: InventoryBatch, purpose: CustomerPurpose, district: DistrictKind) -> MarketSegmentKey {
+        MarketSegmentKey(
+            district: district,
+            category: batch.category,
+            purpose: purpose,
+            productKind: marketProductKind(for: batch)
+        )
+    }
+
+    func activeTrendMultiplier(for key: MarketSegmentKey, at evaluatedTurn: Int? = nil) -> Double {
+        let targetTurn = evaluatedTurn ?? turn
+        return segmentTrends.reduce(1.0) { result, trend in
+            trend.affects(key) ? max(result, trend.multiplier(at: targetTurn)) : result
+        }
+    }
+
+    private func segmentWillingnessFactor(for key: MarketSegmentKey) -> Double {
+        1 + min(0.12, max(0, activeTrendMultiplier(for: key) - 1) * 0.12)
+    }
+
     func specialtyMarketFactor(for batch: InventoryBatch, in district: DistrictKind) -> Double {
         let productFactor: Double
         switch batch.productState {
@@ -895,6 +973,19 @@ final class GameEngine: ObservableObject {
         case .outdoor: return purpose == .outdoor ? 1.15 : 0.95
         default: return 1.0
         }
+    }
+
+    func productizationMarketValueAddition(for batch: InventoryBatch) -> Int {
+        let recoveryRate: Double = switch batch.productState {
+        case .stock: 0
+        case .serviced: 0.30
+        case .repaired: 0.50
+        case .refurbished: 0.65
+        case .camper: 0.75
+        case .workCargo: 0.60
+        case .outdoor: 0.55
+        }
+        return Int((Double(batch.valueAddedInvestment) * recoveryRate).rounded())
     }
 
     func specialtyCloseAdjustment(for batch: InventoryBatch, purpose: CustomerPurpose, in district: DistrictKind) -> Double {
@@ -1928,8 +2019,11 @@ final class GameEngine: ObservableObject {
     }
 
     func marketForecastErrorRate(for storeID: UUID) -> Double {
-        guard hasMarketResearcher(storeID: storeID) else { return 0.35 }
-        return interpolatedEmployeeEffect(score: marketResearchScore(for: storeID), low: 0.30, high: 0.02)
+        guard hasMarketResearcher(storeID: storeID) else { return 0.20 }
+        let score = marketResearchScore(for: storeID)
+        if score >= 85 { return 0.03 }
+        if score >= 70 { return 0.07 }
+        return 0.12
     }
 
     func competitorInformationErrorRate(for storeID: UUID?) -> Double {
@@ -1945,6 +2039,184 @@ final class GameEngine: ObservableObject {
         let offset = (transactionRoll(seed: turn * 613 + seed) - 0.5) * error
         let center = Double(value) * (1 + offset)
         return max(0, Int((center * (1 - error)).rounded()))...max(0, Int((center * (1 + error)).rounded()))
+    }
+
+    func segmentResearchHorizon(for storeID: UUID) -> Int {
+        guard hasMarketResearcher(storeID: storeID) else { return 0 }
+        let score = marketResearchScore(for: storeID)
+        if score >= 85 { return 6 }
+        if score >= 70 { return 4 }
+        return 2
+    }
+
+    func trendSignal(for productKind: MarketProductKind, storeID: UUID) -> TrendSignal? {
+        guard productKind.isNiche else { return nil }
+        let horizon = segmentResearchHorizon(for: storeID)
+        let matchingActive = segmentTrends.first {
+            $0.kind.productKind == productKind && $0.startTurn <= turn && $0.endTurn > turn
+        }
+        if let matchingActive {
+            return TrendSignal(
+                id: matchingActive.id.uuidString,
+                kind: matchingActive.kind,
+                startRange: matchingActive.startTurn...matchingActive.startTurn,
+                confidenceRange: 100...100,
+                isFalsePositive: false
+            )
+        }
+        guard horizon > 0 else { return nil }
+        if let upcoming = segmentTrends.first(where: {
+            $0.kind.productKind == productKind && $0.startTurn > turn && $0.startTurn <= turn + horizon
+        }) {
+            let score = marketResearchScore(for: storeID)
+            let confidence: ClosedRange<Int> = score >= 85 ? 80...95 : score >= 70 ? 70...90 : 55...75
+            let uncertainty = score >= 85 ? 1 : score >= 70 ? 2 : 3
+            return TrendSignal(
+                id: upcoming.id.uuidString,
+                kind: upcoming.kind,
+                startRange: max(turn + 1, upcoming.startTurn - uncertainty)...upcoming.startTurn + uncertainty,
+                confidenceRange: confidence,
+                isFalsePositive: false
+            )
+        }
+        let falseRoll = transactionRoll(seed: simulationSeed &+ turn &* 9_007 &+ productKind.rawValue.count * 131)
+        guard falseRoll < 0.15 else { return nil }
+        let kind = SegmentTrendKind.allCases.first(where: { $0.productKind == productKind }) ?? .valueRebuild
+        return TrendSignal(
+            id: "false-\(turn)-\(productKind.rawValue)",
+            kind: kind,
+            startRange: turn + 1...turn + max(2, horizon),
+            confidenceRange: 35...60,
+            isFalsePositive: true
+        )
+    }
+
+    private func segmentMarginRate(for kind: MarketProductKind) -> Double {
+        switch kind {
+        case .standard: 0.10
+        case .repaired: 0.18
+        case .refurbished: 0.25
+        case .camper: 0.30
+        case .workCargo: 0.22
+        case .outdoor: 0.22
+        case .collector: 0.35
+        }
+    }
+
+    private func segmentCapitalMultiplier(for kind: MarketProductKind) -> Double {
+        switch kind {
+        case .standard: 8.0
+        case .repaired: 1.2
+        case .workCargo: 1.6
+        case .outdoor: 1.5
+        case .refurbished: 2.4
+        case .camper: 3.8
+        case .collector: 4.2
+        }
+    }
+
+    private func opportunityArchetype(for key: MarketSegmentKey) -> (name: String, tier: String) {
+        switch key.productKind {
+        case .standard: ("資本型総合量販", "後半")
+        case .repaired: ("故障車再生", "序盤向け")
+        case .workCargo: ("職人・配送仕様", "序盤向け")
+        case .outdoor: ("アウトドア仕様", "序盤向け")
+        case .camper: ("本格キャンピング", "資本型")
+        case .refurbished where key.category == .imported: ("高級輸入車再生", "資本型")
+        case .refurbished: ("完全再生", "中盤")
+        case .collector: ("旧車・コレクター", "資本型")
+        }
+    }
+
+    func segmentOpportunityReports(storeID: UUID, district: DistrictKind) -> [SegmentOpportunityReport] {
+        guard let store = stores.first(where: { $0.id == storeID }) else { return [] }
+        let fourWeekPool = max(1, weeklyBuyerPool(in: district) * 4)
+        let error = marketForecastErrorRate(for: storeID)
+        var reports: [SegmentOpportunityReport] = []
+        for productKind in MarketProductKind.allCases {
+            for category in nicheCategories(for: productKind) {
+                let purpose = productKind == .standard
+                    ? defaultCustomerPurpose(for: category, seed: simulationSeed + categoryIndex(category) * 31)
+                    : productKind.customerPurpose
+                let key = MarketSegmentKey(district: district, category: category, purpose: purpose, productKind: productKind)
+                let share = productKind == .standard
+                    ? max(0.72, 1 - MarketProductKind.allCases.filter(\.isNiche).reduce(0.0) { $0 + baseNicheDemandShare(for: $1, in: district) })
+                        / Double(max(1, VehicleCategory.allCases.count))
+                    : baseNicheDemandShare(for: productKind, in: district)
+                        * categoryDemandWeight(category, among: nicheCategories(for: productKind), in: district)
+                let trend = activeTrendMultiplier(for: key)
+                let demandFloor = hasFourWeekNicheDemandFloor(
+                    productKind: productKind,
+                    district: district
+                ) ? 1 : 0
+                let projectedDemand = max(demandFloor, Int((Double(fourWeekPool) * share * trend).rounded()))
+                let demandLow = max(demandFloor, Int(Double(projectedDemand) * (1 - error)))
+                let demandHigh = max(demandFloor, Int(ceil(Double(projectedDemand) * (1 + error))))
+                let demandRange: ClosedRange<Int> = demandLow...demandHigh
+                let competitorInventory = competingInventory(for: key)
+                let inventoryRange = competitorEstimateRange(value: competitorInventory, storeID: storeID, seed: key.id.count)
+                let recent = segmentMarkets[key]?.recentFourWeeks ?? []
+                let recentUnmet = recent.reduce(0) { $0 + $1.unmetDemand }
+                let unmetMid = max(recentUnmet, projectedDemand - competitorInventory)
+                let unmetRange = max(0, Int(Double(unmetMid) * (1 - error)))...max(0, Int(ceil(Double(unmetMid) * (1 + error))))
+                let unitMargin = max(5, Int(Double(category.purchaseCost) * segmentMarginRate(for: productKind) * segmentWillingnessFactor(for: key)))
+                let marginRange = max(1, Int(Double(unitMargin) * (1 - error)))...max(1, Int(ceil(Double(unitMargin) * (1 + error))))
+                let requiredCapital = max(25, Int(Double(category.purchaseCost) * segmentCapitalMultiplier(for: productKind)))
+                let capitalRange = max(1, Int(Double(requiredCapital) * (1 - error)))...max(1, Int(ceil(Double(requiredCapital) * (1 + error))))
+                let competitorsInSegment = competitors.filter { competitor in
+                    competitor.branches.contains { branch in
+                        plot(id: branch.plotID)?.district == district
+                            && branch.inventory.contains {
+                                $0.category == category
+                                    && $0.count > 0
+                                    && marketProductMatches(actual: $0.marketProductKind, desired: productKind)
+                            }
+                    }
+                }.map(\.name)
+                let status: SegmentMarketStatus
+                if demandRange.lowerBound > 0 && competitorInventory == 0 {
+                    status = .blueOcean
+                } else if trend > 1.05 {
+                    status = .growing
+                } else if competitorInventory > max(1, demandRange.upperBound) {
+                    status = .crowded
+                } else if recent.count >= 2, recent.suffix(2).last?.demand ?? 0 < recent.suffix(2).first?.demand ?? 0 {
+                    status = .shrinking
+                } else {
+                    status = .balanced
+                }
+                let matchingInventory = store.inventory.filter {
+                    $0.category == category && marketProductMatches(actual: marketProductKind(for: $0), desired: productKind)
+                }.reduce(0) { $0 + $1.count }
+                let policyFit = store.marketPolicy.priorityCategories.isEmpty || store.marketPolicy.priorityCategories.contains(category)
+                let readiness = matchingInventory > 0 ? "対応在庫\(matchingInventory)台"
+                    : policyFit ? "方針適合・商品化待ち" : "方針変更が必要"
+                let synergy = policyFit ? 1.15 : 0.85
+                let score = Double(max(0, unmetMid) * unitMargin) * synergy / Double(max(1, requiredCapital)) * 100
+                let archetype = opportunityArchetype(for: key)
+                reports.append(SegmentOpportunityReport(
+                    key: key,
+                    archetype: archetype.name,
+                    capitalTier: archetype.tier,
+                    fourWeekDemand: demandRange,
+                    competingStores: competitorsInSegment,
+                    competingInventory: inventoryRange,
+                    unmetDemand: unmetRange,
+                    estimatedUnitMargin: marginRange,
+                    requiredWorkingCapital: capitalRange,
+                    opportunityScore: score,
+                    status: status,
+                    trendMultiplier: trend,
+                    trendSignal: trendSignal(for: productKind, storeID: storeID),
+                    readiness: readiness
+                ))
+            }
+        }
+        return reports.sorted {
+            if $0.status == .blueOcean && $1.status != .blueOcean { return true }
+            if $1.status == .blueOcean && $0.status != .blueOcean { return false }
+            return $0.opportunityScore > $1.opportunityScore
+        }
     }
 
     func marketForecastRange(value: Int, storeID: UUID) -> ClosedRange<Int> {
@@ -2330,7 +2602,7 @@ final class GameEngine: ObservableObject {
             mileage: batch.mileage,
             quality: batch.quality,
             in: plot.district
-        )
+        ) + productizationMarketValueAddition(for: batch)
         let agingFactor = inventoryAgingValueFactor(for: batch)
         let specialtyFactor = specialtyMarketFactor(for: batch, in: plot.district)
         let disclosedIssueFactor = batch.disclosedIssue?.disclosedValueFactor ?? 1.0
@@ -2367,7 +2639,13 @@ final class GameEngine: ObservableObject {
               let lead = buyerLeads.first(where: { $0.id == buyerLeadID && $0.storeID == storeID }),
               let quote = manualSaleQuote(storeID: storeID, inventoryID: inventoryID) else { return nil }
         let purposeValue = productPurposeValueFactor(for: batch, purpose: lead.purpose)
-        let offer = Int(Double(quote.price) * purposeValue * (1 - strategy.discountRate))
+        let desiredSegment = MarketSegmentKey(
+            district: plot.district,
+            category: batch.category,
+            purpose: lead.purpose,
+            productKind: lead.desiredProductKind
+        )
+        let offer = Int(Double(quote.price) * purposeValue * segmentWillingnessFactor(for: desiredSegment) * (1 - strategy.discountRate))
         let demand = vehicleDemand(batch.category, in: plot.district)
         let demandEffect = (demand - 1) * 0.08
         let reputationEffect = (store.reputation - 0.65) * 0.12
@@ -2457,7 +2735,7 @@ final class GameEngine: ObservableObject {
             mileage: batch.mileage,
             quality: batch.quality,
             in: plot.district
-        )
+        ) + productizationMarketValueAddition(for: batch)
         if let issue = batch.disclosedIssue {
             fairPrice = Int((Double(fairPrice) * issue.disclosedValueFactor).rounded())
         }
@@ -2671,9 +2949,17 @@ final class GameEngine: ObservableObject {
             scheduleCustomerClaimIfNeeded(for: soldVehicle, customerID: lead.id, storeID: storeID, salePrice: preview.price, seed: seed + 401)
             stores[storeIndex].expertise.add(category: category, purpose: lead.purpose, points: 1)
             companyExpertise.add(category: category, purpose: lead.purpose, points: 1)
+            registerPlayerSegmentSale(
+                storeID: lead.storeID,
+                segmentKey(for: lead),
+                revenue: preview.price,
+                cost: unitCost
+            )
             recalculateAssets()
         } else {
-            competitorFulfillsBuyerLead(lead)
+            if !competitorFulfillsBuyerLead(lead) {
+                registerSegmentUnmet(segmentKey(for: lead))
+            }
         }
         save()
         return SaleNegotiationResult(
@@ -2691,19 +2977,23 @@ final class GameEngine: ObservableObject {
 
     func buyerPreferenceMatchEffect(lead: BuyerLead, batch: InventoryBatch, offerPrice: Int) -> Double {
         let model = VehicleCatalog.entry(id: batch.modelID)
-        switch lead.preference {
+        let productEffect = marketProductMatches(actual: marketProductKind(for: batch), desired: lead.desiredProductKind)
+            ? (lead.desiredProductKind.isNiche ? 0.12 : 0)
+            : (lead.desiredProductKind.isNiche ? -0.42 : -0.08)
+        let preferenceEffect: Double = switch lead.preference {
         case .category(let desiredCategory):
-            return batch.category == desiredCategory ? 0.16 : -0.30
+            batch.category == desiredCategory ? 0.16 : -0.30
         case .maker(let desiredCategory, let maker):
-            if batch.category == desiredCategory, model?.maker == maker { return 0.24 }
-            return batch.category == desiredCategory ? -0.34 : -0.48
+            if batch.category == desiredCategory, model?.maker == maker { 0.24 }
+            else { batch.category == desiredCategory ? -0.34 : -0.48 }
         case .exactModel(let modelID):
-            if batch.modelID == modelID { return 0.30 }
-            if batch.category == lead.desiredCategory, model?.maker == lead.preference.preferredMaker { return -0.30 }
-            return batch.category == lead.desiredCategory ? -0.58 : -0.72
+            if batch.modelID == modelID { 0.30 }
+            else if batch.category == lead.desiredCategory, model?.maker == lead.preference.preferredMaker { -0.30 }
+            else { batch.category == lead.desiredCategory ? -0.58 : -0.72 }
         case .budgetFirst:
-            return offerPrice <= lead.budget ? 0.12 : -0.06
+            offerPrice <= lead.budget ? 0.12 : -0.06
         }
+        return preferenceEffect + productEffect
     }
 
     private func inventoryPreferenceMatches(_ batch: InventoryBatch, preference: BuyerVehiclePreference) -> Bool {
@@ -2718,6 +3008,7 @@ final class GameEngine: ObservableObject {
 
     func inventoryMatchesBuyer(_ batch: InventoryBatch, lead: BuyerLead, storeID: UUID) -> Bool {
         guard batch.count > 0, !batch.isInWorkshop, !batch.isReserved,
+              marketProductMatches(actual: marketProductKind(for: batch), desired: lead.desiredProductKind),
               batch.quality >= lead.minimumQuality,
               batch.modelYear >= lead.minimumModelYear,
               batch.mileage <= lead.maximumMileage,
@@ -3090,22 +3381,59 @@ final class GameEngine: ObservableObject {
         startWorkshopProject(storeID: storeID, inventoryID: inventoryID, kind: .basicService)
     }
 
-    func workshopProjectPreview(storeID: UUID, inventoryID: UUID, kind: WorkshopProjectKind) -> WorkshopProjectPreview? {
+    func remainingOutsourceCapacity(for partner: OutsourcePartnerKind) -> Int {
+        let used = stores.flatMap(\.inventory).filter {
+            $0.workshopProject?.outsourced == true
+                && $0.workshopProject?.outsourcePartner == partner
+                && $0.workshopProject?.startedTurn == turn
+        }.count
+        return max(0, partner.weeklyCapacity - used)
+    }
+
+    func workshopProjectPreview(
+        storeID: UUID,
+        inventoryID: UUID,
+        kind: WorkshopProjectKind,
+        fulfillment requestedMode: WorkFulfillmentMode = .automatic
+    ) -> WorkshopProjectPreview? {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID),
               let batch = store.inventory.first(where: { $0.id == inventoryID && $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }),
               let model = VehicleCatalog.entry(id: batch.modelID) else { return nil }
         let serviceEmployees = store.employees.filter { $0.assignment == .service }
-        let canDoInHouse = store.workshopBays > 0 && !serviceEmployees.isEmpty
-        let conversion = [WorkshopProjectKind.refurbishment, .camperConversion, .workConversion, .outdoorConversion].contains(kind)
-        if conversion && !canDoInHouse { return nil }
-        if [WorkshopProjectKind.camperConversion, .workConversion, .outdoorConversion].contains(kind), !store.facilities.contains(.customWorkshop) { return nil }
+        let activeInHouse = store.inventory.filter { $0.workshopProject?.outsourced == false }.count
+        let needsCustomShop = [WorkshopProjectKind.camperConversion, .workConversion, .outdoorConversion].contains(kind)
+        let hasRequiredShop = !needsCustomShop || store.facilities.contains(.customWorkshop)
+        let canDoInHouse = store.workshopBays > activeInHouse && !serviceEmployees.isEmpty && hasRequiredShop
+        let partner = OutsourcePartnerKind.partner(for: kind)
+        let canOutsource = remainingOutsourceCapacity(for: partner) > 0
+        let fulfillment: WorkFulfillmentMode
+        switch requestedMode {
+        case .automatic:
+            guard canDoInHouse || canOutsource else { return nil }
+            fulfillment = canDoInHouse ? .inHouse : .outsourced
+        case .inHouse:
+            guard canDoInHouse else { return nil }
+            fulfillment = .inHouse
+        case .outsourced:
+            guard canOutsource else { return nil }
+            fulfillment = .outsourced
+        }
+        let outsourced = fulfillment == .outsourced
         if kind == .camperConversion && batch.category != .minivan { return nil }
         if kind == .workConversion && ![VehicleCategory.minivan, .commercial, .pickup].contains(batch.category) { return nil }
         if kind == .outdoorConversion && ![VehicleCategory.suv, .pickup, .minivan].contains(batch.category) { return nil }
         if kind == .repair && batch.fault == .none { return nil }
-        if kind != .repair && batch.productState != .stock { return nil }
-        let outsourced = !canDoInHouse && [.basicService, .repair].contains(kind)
+        switch kind {
+        case .basicService:
+            guard batch.productState == .stock else { return nil }
+        case .repair:
+            break
+        case .refurbishment:
+            guard [.stock, .serviced, .repaired].contains(batch.productState) else { return nil }
+        case .camperConversion, .workConversion, .outdoorConversion:
+            guard [.stock, .serviced, .repaired, .refurbished].contains(batch.productState) else { return nil }
+        }
         let currentQuality = Int((batch.quality * 100).rounded())
         let baseCost: Int
         let requiredWork: Int
@@ -3122,18 +3450,19 @@ final class GameEngine: ObservableObject {
             baseCost = max(80, Int(Double(model.baseWholesalePrice) * (model.isRareClassic ? 0.52 : 0.28)))
             requiredWork = 6; requestedGain = currentQuality < 65 ? 15 : 10; targetState = .refurbished
         case .camperConversion:
-            baseCost = max(180, Int(Double(batch.category.purchaseCost) * 1.15)); requiredWork = 10; requestedGain = 3; targetState = .camper
+            baseCost = max(360, Int(Double(model.baseWholesalePrice) * 1.80)); requiredWork = 10; requestedGain = 3; targetState = .camper
         case .workConversion:
-            baseCost = max(90, Int(Double(batch.category.purchaseCost) * 0.62)); requiredWork = 5; requestedGain = 2; targetState = .workCargo
+            baseCost = max(45, Int(Double(batch.category.purchaseCost) * 0.22)); requiredWork = 5; requestedGain = 2; targetState = .workCargo
         case .outdoorConversion:
-            baseCost = max(65, Int(Double(batch.category.purchaseCost) * 0.45)); requiredWork = 4; requestedGain = 2; targetState = .outdoor
+            baseCost = max(35, Int(Double(batch.category.purchaseCost) * 0.18)); requiredWork = 4; requestedGain = 2; targetState = .outdoor
         }
-        let cost = outsourced ? Int((Double(baseCost) * 1.6).rounded()) : baseCost
-        let qualityCap = model.isRareClassic ? 90 : 94
+        let cost = outsourced ? Int((Double(baseCost) * partner.costMultiplier).rounded()) : baseCost
+        let qualityCap = outsourced ? (model.isRareClassic ? 86 : 90) : (model.isRareClassic ? 90 : 94)
         let resultingQuality = min(qualityCap, currentQuality + requestedGain)
         var projected = batch
         projected.quality = Double(resultingQuality) / 100.0
         projected.averageCost += cost
+        projected.valueAddedInvestment += cost
         projected.productState = targetState
         projected.workshopProject = nil
         let marketValue = vehicleRetailValue(
@@ -3143,14 +3472,18 @@ final class GameEngine: ObservableObject {
             mileage: projected.mileage,
             quality: projected.quality,
             in: plot.district
-        )
+        ) + productizationMarketValueAddition(for: projected)
         let disclosedIssueFactor = projected.disclosedIssue?.disclosedValueFactor ?? 1.0
-        let projectedPrice = max(25, Int(Double(marketValue) * store.priceIndex * inventoryAgingValueFactor(for: projected) * specialtyMarketFactor(for: projected, in: plot.district) * disclosedIssueFactor))
+        let projectedPurpose = targetState.purpose ?? store.marketPolicy.targetPurpose
+        let purposeValue = productPurposeValueFactor(for: projected, purpose: projectedPurpose)
+        let projectedPrice = max(25, Int(Double(marketValue) * store.priceIndex * inventoryAgingValueFactor(for: projected) * specialtyMarketFactor(for: projected, in: plot.district) * purposeValue * disclosedIssueFactor))
         let labor = max(1, store.weeklyWorkshopLabor)
         let effectiveExpertise = min(100, store.expertise.project(kind) + companyExpertise.project(kind) * 0.25)
         let expertiseEfficiency = 1 + min(0.20, effectiveExpertise / 500)
         let effectiveLabor = max(1, Int((Double(labor) * expertiseEfficiency).rounded()))
-        let estimatedWeeks = Int(ceil(Double(requiredWork) / Double(effectiveLabor))) + (outsourced ? 2 : 0)
+        let estimatedWeeks = outsourced
+            ? requiredWork + partner.extraWeeks
+            : Int(ceil(Double(requiredWork) / Double(effectiveLabor)))
         return WorkshopProjectPreview(
             kind: kind,
             cost: cost,
@@ -3159,15 +3492,23 @@ final class GameEngine: ObservableObject {
             qualityGain: resultingQuality - currentQuality,
             resultingQuality: resultingQuality,
             projectedSalePrice: projectedPrice,
-            outsourced: outsourced
+            outsourced: outsourced,
+            fulfillmentMode: fulfillment,
+            outsourcePartner: outsourced ? partner : nil,
+            qualityCap: qualityCap
         )
     }
 
     @discardableResult
-    func startWorkshopProject(storeID: UUID, inventoryID: UUID, kind: WorkshopProjectKind) -> Bool {
+    func startWorkshopProject(
+        storeID: UUID,
+        inventoryID: UUID,
+        kind: WorkshopProjectKind,
+        fulfillment: WorkFulfillmentMode = .automatic
+    ) -> Bool {
         guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               let batchIndex = stores[storeIndex].inventory.firstIndex(where: { $0.id == inventoryID && $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }),
-              let preview = workshopProjectPreview(storeID: storeID, inventoryID: inventoryID, kind: kind),
+              let preview = workshopProjectPreview(storeID: storeID, inventoryID: inventoryID, kind: kind, fulfillment: fulfillment),
               cash >= preview.cost else { return false }
         let activeInHouse = stores[storeIndex].inventory.filter { $0.workshopProject?.outsourced == false }.count
         guard preview.outsourced || activeInHouse < stores[storeIndex].workshopBays else { return false }
@@ -3185,6 +3526,7 @@ final class GameEngine: ObservableObject {
                 mileage: original.mileage,
                 acquiredTurn: original.acquiredTurn,
                 productState: original.productState,
+                valueAddedInvestment: original.valueAddedInvestment,
                 vehicleIssue: original.vehicleIssue,
                 condition: original.condition,
                 fault: original.fault,
@@ -3194,6 +3536,7 @@ final class GameEngine: ObservableObject {
         cash -= preview.cost
         finance.operatingCF -= preview.cost
         stores[storeIndex].inventory[batchIndex].averageCost += preview.cost
+        stores[storeIndex].inventory[batchIndex].valueAddedInvestment += preview.cost
         stores[storeIndex].inventory[batchIndex].workshopProject = VehicleWorkshopProject(
             kind: kind,
             requiredWork: preview.requiredWork,
@@ -3203,6 +3546,7 @@ final class GameEngine: ObservableObject {
             startedTurn: turn,
             priority: 0,
             outsourced: preview.outsourced,
+            outsourcePartner: preview.outsourcePartner,
             outsourcedWeeksRemaining: preview.outsourced ? preview.estimatedWeeks : 0
         )
         recalculateAssets()
@@ -3321,6 +3665,7 @@ final class GameEngine: ObservableObject {
             progressAutomaticMarketing(for: index)
             resolveAutomaticService(for: index)
             resolveAutomaticPurchases(for: index)
+            arrangeAutomaticNetworkPurchase(for: index, notes: &notes)
             automaticSalesByStore[stores[index].id] = resolveAutomaticSales(for: index)
         }
         finalizeEmployeeWeek(notes: &notes)
@@ -3400,11 +3745,10 @@ final class GameEngine: ObservableObject {
         updateMarketConditions(notes: &notes)
         updateLandValues(notes: &notes)
         progressDevelopments(notes: &notes)
-        simulateCompetitors(notes: &notes)
-        for index in stores.indices where stores[index].isOperational {
-            arrangeAutomaticNetworkPurchase(for: index, notes: &notes)
-        }
         expireWeeklyCustomerLeads(notes: &notes)
+        finalizeSegmentWeek(notes: &notes)
+        updateSegmentTrends(at: turn + 1, notes: &notes)
+        simulateCompetitors(notes: &notes)
         turn += 1
         announceNewModels(notes: &notes)
         weekOfMonth += 1
@@ -3463,10 +3807,14 @@ final class GameEngine: ObservableObject {
 
     private func applyPendingMarketPolicies() {
         for index in stores.indices {
-            guard var policy = stores[index].pendingMarketPolicy else { continue }
-            policy.normalize()
-            stores[index].marketPolicy = policy
-            stores[index].pendingMarketPolicy = nil
+            if var policy = stores[index].pendingMarketPolicy {
+                policy.normalize()
+                stores[index].marketPolicy = policy
+                stores[index].pendingMarketPolicy = nil
+                stores[index].marketRepositioningWeeks = 2
+            } else if stores[index].marketRepositioningWeeks > 0 {
+                stores[index].marketRepositioningWeeks -= 1
+            }
         }
     }
 
@@ -3576,6 +3924,32 @@ final class GameEngine: ObservableObject {
         }
         guard let best = (category + purpose + project + source).max(by: { $0.0 < $1.0 }), best.0 >= 15 else { return "総合中古車店" }
         return best.1
+    }
+
+    func regionalNicheLeaderKey(for store: Store) -> MarketSegmentKey? {
+        guard let district = plot(id: store.plotID)?.district else { return nil }
+        return store.segmentRecords.compactMap { key, records -> (MarketSegmentKey, Int)? in
+            guard key.district == district, key.productKind.isNiche else { return nil }
+            let ownSales = records.filter { $0.turn >= turn - 7 }.reduce(0) { $0 + $1.playerSales }
+            guard ownSales >= 4 else { return nil }
+            let otherStoreBest = stores.filter { $0.id != store.id }.map { other in
+                (other.segmentRecords[key] ?? []).filter { $0.turn >= turn - 7 }.reduce(0) {
+                    $0 + $1.playerSales
+                }
+            }.max() ?? 0
+            let competitorBest = competitors.map { competitor in
+                (competitor.segmentRecords[key] ?? []).filter { $0.turn >= turn - 7 }.reduce(0) {
+                    $0 + $1.competitorSales
+                }
+            }.max() ?? 0
+            guard ownSales > max(otherStoreBest, competitorBest) else { return nil }
+            return (key, ownSales)
+        }.max(by: { $0.1 < $1.1 })?.0
+    }
+
+    func regionalNicheLeaderLabel(for store: Store) -> String? {
+        guard let key = regionalNicheLeaderKey(for: store) else { return nil }
+        return "地域ニッチNo.1・\(key.productKind.name)"
     }
 
     private func facilityBuyerFactor(_ store: Store, category: VehicleCategory?) -> Double {
@@ -3729,6 +4103,82 @@ final class GameEngine: ObservableObject {
             let detail = "ガソリン\(gasolinePricePerLiter)円/L・日経平均\(nikkeiAverageYen.formatted())円・中古車需要\(marketDemandPercentage)%"
             recordCityEvent(CityEvent(turn: turn + 1, kind: .fuelPrice, title: "市場トレンド：燃料価格が\(direction)", detail: detail, isPositive: gasolinePrice <= Self.gasolineBaseline))
         }
+    }
+
+    func competingInventory(for key: MarketSegmentKey) -> Int {
+        competitors.reduce(0) { total, competitor in
+            total + competitor.branches.reduce(0) { branchTotal, branch in
+                guard plot(id: branch.plotID)?.district == key.district else { return branchTotal }
+                return branchTotal + branch.inventory.filter {
+                    $0.category == key.category
+                        && marketProductMatches(actual: $0.marketProductKind, desired: key.productKind)
+                }.reduce(0) { $0 + $1.count }
+            }
+        }
+    }
+
+    private func finalizeSegmentWeek(notes: inout [String]) {
+        let keys = Set(segmentMarkets.keys).union(openSegmentWeek.keys)
+        for key in keys {
+            var state = segmentMarkets[key] ?? SegmentMarketState()
+            let record = openSegmentWeek[key] ?? SegmentWeekRecord(turn: turn)
+            state.append(record)
+            if record.demand > 0, competingInventory(for: key) == 0, record.unmetDemand > 0 {
+                state.blueOceanWeeks += 1
+            } else {
+                state.blueOceanWeeks = max(0, state.blueOceanWeeks - 1)
+            }
+            segmentMarkets[key] = state
+        }
+        if let strongest = openSegmentWeek
+            .filter({ $0.value.demand > 0 && $0.key.productKind.isNiche })
+            .max(by: { $0.value.unmetDemand < $1.value.unmetDemand }),
+           strongest.value.unmetDemand > 0 {
+            notes.append("未充足市場：\(strongest.key.name)で\(strongest.value.unmetDemand)人の需要を取り逃しました")
+        }
+    }
+
+    private func trendConfiguration(
+        for kind: SegmentTrendKind
+    ) -> (districts: Set<DistrictKind>, categories: Set<VehicleCategory>) {
+        switch kind {
+        case .valueRebuild:
+            return (Set(DistrictKind.allCases), Set(VehicleCategory.allCases))
+        case .logistics:
+            return ([.industrial, .highway], [.commercial, .minivan, .pickup])
+        case .outdoorBoom:
+            return ([.suburb, .highway], [.suv, .pickup, .minivan])
+        case .campingBoom:
+            return ([.suburb, .highway], [.minivan])
+        case .luxuryBoom:
+            return ([.downtown, .emerging], [.imported])
+        case .collectorBoom:
+            return ([.downtown, .emerging], Set(VehicleCatalog.rareClassics.map(\.category)))
+        }
+    }
+
+    private func updateSegmentTrends(at resolvingTurn: Int, notes: inout [String]) {
+        segmentTrends.removeAll { $0.endTurn <= resolvingTurn }
+        guard resolvingTurn >= 4,
+              resolvingTurn.isMultiple(of: 4),
+              segmentTrends.filter({ $0.endTurn > resolvingTurn }).count < 2 else { return }
+        let roll = transactionRoll(seed: simulationSeed &+ resolvingTurn &* 7_919)
+        guard roll < 0.22 else { return }
+        let kinds = SegmentTrendKind.allCases
+        let selection = min(kinds.count - 1, Int(transactionRoll(seed: simulationSeed &+ resolvingTurn &* 8_111 + 31) * Double(kinds.count)))
+        let kind = kinds[selection]
+        let configuration = trendConfiguration(for: kind)
+        let peakWeeks = 6 + Int(transactionRoll(seed: simulationSeed &+ resolvingTurn &* 8_191 + 47) * 7)
+        let peakMultiplier = 1.8 + transactionRoll(seed: simulationSeed &+ resolvingTurn &* 8_261 + 59) * 0.6
+        segmentTrends.append(SegmentTrend(
+            kind: kind,
+            districts: configuration.districts,
+            categories: configuration.categories,
+            startTurn: resolvingTurn + 4,
+            peakWeeks: peakWeeks,
+            peakMultiplier: peakMultiplier
+        ))
+        notes.append("市場の兆候：\(kind.name)につながる動きが観測されました")
     }
 
     private func refreshMarketTrendTargetsIfNeeded() {
@@ -3946,6 +4396,7 @@ final class GameEngine: ObservableObject {
     private func simulateCompetitors(notes: inout [String]) {
         progressPriceWars(notes: &notes)
         for index in competitors.indices {
+            progressCompetitorProductization(competitorIndex: index, notes: &notes)
             let pressuredDistricts = Set(competitors[index].plotIDs.compactMap { plot(id: $0)?.district }).filter { district in
                 let ownShare = stores
                     .filter { $0.isOperational && plot(id: $0.plotID)?.district == district }
@@ -3969,11 +4420,14 @@ final class GameEngine: ObservableObject {
             competitors[index].strength = min(1.28, max(0.72, competitors[index].strength + strengthChange))
             updateCompetitorSegmentResponse(competitorIndex: index, notes: &notes)
         }
+        updateMarketEntrants(notes: &notes)
 
         if turn >= 40 && turn % 44 == 0 {
             let candidates = competitors.indices.flatMap { companyIndex in
                 competitors[companyIndex].plotIDs.map { (companyIndex, $0) }
-            }.filter { companyIndex, _ in competitors[companyIndex].plotIDs.count > 1 }
+            }.filter { companyIndex, _ in
+                !competitors[companyIndex].isMarketEntrant && competitors[companyIndex].plotIDs.count > 1
+            }
             if let closing = candidates.min(by: { lhs, rhs in
                 guard let left = plot(id: lhs.1), let right = plot(id: rhs.1) else { return false }
                 return competitorPlotScore(company: competitors[lhs.0], plot: left) < competitorPlotScore(company: competitors[rhs.0], plot: right)
@@ -4017,56 +4471,382 @@ final class GameEngine: ObservableObject {
 
     private func updateCompetitorSegmentResponse(competitorIndex: Int, notes: inout [String]) {
         guard competitors.indices.contains(competitorIndex) else { return }
-        let profitable = VehicleCategory.allCases.filter { category in
-            let unmetDemand = DistrictKind.allCases.map { vehicleDemand(category, in: $0) / max(0.35, vehicleSupply(category, in: $0)) }.reduce(0, +) / Double(DistrictKind.allCases.count)
-            let playerProof = stores.reduce(0.0) { result, store in
-                result + effectiveCategoryExpertise(for: store, category: category) / 100
-            }
-            return unmetDemand + min(0.18, playerProof * 0.04) > 1.08
+        let branchDistricts = Set(competitors[competitorIndex].branches.compactMap { plot(id: $0.plotID)?.district })
+        let candidateKeys = segmentMarkets.keys.filter {
+            branchDistricts.contains($0.district) && $0.productKind.isNiche
         }
+        var bestWeeksByCategory: [VehicleCategory: Int] = [:]
+        for key in candidateKeys {
+            let recent = segmentMarkets[key]?.recentFourWeeks ?? []
+            let ownRecent = (competitors[competitorIndex].segmentRecords[key] ?? []).filter {
+                $0.turn >= turn - 3
+            }
+            let revenue = ownRecent.reduce(0) { $0 + $1.competitorRevenue }
+            let cost = ownRecent.reduce(0) { $0 + $1.competitorCost }
+            let grossProfit = revenue - cost
+            let grossMargin = revenue > 0 ? Double(grossProfit) / Double(revenue) : segmentMarginRate(for: key.productKind)
+            let averageUnmet = Double(recent.reduce(0) { $0 + $1.unmetDemand }) / Double(max(1, recent.count))
+            let requiredCapital = Double(key.category.purchaseCost) * segmentCapitalMultiplier(for: key.productKind)
+            let capitalFit = Double(max(0, competitors[competitorIndex].cash)) / max(1, requiredCapital)
+            let trend = activeTrendMultiplier(for: key)
+            let isLargeCompany = !competitors[competitorIndex].isMarketEntrant
+            let profitableSignal = recent.count >= 4
+                && grossMargin >= 0.12
+                && averageUnmet >= (isLargeCompany ? 0.50 : 0.25)
+                && capitalFit >= (isLargeCompany ? 0.75 : 0.35)
+                && (isLargeCompany
+                    ? grossProfit >= key.category.purchaseCost / 6 || trend >= 1.6
+                    : averageUnmet >= 1 || competingInventory(for: key) == 0)
+            let oldUnprofitable = competitors[competitorIndex].segmentUnprofitableWeeks[key] ?? 0
+            let unprofitableWeeks = profitableSignal
+                ? 0
+                : (recent.count >= 4 ? oldUnprofitable + 1 : oldUnprofitable)
+            competitors[competitorIndex].segmentUnprofitableWeeks[key] = unprofitableWeeks
+            let oldWeeks = competitors[competitorIndex].segmentResponseWeeks[key] ?? 0
+            let nextWeeks = profitableSignal ? oldWeeks + 1 : max(0, oldWeeks - 1)
+            competitors[competitorIndex].segmentResponseWeeks[key] = nextWeeks
+            bestWeeksByCategory[key.category] = max(bestWeeksByCategory[key.category] ?? 0, nextWeeks)
+            if nextWeeks == 4 {
+                notes.append("競合追随兆候：\(competitors[competitorIndex].name)が\(key.name)の実利益を検証しています")
+            }
+            if unprofitableWeeks == 12 {
+                competitors[competitorIndex].segmentTargetShare[key] = max(
+                    0,
+                    (competitors[competitorIndex].segmentTargetShare[key] ?? 0) - 0.10
+                )
+                for branchIndex in competitors[competitorIndex].branches.indices
+                where plot(id: competitors[competitorIndex].branches[branchIndex].plotID)?.district == key.district {
+                    competitors[competitorIndex].branches[branchIndex].advertising = max(
+                        20,
+                        competitors[competitorIndex].branches[branchIndex].advertising - 10
+                    )
+                }
+                notes.append("\(competitors[competitorIndex].name)は\(key.name)の12週不採算を受け、広告と目標在庫を縮小しました")
+            }
+            guard nextWeeks >= 8 else { continue }
+            if nextWeeks == 8 || nextWeeks.isMultiple(of: 4) {
+                let oldShare = competitors[competitorIndex].segmentTargetShare[key] ?? 0
+                competitors[competitorIndex].segmentTargetShare[key] = min(0.65, oldShare + 0.10)
+                for branchIndex in competitors[competitorIndex].branches.indices
+                where plot(id: competitors[competitorIndex].branches[branchIndex].plotID)?.district == key.district {
+                    competitors[competitorIndex].branches[branchIndex].advertising = min(
+                        500,
+                        competitors[competitorIndex].branches[branchIndex].advertising + 10
+                    )
+                    var policy = competitors[competitorIndex].branches[branchIndex].marketPolicy
+                    policy.priorityCategories.insert(key.category)
+                    policy.targetPurpose = key.purpose
+                    policy.normalize()
+                    competitors[competitorIndex].branches[branchIndex].marketPolicy = policy
+                    startCompetitorProductization(
+                        competitorIndex: competitorIndex,
+                        branchIndex: branchIndex,
+                        key: key
+                    )
+                }
+            }
+            if nextWeeks >= 12,
+               competitors[competitorIndex].cash >= StoreFacility.customWorkshop.installationCost * 2 {
+                let facility: StoreFacility = [.camper, .workCargo, .outdoor].contains(key.productKind)
+                    ? .customWorkshop : .serviceWorkshop
+                for branchIndex in competitors[competitorIndex].branches.indices
+                where plot(id: competitors[competitorIndex].branches[branchIndex].plotID)?.district == key.district
+                    && !competitors[competitorIndex].branches[branchIndex].facilities.contains(facility) {
+                    competitors[competitorIndex].cash -= facility.installationCost
+                    competitors[competitorIndex].branches[branchIndex].facilities.insert(facility)
+                    break
+                }
+            }
+        }
+
         for category in VehicleCategory.allCases {
-            let previous = competitors[competitorIndex].profitableSegmentWeeks[category] ?? 0
-            let next = profitable.contains(category) ? previous + 1 : max(0, previous - 1)
+            let next = bestWeeksByCategory[category] ?? 0
             competitors[competitorIndex].profitableSegmentWeeks[category] = next
-            if next == 4 {
-                notes.append("競合追随兆候：\(competitors[competitorIndex].name)が\(category.name)市場を調査しています")
-            }
-            guard next >= 4, next.isMultiple(of: 4) else { continue }
-            let oldShare = competitors[competitorIndex].targetInventoryShare[category] ?? 0
-            competitors[competitorIndex].targetInventoryShare[category] = min(0.65, oldShare + 0.10)
-            for branchIndex in competitors[competitorIndex].branches.indices {
-                competitors[competitorIndex].branches[branchIndex].advertising = min(500, competitors[competitorIndex].branches[branchIndex].advertising + 10)
-                var policy = competitors[competitorIndex].branches[branchIndex].marketPolicy
-                policy.priorityCategories.insert(category)
-                policy.normalize()
-                competitors[competitorIndex].branches[branchIndex].marketPolicy = policy
-                if next >= 8 {
-                    let neededFacility: StoreFacility = [.suv, .pickup, .minivan].contains(category) ? .customWorkshop : .serviceWorkshop
-                    if !competitors[competitorIndex].branches[branchIndex].facilities.contains(neededFacility),
-                       competitors[competitorIndex].cash >= neededFacility.installationCost * 2 {
-                        competitors[competitorIndex].cash -= neededFacility.installationCost
-                        competitors[competitorIndex].branches[branchIndex].facilities.insert(neededFacility)
-                    }
-                }
-                if next >= 8, next <= 16,
-                   competitors[competitorIndex].branches[branchIndex].inventoryCount < competitors[competitorIndex].branches[branchIndex].capacity {
-                    let count = min(2, competitors[competitorIndex].branches[branchIndex].capacity - competitors[competitorIndex].branches[branchIndex].inventoryCount)
-                    let demandPremium = 1 + max(0, vehicleDemand(category, in: plot(id: competitors[competitorIndex].branches[branchIndex].plotID)?.district ?? .suburb) - 1) * 0.12
-                    let unitCost = Int(Double(category.purchaseCost) * demandPremium)
-                    let total = unitCost * count
-                    if competitors[competitorIndex].cash >= total {
-                        competitors[competitorIndex].cash -= total
-                        addCompetitorInventory(competitorIndex: competitorIndex, branchIndex: branchIndex, category: category, purpose: competitors[competitorIndex].branches[branchIndex].marketPolicy.targetPurpose, count: count, unitCost: unitCost, quality: 0.74, productState: .stock)
-                    }
-                }
-            }
-        }
-        for category in VehicleCategory.allCases where (competitors[competitorIndex].profitableSegmentWeeks[category] ?? 0) == 0 {
-            let share = competitors[competitorIndex].targetInventoryShare[category] ?? 0
-            if share > 0, turn.isMultiple(of: 12) {
+            if next >= 8 {
+                competitors[competitorIndex].targetInventoryShare[category] = min(
+                    0.65,
+                    max(competitors[competitorIndex].targetInventoryShare[category] ?? 0, 0.20)
+                )
+            } else if next == 0,
+                      turn.isMultiple(of: 12),
+                      let share = competitors[competitorIndex].targetInventoryShare[category],
+                      share > 0 {
                 competitors[competitorIndex].targetInventoryShare[category] = max(0, share - 0.10)
             }
         }
+
+        let hasProfitableSegment = competitors[competitorIndex].segmentResponseWeeks.values.contains { $0 > 0 }
+        if hasProfitableSegment {
+            competitors[competitorIndex].unprofitableWeeks = 0
+        } else {
+            competitors[competitorIndex].unprofitableWeeks += 1
+        }
+    }
+
+    private func competitorProductState(for kind: MarketProductKind) -> VehicleProductState {
+        switch kind {
+        case .standard: .serviced
+        case .repaired: .repaired
+        case .refurbished, .collector: .refurbished
+        case .camper: .camper
+        case .workCargo: .workCargo
+        case .outdoor: .outdoor
+        }
+    }
+
+    private func competitorOutsourcePartner(for kind: MarketProductKind) -> OutsourcePartnerKind {
+        switch kind {
+        case .standard, .repaired: .generalRepair
+        case .workCargo, .outdoor: .fabrication
+        case .refurbished, .camper, .collector: .specialist
+        }
+    }
+
+    private func competitorConversionCostRate(for kind: MarketProductKind) -> Double {
+        switch kind {
+        case .standard: 0.08
+        case .repaired: 0.30
+        case .refurbished: 0.45
+        case .camper: 1.80
+        case .workCargo: 0.22
+        case .outdoor: 0.18
+        case .collector: 0.70
+        }
+    }
+
+    private func competitorHasFacility(
+        branch: CompetitorBranch,
+        for kind: MarketProductKind
+    ) -> Bool {
+        switch kind {
+        case .camper, .workCargo, .outdoor:
+            branch.facilities.contains(.customWorkshop)
+        case .standard, .repaired, .refurbished, .collector:
+            branch.facilities.contains(.serviceWorkshop)
+        }
+    }
+
+    private func startCompetitorProductization(
+        competitorIndex: Int,
+        branchIndex: Int,
+        key: MarketSegmentKey
+    ) {
+        guard competitors.indices.contains(competitorIndex),
+              competitors[competitorIndex].branches.indices.contains(branchIndex) else { return }
+        let branch = competitors[competitorIndex].branches[branchIndex]
+        let reservedCount = branch.productizationQueue.reduce(0) { $0 + $1.count }
+        guard branch.inventoryCount + reservedCount < branch.capacity else { return }
+
+        let partner = competitorOutsourcePartner(for: key.productKind)
+        let hasFacility = competitorHasFacility(branch: branch, for: key.productKind)
+        let responseWeeks = competitors[competitorIndex].segmentResponseWeeks[key] ?? 0
+        let outsourced = !hasFacility || responseWeeks < 12
+        if outsourced {
+            let usedCapacity = competitors[competitorIndex].branches
+                .flatMap(\.productizationQueue)
+                .filter { $0.outsourcePartner == partner }
+                .reduce(0) { $0 + $1.count }
+            guard usedCapacity < partner.weeklyCapacity else { return }
+        }
+
+        let trend = activeTrendMultiplier(for: key)
+        let matchingTrendStart = segmentTrends.first(where: { $0.affects(key) })?.startTurn
+        let procurementTrendHasReachedMarket = matchingTrendStart.map { turn >= $0 + 2 } ?? false
+        let delayedProcurementPremium = procurementTrendHasReachedMarket
+            ? 1 + max(0, trend - 1) * 0.22
+            : 1
+        let baseCost = Int(Double(key.category.purchaseCost) * delayedProcurementPremium)
+        let conversionBase = Double(baseCost) * competitorConversionCostRate(for: key.productKind)
+        let conversionCost = Int(conversionBase * (outsourced ? partner.costMultiplier : 1))
+        let totalUnitCost = baseCost + conversionCost
+        guard competitors[competitorIndex].cash >= totalUnitCost else { return }
+
+        let baseWeeks: Int = switch key.productKind {
+        case .standard: 1
+        case .repaired: 2
+        case .refurbished, .collector: 6
+        case .camper: 10
+        case .workCargo: 5
+        case .outdoor: 4
+        }
+        competitors[competitorIndex].cash -= totalUnitCost
+        competitors[competitorIndex].branches[branchIndex].productizationQueue.append(
+            CompetitorProductizationOrder(
+                category: key.category,
+                purpose: key.purpose,
+                productState: competitorProductState(for: key.productKind),
+                marketProductKind: key.productKind,
+                count: 1,
+                unitCost: totalUnitCost,
+                quality: outsourced ? (key.productKind == .collector ? 0.86 : 0.90) : (key.productKind == .collector ? 0.90 : 0.94),
+                outsourced: outsourced,
+                outsourcePartner: outsourced ? partner : nil,
+                weeksRemaining: max(1, baseWeeks + (outsourced ? partner.extraWeeks : 0))
+            )
+        )
+    }
+
+    private func progressCompetitorProductization(
+        competitorIndex: Int,
+        notes: inout [String]
+    ) {
+        guard competitors.indices.contains(competitorIndex) else { return }
+        for branchIndex in competitors[competitorIndex].branches.indices {
+            for orderIndex in competitors[competitorIndex].branches[branchIndex].productizationQueue.indices {
+                competitors[competitorIndex].branches[branchIndex].productizationQueue[orderIndex].weeksRemaining -= 1
+            }
+            let completed = competitors[competitorIndex].branches[branchIndex].productizationQueue.filter {
+                $0.weeksRemaining <= 0
+            }
+            competitors[competitorIndex].branches[branchIndex].productizationQueue.removeAll {
+                $0.weeksRemaining <= 0
+            }
+            for order in completed {
+                addCompetitorInventory(
+                    competitorIndex: competitorIndex,
+                    branchIndex: branchIndex,
+                    category: order.category,
+                    purpose: order.purpose,
+                    count: order.count,
+                    unitCost: order.unitCost,
+                    quality: order.quality,
+                    productState: order.productState,
+                    marketProductKind: order.marketProductKind
+                )
+                if order.marketProductKind.isNiche {
+                    notes.append("\(competitors[competitorIndex].name)の\(order.marketProductKind.name)商品が完成しました")
+                }
+            }
+        }
+    }
+
+    private func updateMarketEntrants(notes: inout [String]) {
+        var exiting: [Int] = []
+        for index in competitors.indices where competitors[index].isMarketEntrant {
+            if competitors[index].cash < 0 {
+                competitors[index].cashShortageWeeks += 1
+            } else {
+                competitors[index].cashShortageWeeks = 0
+            }
+            let weeklyProfit = competitors[index].branches.reduce(0) { $0 + $1.lastProfit }
+            if weeklyProfit < 0 {
+                competitors[index].unprofitableWeeks += 1
+            } else {
+                competitors[index].unprofitableWeeks = 0
+            }
+            if competitors[index].cashShortageWeeks >= 8 || competitors[index].unprofitableWeeks >= 12 {
+                exiting.append(index)
+            }
+        }
+        for index in exiting.sorted(by: >) {
+            let company = competitors[index]
+            for plotID in company.plotIDs {
+                if let plotIndex = plots.firstIndex(where: { $0.id == plotID }) {
+                    plots[plotIndex].occupant = .available
+                }
+            }
+            competitors.remove(at: index)
+            let event = CityEvent(
+                turn: turn + 1,
+                kind: .competitorExit,
+                title: "\(company.name)が市場撤退",
+                detail: "創業資金を使い切り、ニッチ市場から撤退しました",
+                isPositive: true
+            )
+            recordCityEvent(event)
+            notes.append(event.detail)
+        }
+
+        guard turn >= 8,
+              turn.isMultiple(of: 4),
+              competitors.filter(\.isMarketEntrant).count < 2 else { return }
+        let candidates = segmentMarkets.compactMap { key, state -> MarketSegmentKey? in
+            let recent = state.recentFourWeeks
+            let averageUnmet = Double(recent.reduce(0) { $0 + $1.unmetDemand }) / Double(max(1, recent.count))
+            guard key.productKind.isNiche,
+                  state.blueOceanWeeks >= 8,
+                  recent.count >= 4,
+                  averageUnmet >= 1,
+                  segmentMarginRate(for: key.productKind) >= 0.12,
+                  competingInventory(for: key) == 0 else { return nil }
+            return key
+        }.sorted {
+            let lhs = segmentMarkets[$0]?.recentFourWeeks.reduce(0) { $0 + $1.unmetDemand } ?? 0
+            let rhs = segmentMarkets[$1]?.recentFourWeeks.reduce(0) { $0 + $1.unmetDemand } ?? 0
+            return lhs > rhs
+        }
+        guard let key = candidates.first else { return }
+        let occupied = Set(competitors.flatMap(\.plotIDs) + stores.map(\.plotID))
+        let availablePlots = plots.filter {
+            $0.district == key.district
+                && !occupied.contains($0.id)
+                && isAvailable($0.occupant)
+                && $0.development == nil
+                && $0.structure != .vacant
+        }
+        guard let candidate = availablePlots.min(by: { $0.price < $1.price }),
+              let plotIndex = plots.firstIndex(where: { $0.id == candidate.id }) else { return }
+
+        let entrantNumber = competitors.filter(\.isMarketEntrant).count + 1
+        let startupCapital = max(
+            6_000,
+            candidate.price + StoreType.standard.buildCost
+                + Int(Double(key.category.purchaseCost) * segmentCapitalMultiplier(for: key.productKind))
+                + 1_200
+        )
+        var entrant = Competitor(
+            name: entrantNumber == 1 ? "ブルーウェーブ商会" : "ニッチモータース",
+            strategy: "\(key.productKind.name)の専門参入",
+            colorHex: entrantNumber == 1 ? "19A89D" : "D04D86",
+            cash: startupCapital,
+            plotIDs: [],
+            strength: 0.78,
+            category: key.category,
+            salesAbility: 58,
+            procurementAbility: 62,
+            researchAbility: 72,
+            serviceAbility: 55
+        )
+        entrant.cash -= candidate.price + StoreType.standard.buildCost
+        entrant.isMarketEntrant = true
+        entrant.segmentResponseWeeks[key] = 8
+        entrant.branches = [
+            CompetitorBranch(
+                plotID: candidate.id,
+                capacity: 16,
+                inventory: [],
+                priceIndex: 1.08,
+                advertising: 55,
+                reputation: 0.56,
+                facilities: [],
+                marketPolicy: StoreMarketPolicy(
+                    priorityCategories: [key.category],
+                    targetPurpose: key.purpose,
+                    acceptedConditions: [.normal, .rough, .faulty]
+                ),
+                expertise: BusinessExpertise(),
+                lastRevenue: 0,
+                lastProfit: 0
+            )
+        ]
+        competitors.append(entrant)
+        plots[plotIndex].occupant = .competitor(name: entrant.name)
+        startCompetitorProductization(
+            competitorIndex: competitors.count - 1,
+            branchIndex: 0,
+            key: key
+        )
+        let event = CityEvent(
+            turn: turn + 1,
+            kind: .competitorEntry,
+            title: "小規模競合が新規参入",
+            detail: "\(entrant.name)が\(key.name)のブルーオーシャンへ参入しました",
+            district: key.district,
+            plotID: candidate.id,
+            isPositive: false
+        )
+        recordCityEvent(event)
+        notes.append(event.detail)
     }
 
     private func progressPriceWars(notes: inout [String]) {
@@ -4411,7 +5191,9 @@ final class GameEngine: ObservableObject {
                     continue
                 }
                 let before = Int((stores[storeIndex].inventory[batchIndex].quality * 100).rounded())
-                let cap = stores[storeIndex].inventory[batchIndex].isRareClassic ? 90 : 94
+                let cap = project.outsourced
+                    ? (stores[storeIndex].inventory[batchIndex].isRareClassic ? 86 : 90)
+                    : (stores[storeIndex].inventory[batchIndex].isRareClassic ? 90 : 94)
                 let after = min(cap, before + project.qualityGain)
                 stores[storeIndex].inventory[batchIndex].quality = Double(after) / 100.0
                 stores[storeIndex].inventory[batchIndex].condition = VehicleConditionProfile(exterior: after, interior: after, mechanical: after)
@@ -4431,15 +5213,16 @@ final class GameEngine: ObservableObject {
                     category: stores[storeIndex].inventory[batchIndex].category,
                     purpose: stores[storeIndex].inventory[batchIndex].productState.purpose,
                     project: project.kind,
-                    points: 2
+                    points: project.outsourced ? 1 : 2
                 )
                 companyExpertise.add(
                     category: stores[storeIndex].inventory[batchIndex].category,
                     purpose: stores[storeIndex].inventory[batchIndex].productState.purpose,
                     project: project.kind,
-                    points: 2
+                    points: project.outsourced ? 1 : 2
                 )
-                if let technicianID = stores[storeIndex].employees.filter({ $0.assignment == .service }).max(by: { $0.serviceSkill < $1.serviceSkill })?.id {
+                if !project.outsourced,
+                   let technicianID = stores[storeIndex].employees.filter({ $0.assignment == .service }).max(by: { $0.serviceSkill < $1.serviceSkill })?.id {
                     awardEmployeeExperience(employeeID: technicianID, storeIndex: storeIndex, focus: .service, successful: true)
                     updateEmployeePerformance(employeeID: technicianID, storeIndex: storeIndex) { $0.servicesCompleted += 1 }
                 }
@@ -4687,7 +5470,9 @@ final class GameEngine: ObservableObject {
                     serviceScore: reviewService
                 )
                 guard succeeded else {
-                    competitorFulfillsBuyerLead(lead)
+                    if !competitorFulfillsBuyerLead(lead) {
+                        registerSegmentUnmet(segmentKey(for: lead))
+                    }
                     continue
                 }
 
@@ -4730,6 +5515,12 @@ final class GameEngine: ObservableObject {
                 )
                 stores[storeIndex].expertise.add(category: category, purpose: lead.purpose, points: 1)
                 companyExpertise.add(category: category, purpose: lead.purpose, points: 1)
+                registerPlayerSegmentSale(
+                    storeID: lead.storeID,
+                    segmentKey(for: lead),
+                    revenue: preview.price,
+                    cost: unitCost
+                )
                 scheduleCustomerClaimIfNeeded(for: soldVehicle, customerID: lead.id, storeID: storeID, salePrice: preview.price, seed: seed + 409)
             }
         }
@@ -4972,16 +5763,66 @@ final class GameEngine: ObservableObject {
     private func resolveAutomaticService(for storeIndex: Int) {
         guard stores.indices.contains(storeIndex), stores[storeIndex].autoService else { return }
         let storeID = stores[storeIndex].id
-        let maximumStarts = max(1, stores[storeIndex].weeklyWorkshopLabor)
+        func projectKind(for batch: InventoryBatch) -> WorkshopProjectKind? {
+            if batch.fault != .none { return .repair }
+            let purpose = stores[storeIndex].marketPolicy.targetPurpose
+            if purpose == .camper,
+               batch.category == .minivan,
+               batch.productState != .camper {
+                return .camperConversion
+            }
+            if [.work, .corporate].contains(purpose),
+               [.minivan, .commercial, .pickup].contains(batch.category),
+               batch.productState != .workCargo {
+                return .workConversion
+            }
+            if purpose == .outdoor,
+               [.suv, .pickup, .minivan].contains(batch.category),
+               batch.productState != .outdoor {
+                return .outdoorConversion
+            }
+            let threshold = switch stores[storeIndex].servicePolicy {
+            case .cost: 70
+            case .balanced: 80
+            case .quality: 90
+            }
+            guard Int((batch.quality * 100).rounded()) < threshold else { return nil }
+            return batch.productState == .stock ? .basicService : .refurbishment
+        }
+        let outsourceStarts = OutsourcePartnerKind.allCases.reduce(0) {
+            $0 + remainingOutsourceCapacity(for: $1)
+        }
+        let maximumStarts = max(
+            1,
+            stores[storeIndex].workshopBays + outsourceStarts
+        )
         for _ in 0..<maximumStarts {
             let candidates = stores[storeIndex].inventory.filter { batch in
-                guard batch.count > 0, !batch.isInWorkshop, !batch.isReserved else { return false }
-                let threshold = switch stores[storeIndex].servicePolicy { case .cost: 70; case .balanced: 80; case .quality: 90 }
-                return batch.fault != .none || Int((batch.quality * 100).rounded()) < threshold
+                batch.count > 0
+                    && !batch.isInWorkshop
+                    && !batch.isReserved
+                    && projectKind(for: batch) != nil
+            }.sorted { $0.quality < $1.quality }
+            let viable = candidates.compactMap { batch -> (InventoryBatch, WorkshopProjectPreview)? in
+                guard let kind = projectKind(for: batch) else { return nil }
+                guard let preview = workshopProjectPreview(
+                    storeID: storeID,
+                    inventoryID: batch.id,
+                    kind: kind
+                ) else { return nil }
+                if preview.outsourced {
+                    let totalCost = batch.averageCost + preview.cost
+                    guard preview.projectedSalePrice >= Int(Double(totalCost) * 1.05) else { return nil }
+                }
+                return (batch, preview)
             }
-            guard let batch = candidates.min(by: { $0.quality < $1.quality }) else { break }
-            let kind: WorkshopProjectKind = batch.fault == .none ? .basicService : .repair
-            guard startWorkshopProject(storeID: storeID, inventoryID: batch.id, kind: kind) else { break }
+            guard let selected = viable.first else { break }
+            guard startWorkshopProject(
+                storeID: storeID,
+                inventoryID: selected.0.id,
+                kind: selected.1.kind,
+                fulfillment: selected.1.fulfillmentMode
+            ) else { break }
         }
     }
 
@@ -5029,7 +5870,9 @@ final class GameEngine: ObservableObject {
             let missedSellers = missedSellerCases.count
             for lead in missedBuyerLeads {
                 recordUnattendedReview(customerID: lead.id, storeID: store.id, channel: .buyer)
-                competitorFulfillsBuyerLead(lead)
+                if !competitorFulfillsBuyerLead(lead) {
+                    registerSegmentUnmet(segmentKey(for: lead))
+                }
             }
             for item in missedSellerCases {
                 recordUnattendedReview(customerID: item.id, storeID: store.id, channel: .seller)
@@ -5326,10 +6169,24 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func addCompetitorInventory(competitorIndex: Int, branchIndex: Int, category: VehicleCategory, purpose: CustomerPurpose, count: Int, unitCost: Int, quality: Double, productState: VehicleProductState) {
+    private func addCompetitorInventory(
+        competitorIndex: Int,
+        branchIndex: Int,
+        category: VehicleCategory,
+        purpose: CustomerPurpose,
+        count: Int,
+        unitCost: Int,
+        quality: Double,
+        productState: VehicleProductState,
+        marketProductKind: MarketProductKind? = nil
+    ) {
         guard competitors.indices.contains(competitorIndex), competitors[competitorIndex].branches.indices.contains(branchIndex), count > 0 else { return }
+        let resolvedProductKind = marketProductKind ?? MarketProductKind.resolve(productState: productState, isRareClassic: false)
         if let bucketIndex = competitors[competitorIndex].branches[branchIndex].inventory.firstIndex(where: {
-            $0.category == category && $0.purpose == purpose && $0.productState == productState
+            $0.category == category
+                && $0.purpose == purpose
+                && $0.productState == productState
+                && $0.marketProductKind == resolvedProductKind
         }) {
             let old = competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex]
             let newCount = old.count + count
@@ -5337,7 +6194,15 @@ final class GameEngine: ObservableObject {
             competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].averageQuality = (old.averageQuality * Double(old.count) + quality * Double(count)) / Double(max(1, newCount))
             competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].count = newCount
         } else {
-            competitors[competitorIndex].branches[branchIndex].inventory.append(CompetitorInventoryBucket(category: category, purpose: purpose, count: count, averageCost: unitCost, averageQuality: quality, productState: productState))
+            competitors[competitorIndex].branches[branchIndex].inventory.append(CompetitorInventoryBucket(
+                category: category,
+                purpose: purpose,
+                count: count,
+                averageCost: unitCost,
+                averageQuality: quality,
+                productState: productState,
+                marketProductKind: resolvedProductKind
+            ))
         }
     }
 
@@ -5447,7 +6312,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -5540,33 +6405,244 @@ final class GameEngine: ObservableObject {
         )
     }
 
+    private func nicheCategories(for kind: MarketProductKind) -> [VehicleCategory] {
+        switch kind {
+        case .repaired:
+            return VehicleCategory.allCases
+        case .workCargo:
+            return [.commercial, .minivan, .pickup]
+        case .outdoor:
+            return [.suv, .pickup, .minivan]
+        case .camper:
+            return [.minivan]
+        case .refurbished:
+            return [.imported]
+        case .collector:
+            return Array(Set(VehicleCatalog.rareClassics.map(\.category))).sorted { $0.rawValue < $1.rawValue }
+        case .standard:
+            return VehicleCategory.allCases
+        }
+    }
+
+    func baseNicheDemandShare(for kind: MarketProductKind, in district: DistrictKind) -> Double {
+        switch kind {
+        case .repaired:
+            return 0.07
+        case .workCargo:
+            return [.industrial, .highway].contains(district) ? 0.055 : 0.035
+        case .outdoor:
+            return [.suburb, .highway].contains(district) ? 0.045 : 0.025
+        case .camper:
+            return [.suburb, .highway].contains(district) ? 0.025 : 0.015
+        case .refurbished:
+            return [.downtown, .emerging].contains(district) ? 0.015 : 0.006
+        case .collector:
+            return [.downtown, .emerging].contains(district) ? 0.008 : 0.003
+        case .standard:
+            return 0
+        }
+    }
+
+    private func hasFourWeekNicheDemandFloor(
+        productKind: MarketProductKind,
+        district: DistrictKind
+    ) -> Bool {
+        switch productKind {
+        case .repaired:
+            true
+        case .workCargo:
+            [.industrial, .highway].contains(district)
+        case .outdoor:
+            [.suburb, .highway].contains(district)
+        case .standard, .refurbished, .camper, .collector:
+            false
+        }
+    }
+
+    private func categoryDemandWeight(_ category: VehicleCategory, among categories: [VehicleCategory], in district: DistrictKind) -> Double {
+        let weights = categories.map { max(0.08, vehicleDemand($0, in: district)) }
+        let total = weights.reduce(0, +)
+        guard let index = categories.firstIndex(of: category), total > 0 else { return 0 }
+        return weights[index] / total
+    }
+
+    private func registerSegmentDemand(_ key: MarketSegmentKey) {
+        var record = openSegmentWeek[key] ?? SegmentWeekRecord(turn: turn)
+        record.demand += 1
+        openSegmentWeek[key] = record
+    }
+
+    private func registerSegmentUnmet(_ key: MarketSegmentKey) {
+        var record = openSegmentWeek[key] ?? SegmentWeekRecord(turn: turn)
+        record.unmetDemand += 1
+        openSegmentWeek[key] = record
+    }
+
+    private func registerPlayerSegmentSale(
+        storeID: UUID,
+        _ key: MarketSegmentKey,
+        revenue: Int,
+        cost: Int
+    ) {
+        var record = openSegmentWeek[key] ?? SegmentWeekRecord(turn: turn)
+        record.playerSales += 1
+        record.playerRevenue += revenue
+        record.playerCost += cost
+        openSegmentWeek[key] = record
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }) else { return }
+        var records = stores[storeIndex].segmentRecords[key] ?? []
+        if let lastIndex = records.indices.last, records[lastIndex].turn == turn {
+            records[lastIndex].playerSales += 1
+            records[lastIndex].playerRevenue += revenue
+            records[lastIndex].playerCost += cost
+        } else {
+            records.append(SegmentWeekRecord(
+                turn: turn,
+                playerSales: 1,
+                playerRevenue: revenue,
+                playerCost: cost
+            ))
+        }
+        stores[storeIndex].segmentRecords[key] = Array(records.suffix(16))
+    }
+
+    private func registerCompetitorSegmentSale(
+        competitorIndex: Int,
+        _ key: MarketSegmentKey,
+        revenue: Int,
+        cost: Int
+    ) {
+        var record = openSegmentWeek[key] ?? SegmentWeekRecord(turn: turn)
+        record.competitorSales += 1
+        record.competitorRevenue += revenue
+        record.competitorCost += cost
+        openSegmentWeek[key] = record
+        guard competitors.indices.contains(competitorIndex) else { return }
+        var records = competitors[competitorIndex].segmentRecords[key] ?? []
+        if let lastIndex = records.indices.last, records[lastIndex].turn == turn {
+            records[lastIndex].competitorSales += 1
+            records[lastIndex].competitorRevenue += revenue
+            records[lastIndex].competitorCost += cost
+        } else {
+            records.append(SegmentWeekRecord(
+                turn: turn,
+                competitorSales: 1,
+                competitorRevenue: revenue,
+                competitorCost: cost
+            ))
+        }
+        competitors[competitorIndex].segmentRecords[key] = Array(records.suffix(16))
+    }
+
+    private func segmentKey(for lead: BuyerLead) -> MarketSegmentKey {
+        let district = stores.first(where: { $0.id == lead.storeID })
+            .flatMap { plot(id: $0.plotID)?.district } ?? .suburb
+        return MarketSegmentKey(
+            district: district,
+            category: lead.desiredCategory ?? .compact,
+            purpose: lead.purpose,
+            productKind: lead.desiredProductKind
+        )
+    }
+
+    private func generateSegmentBuyer(
+        district: DistrictKind,
+        category: VehicleCategory,
+        purpose: CustomerPurpose,
+        productKind: MarketProductKind,
+        seed: Int
+    ) {
+        let key = MarketSegmentKey(district: district, category: category, purpose: purpose, productKind: productKind)
+        registerSegmentDemand(key)
+        let preference: BuyerVehiclePreference = .category(category)
+        guard let storeID = assignedStore(
+            in: district,
+            buyerPreference: preference,
+            buyerPurpose: purpose,
+            buyerProductKind: productKind,
+            sellerCategory: nil,
+            seed: seed
+        ) else {
+            if !competitorHandlesBuyer(category: category, purpose: purpose, productKind: productKind, district: district, seed: seed) {
+                registerSegmentUnmet(key)
+            }
+            return
+        }
+        buyerLeads.append(makeBuyerLead(
+            storeID: storeID,
+            preference: preference,
+            purpose: purpose,
+            productKind: productKind,
+            seed: seed
+        ))
+        if let storeIndex = stores.firstIndex(where: { $0.id == storeID }) {
+            stores[storeIndex].weeklyBuyerArrivals = stores[storeIndex].buyerArrivalsThisWeek + 1
+        }
+    }
+
     private func generateWeeklyCustomerLeads(forceTutorialStoreID: UUID? = nil) {
         buyerLeads.removeAll()
         purchaseCases.removeAll()
+        openSegmentWeek = [:]
         for index in stores.indices {
             stores[index].weeklyBuyerArrivals = 0
             stores[index].weeklySellerArrivals = 0
         }
 
         for (districtIndex, kind) in DistrictKind.allCases.enumerated() {
-            for offset in 0..<weeklyBuyerPool(in: kind) {
+            let totalBuyerPool = weeklyBuyerPool(in: kind)
+            let nicheKinds = MarketProductKind.allCases.filter(\.isNiche)
+            let baselineNicheShare = nicheKinds.reduce(0.0) { $0 + baseNicheDemandShare(for: $1, in: kind) }
+            let standardCount = max(0, totalBuyerPool - Int((Double(totalBuyerPool) * baselineNicheShare).rounded()))
+            for offset in 0..<standardCount {
                 let seed = turn * 10_007 + districtIndex * 997 + offset * 61 + 17
                 let preference = leadPreference(in: kind, seed: seed + 23)
                 let purpose = defaultCustomerPurpose(for: preference.category, seed: seed + 29)
-                guard let storeID = assignedStore(in: kind, buyerPreference: preference, buyerPurpose: purpose, sellerCategory: nil, seed: seed) else {
-                    competitorHandlesBuyer(category: preference.category ?? .compact, purpose: purpose, district: kind, seed: seed)
-                    continue
-                }
-                buyerLeads.append(makeBuyerLead(storeID: storeID, preference: preference, purpose: purpose, seed: seed))
-                if let storeIndex = stores.firstIndex(where: { $0.id == storeID }) {
-                    stores[storeIndex].weeklyBuyerArrivals = stores[storeIndex].buyerArrivalsThisWeek + 1
+                generateSegmentBuyer(
+                    district: kind,
+                    category: preference.category ?? .compact,
+                    purpose: purpose,
+                    productKind: .standard,
+                    seed: seed
+                )
+            }
+
+            for (kindIndex, productKind) in nicheKinds.enumerated() {
+                let categories = nicheCategories(for: productKind)
+                for (categoryOffset, category) in categories.enumerated() {
+                    let purpose = productKind.customerPurpose
+                    let key = MarketSegmentKey(district: kind, category: category, purpose: purpose, productKind: productKind)
+                    let expected = Double(totalBuyerPool)
+                        * baseNicheDemandShare(for: productKind, in: kind)
+                        * categoryDemandWeight(category, among: categories, in: kind)
+                        * activeTrendMultiplier(for: key)
+                    var state = segmentMarkets[key] ?? SegmentMarketState()
+                    state.demandCarry += expected
+                    let generated = Int(state.demandCarry.rounded(.down))
+                    state.demandCarry -= Double(generated)
+                    segmentMarkets[key] = state
+                    for offset in 0..<generated {
+                        let seed = turn * 12_011
+                            + districtIndex * 1_103
+                            + kindIndex * 149
+                            + categoryOffset * 47
+                            + offset * 71
+                            + simulationSeed
+                        generateSegmentBuyer(
+                            district: kind,
+                            category: category,
+                            purpose: purpose,
+                            productKind: productKind,
+                            seed: seed
+                        )
+                    }
                 }
             }
 
             for offset in 0..<weeklySellerPool(in: kind) {
                 let seed = turn * 11_003 + districtIndex * 1_009 + offset * 67 + 41
                 let category = sellerCategory(in: kind, seed: seed + 31)
-                guard let storeID = assignedStore(in: kind, buyerPreference: nil, buyerPurpose: nil, sellerCategory: category, seed: seed) else {
+                guard let storeID = assignedStore(in: kind, buyerPreference: nil, buyerPurpose: nil, buyerProductKind: nil, sellerCategory: category, seed: seed) else {
                     competitorHandlesSeller(category: category, district: kind, seed: seed)
                     continue
                 }
@@ -5585,7 +6661,10 @@ final class GameEngine: ObservableObject {
            let storePlot = plot(id: stores[storeIndex].plotID) {
             let category = recommendedCategories(for: storePlot.district).first ?? .compact
             if !buyerLeads.contains(where: { $0.storeID == storeID }) {
-                buyerLeads.append(makeBuyerLead(storeID: storeID, preference: .category(category), seed: storePlot.id * 101 + 7))
+                let purpose = defaultCustomerPurpose(for: category, seed: storePlot.id * 101 + 7)
+                let key = MarketSegmentKey(district: storePlot.district, category: category, purpose: purpose, productKind: .standard)
+                registerSegmentDemand(key)
+                buyerLeads.append(makeBuyerLead(storeID: storeID, preference: .category(category), purpose: purpose, seed: storePlot.id * 101 + 7))
                 stores[storeIndex].weeklyBuyerArrivals = stores[storeIndex].buyerArrivalsThisWeek + 1
             }
             if !purchaseCases.contains(where: { $0.storeID == storeID }) {
@@ -5599,6 +6678,7 @@ final class GameEngine: ObservableObject {
         in kind: DistrictKind,
         buyerPreference: BuyerVehiclePreference?,
         buyerPurpose: CustomerPurpose?,
+        buyerProductKind: MarketProductKind?,
         sellerCategory: VehicleCategory?,
         seed: Int
     ) -> UUID? {
@@ -5622,9 +6702,40 @@ final class GameEngine: ObservableObject {
                 )
             } else {
                 let desiredCategory = buyerPreference?.category
+                let matchingInventory = store.inventory.reduce(0) { total, batch in
+                    guard batch.count > 0, !batch.isInWorkshop, !batch.isReserved,
+                          desiredCategory == nil || batch.category == desiredCategory,
+                          buyerProductKind == nil || marketProductMatches(actual: marketProductKind(for: batch), desired: buyerProductKind!) else {
+                        return total
+                    }
+                    return total + batch.count
+                }
+                let nicheReadiness: Double
+                if buyerProductKind?.isNiche == true {
+                    let policyFit = store.marketPolicy.targetPurpose == buyerPurpose
+                        || store.marketPolicy.priorityCategories.contains(desiredCategory ?? .compact)
+                    nicheReadiness = matchingInventory > 0
+                        ? 1 + min(0.60, Double(matchingInventory) * 0.16)
+                        : (policyFit ? 0.32 : 0.05)
+                } else {
+                    nicheReadiness = 1 + min(0.18, Double(matchingInventory) * 0.03)
+                }
+                let repositioning = store.marketRepositioningWeeks > 0
+                    ? (store.marketRepositioningWeeks == 2 ? 0.60 : 0.80)
+                    : 1.0
+                let desiredKey = MarketSegmentKey(
+                    district: kind,
+                    category: desiredCategory ?? .compact,
+                    purpose: buyerPurpose ?? .general,
+                    productKind: buyerProductKind ?? .standard
+                )
+                let referral = regionalNicheLeaderKey(for: store) == desiredKey ? 1.10 : 1.0
                 weight = storeMarketWeight(store, plot: storePlot)
                     * buyerAttractionFactor(for: store, category: desiredCategory)
                     * (store.marketPolicy.targetPurpose == buyerPurpose ? 1.18 : 0.92)
+                    * nicheReadiness
+                    * repositioning
+                    * referral
             }
             choices.append((store.id, weight))
         }
@@ -5653,31 +6764,50 @@ final class GameEngine: ObservableObject {
         return .normal
     }
 
-    private func competitorHandlesBuyer(category: VehicleCategory, purpose: CustomerPurpose, district: DistrictKind, seed: Int) {
+    @discardableResult
+    private func competitorHandlesBuyer(
+        category: VehicleCategory,
+        purpose: CustomerPurpose,
+        productKind: MarketProductKind,
+        district: DistrictKind,
+        seed: Int
+    ) -> Bool {
         let candidates = competitors.indices.flatMap { competitorIndex in
             competitors[competitorIndex].branches.indices.compactMap { branchIndex -> (Int, Int, Int, Double)? in
                 let branch = competitors[competitorIndex].branches[branchIndex]
                 guard plot(id: branch.plotID)?.district == district,
-                      let bucketIndex = branch.inventory.firstIndex(where: { $0.category == category && $0.count > 0 }) else { return nil }
+                      let bucketIndex = branch.inventory.firstIndex(where: {
+                          $0.category == category
+                              && $0.count > 0
+                              && marketProductMatches(actual: $0.marketProductKind, desired: productKind)
+                      }) else { return nil }
                 let bucket = branch.inventory[bucketIndex]
                 let purposeFit = bucket.purpose == purpose ? 1.18 : 0.88
                 let score = purposeFit * branch.reputation * (1 + Double(branch.advertising) / 600) * (0.85 + competitors[competitorIndex].strength * 0.15)
                 return (competitorIndex, branchIndex, bucketIndex, score)
             }
         }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else { return false }
         let total = candidates.reduce(0.0) { $0 + $1.3 }
         var cursor = transactionRoll(seed: seed + 311) * total
         let selected = candidates.first(where: { candidate in cursor -= candidate.3; return cursor <= 0 }) ?? candidates[0]
         let competitorIndex = selected.0, branchIndex = selected.1, bucketIndex = selected.2
         let bucket = competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex]
         let purposeFactor = bucket.purpose == purpose ? 1.08 : 0.96
-        let price = max(25, Int(Double(bucket.averageCost) * (1.22 + competitors[competitorIndex].strength * 0.10) * competitors[competitorIndex].branches[branchIndex].priceIndex * purposeFactor))
+        let key = MarketSegmentKey(district: district, category: category, purpose: purpose, productKind: productKind)
+        let price = max(25, Int(Double(bucket.averageCost) * (1.22 + competitors[competitorIndex].strength * 0.10) * competitors[competitorIndex].branches[branchIndex].priceIndex * purposeFactor * segmentWillingnessFactor(for: key)))
         competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].count -= 1
         competitors[competitorIndex].cash += price
         competitors[competitorIndex].branches[branchIndex].currentRevenue += price
         competitors[competitorIndex].branches[branchIndex].currentProfit += price - bucket.averageCost
         competitors[competitorIndex].expertise.add(category: category, purpose: purpose, points: 1)
+        registerCompetitorSegmentSale(
+            competitorIndex: competitorIndex,
+            key,
+            revenue: price,
+            cost: bucket.averageCost
+        )
+        return true
     }
 
     private func competitorHandlesSeller(category: VehicleCategory, district: DistrictKind, seed: Int) {
@@ -5701,12 +6831,15 @@ final class GameEngine: ObservableObject {
         competitors[selected.0].expertise.add(category: category, purpose: .general, source: .storePurchase, points: 1)
     }
 
-    private func competitorFulfillsBuyerLead(_ lead: BuyerLead) {
+    @discardableResult
+    private func competitorFulfillsBuyerLead(_ lead: BuyerLead) -> Bool {
         guard let offer = lead.competitorOffer,
-              let competitorIndex = competitors.firstIndex(where: { $0.id == offer.competitorID }) else { return }
+              let competitorIndex = competitors.firstIndex(where: { $0.id == offer.competitorID }) else { return false }
         for branchIndex in competitors[competitorIndex].branches.indices {
             guard let bucketIndex = competitors[competitorIndex].branches[branchIndex].inventory.firstIndex(where: {
-                $0.category == offer.category && $0.count > 0
+                $0.category == offer.category
+                    && $0.count > 0
+                    && marketProductMatches(actual: $0.marketProductKind, desired: lead.desiredProductKind)
             }) else { continue }
             let cost = competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].averageCost
             competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].count -= 1
@@ -5714,8 +6847,17 @@ final class GameEngine: ObservableObject {
             competitors[competitorIndex].branches[branchIndex].currentRevenue += offer.price
             competitors[competitorIndex].branches[branchIndex].currentProfit += offer.price - cost
             competitors[competitorIndex].expertise.add(category: offer.category, purpose: lead.purpose, points: 1)
-            return
+            let district = plot(id: competitors[competitorIndex].branches[branchIndex].plotID)?.district ?? .suburb
+            let key = MarketSegmentKey(district: district, category: offer.category, purpose: lead.purpose, productKind: lead.desiredProductKind)
+            registerCompetitorSegmentSale(
+                competitorIndex: competitorIndex,
+                key,
+                revenue: offer.price,
+                cost: cost
+            )
+            return true
         }
+        return false
     }
 
     private func leadCategory(in kind: DistrictKind, seed: Int) -> VehicleCategory {
@@ -5770,12 +6912,20 @@ final class GameEngine: ObservableObject {
         return .category(leadCategory(in: kind, seed: seed))
     }
 
-    private func makeBuyerLead(storeID: UUID, preference: BuyerVehiclePreference, purpose requestedPurpose: CustomerPurpose? = nil, seed: Int) -> BuyerLead {
+    private func makeBuyerLead(
+        storeID: UUID,
+        preference: BuyerVehiclePreference,
+        purpose requestedPurpose: CustomerPurpose? = nil,
+        productKind: MarketProductKind = .standard,
+        seed: Int
+    ) -> BuyerLead {
         let storePlot = stores.first(where: { $0.id == storeID }).flatMap { plot(id: $0.plotID) }
         let localDistrict = storePlot?.district ?? .suburb
         let localIncome = storePlot.map { district(for: $0).incomeIndex } ?? 1.0
         let incomeBudgetFactor = min(1.24, max(0.84, 1 + (localIncome - 1) * 0.46))
-        let resolvedPreference = detailedBuyerPreference(from: preference, seed: seed + 401)
+        let resolvedPreference = productKind == .collector
+            ? collectorBuyerPreference(category: preference.category ?? .imported, seed: seed + 401)
+            : detailedBuyerPreference(from: preference, seed: seed + 401)
         let budget: Int
         let minimumQuality: Double
         let minimumModelYear: Int
@@ -5825,11 +6975,20 @@ final class GameEngine: ObservableObject {
             : nil
         let desiredCategory = resolvedPreference.category
         let purpose = requestedPurpose ?? defaultCustomerPurpose(for: desiredCategory, seed: seed + 257)
+        let nicheBudgetFactor: Double = switch productKind {
+        case .standard: 1
+        case .repaired: 1.04
+        case .refurbished: 1.08
+        case .camper: 1.30
+        case .workCargo: 1.22
+        case .outdoor: 1.15
+        case .collector: 1.32
+        }
         return BuyerLead(
             id: UUID(),
             storeID: storeID,
             preference: resolvedPreference,
-            budget: budget,
+            budget: Int(Double(budget) * nicheBudgetFactor),
             minimumQuality: minimumQuality,
             minimumModelYear: minimumModelYear,
             maximumMileage: maximumMileage,
@@ -5837,8 +6996,16 @@ final class GameEngine: ObservableObject {
             generatedTurn: turn,
             tradeInVehicle: tradeInVehicle,
             purpose: purpose,
-            competitorOffer: bestCompetitorSaleOffer(category: desiredCategory ?? .compact, purpose: purpose, district: localDistrict)
+            desiredProductKind: productKind,
+            competitorOffer: bestCompetitorSaleOffer(category: desiredCategory ?? .compact, purpose: purpose, district: localDistrict, productKind: productKind)
         )
+    }
+
+    private func collectorBuyerPreference(category: VehicleCategory, seed: Int) -> BuyerVehiclePreference {
+        let candidates = VehicleCatalog.rareClassics.filter { $0.category == category }
+        let pool = candidates.isEmpty ? VehicleCatalog.rareClassics : candidates
+        guard !pool.isEmpty else { return .category(category) }
+        return .exactModel(pool[abs(seed) % pool.count].id)
     }
 
     private func defaultCustomerPurpose(for category: VehicleCategory?, seed: Int) -> CustomerPurpose {

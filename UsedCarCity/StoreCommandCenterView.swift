@@ -790,7 +790,11 @@ private struct StoreSceneHeader: View {
                     Text("\(plot.district.name)・\(plot.localNumber)番区画・\(store.type.name)").font(.caption).foregroundStyle(.white.opacity(0.65))
                 }
                 Spacer()
-                CapsuleLabel(text: game.derivedBusinessName(for: store), color: GameTheme.mint, icon: "car.2.fill")
+                CapsuleLabel(
+                    text: game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store),
+                    color: GameTheme.mint,
+                    icon: game.regionalNicheLeaderLabel(for: store) == nil ? "car.2.fill" : "crown.fill"
+                )
             }
             .padding(15).background(GameTheme.ink)
             ZStack(alignment: .top) {
@@ -1844,6 +1848,7 @@ private struct MarketPanel: View {
 
     var body: some View {
         VStack(spacing: 14) {
+            SegmentOpportunityPanel(store: store, district: plot.district)
             ProcurementPanel(store: store, plot: plot)
             VehicleCatalogPanel(store: store, district: plot.district)
             VStack(alignment: .leading, spacing: 12) {
@@ -1907,6 +1912,131 @@ private struct MarketPanel: View {
     private var marketSubtitle: String {
         let range = game.marketForecastRange(value: game.weeklyBuyerPool(in: plot.district), storeID: store.id)
         return "週\(range.lowerBound)〜\(range.upperBound)台の購入需要予測を自社と競合で奪い合います"
+    }
+}
+
+private enum OpportunityListFilter: String, CaseIterable, Identifiable {
+    case early = "序盤向け"
+    case capital = "資本型"
+    case all = "全市場"
+
+    var id: String { rawValue }
+}
+
+private struct SegmentOpportunityPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    let district: DistrictKind
+    @State private var filter: OpportunityListFilter = .early
+
+    private var reports: [SegmentOpportunityReport] {
+        let all = game.segmentOpportunityReports(storeID: store.id, district: district)
+        switch filter {
+        case .early:
+            return all.filter { $0.capitalTier == "序盤向け" }
+        case .capital:
+            return all.filter { $0.capitalTier == "資本型" || $0.capitalTier == "後半" }
+        case .all:
+            return all
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(
+                title: "セグメント商機",
+                subtitle: "地区×車種×用途×商品を比較。調査担当が予測幅と先読み期間を改善します"
+            )
+            Picker("商機", selection: $filter) {
+                ForEach(OpportunityListFilter.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            Label(
+                "トレンド発生判定は4週ごと22%・同時最大2件。需要ピークは1.8〜2.4倍",
+                systemImage: "waveform.path.ecg"
+            )
+            .font(.caption2.bold())
+            .foregroundStyle(GameTheme.orange)
+
+            ForEach(reports.prefix(filter == .all ? 10 : 6)) { report in
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(report.archetype)｜\(report.key.category.name)")
+                                .font(.subheadline.bold())
+                            Text("\(report.key.purpose.name)・\(report.key.productKind.name)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        CapsuleLabel(
+                            text: report.status.name,
+                            color: statusColor(report.status),
+                            icon: statusIcon(report.status)
+                        )
+                    }
+                    HStack {
+                        ProposalMetric(
+                            title: "4週需要",
+                            value: "\(report.fourWeekDemand.lowerBound)〜\(report.fourWeekDemand.upperBound)人"
+                        )
+                        ProposalMetric(
+                            title: "未充足",
+                            value: "\(report.unmetDemand.lowerBound)〜\(report.unmetDemand.upperBound)人"
+                        )
+                        ProposalMetric(
+                            title: "推定粗利/台",
+                            value: "\(report.estimatedUnitMargin.lowerBound.currency)〜\(report.estimatedUnitMargin.upperBound.currency)"
+                        )
+                    }
+                    Text(
+                        "競合在庫 \(report.competingInventory.lowerBound)〜\(report.competingInventory.upperBound)台"
+                            + "・必要資金 \(report.requiredWorkingCapital.lowerBound.currency)〜\(report.requiredWorkingCapital.upperBound.currency)"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    Text(report.competingStores.isEmpty
+                        ? "対応競合なし・\(report.readiness)"
+                        : "競合 \(report.competingStores.joined(separator: "・"))・\(report.readiness)")
+                        .font(.caption2.bold())
+                        .foregroundStyle(report.competingStores.isEmpty ? GameTheme.teal : .secondary)
+                    if let signal = report.trendSignal {
+                        Label(
+                            "\(signal.kind.name)予測：第\(signal.startRange.lowerBound)〜\(signal.startRange.upperBound)週"
+                                + "・確信度\(signal.confidenceRange.lowerBound)〜\(signal.confidenceRange.upperBound)%",
+                            systemImage: "binoculars.fill"
+                        )
+                        .font(.caption2.bold())
+                        .foregroundStyle(GameTheme.orange)
+                    }
+                }
+                .padding(10)
+                .background(statusColor(report.status).opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 11))
+            }
+        }
+        .gameCard()
+    }
+
+    private func statusColor(_ status: SegmentMarketStatus) -> Color {
+        switch status {
+        case .blueOcean: GameTheme.teal
+        case .growing: GameTheme.orange
+        case .balanced: .blue
+        case .crowded: GameTheme.danger
+        case .shrinking: .gray
+        }
+    }
+
+    private func statusIcon(_ status: SegmentMarketStatus) -> String {
+        switch status {
+        case .blueOcean: "water.waves"
+        case .growing: "chart.line.uptrend.xyaxis"
+        case .balanced: "equal.circle.fill"
+        case .crowded: "person.3.fill"
+        case .shrinking: "arrow.down.right"
+        }
     }
 }
 

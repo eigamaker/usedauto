@@ -143,7 +143,8 @@ private struct StoreOperatingCard: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.name).font(.headline).foregroundStyle(GameTheme.ink)
-                    Text(store.hasManager ? "\(game.derivedBusinessName(for: store))・\(store.marketPolicy.targetPurpose.name)狙い・店長あり" : "\(game.derivedBusinessName(for: store))・オーナー直営")
+                    let businessLabel = game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store)
+                    Text(store.hasManager ? "\(businessLabel)・\(store.marketPolicy.targetPurpose.name)狙い・店長あり" : "\(businessLabel)・オーナー直営")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
