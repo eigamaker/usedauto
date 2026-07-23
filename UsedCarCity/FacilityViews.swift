@@ -548,7 +548,15 @@ private struct WorkshopContent: View {
     @State private var message: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "整備・商品化キュー", subtitle: "整備士の週次工数とベイ数の両方が処理量を制約します")
+            SectionTitle(title: "整備・商品化キュー", subtitle: "内製と外注を原価・納期・品質上限で比較。外注は全店舗で週次枠を共有します")
+            HStack {
+                ForEach(OutsourcePartnerKind.allCases) { partner in
+                    MetricView(
+                        title: partner.name,
+                        value: "残\(game.remainingOutsourceCapacity(for: partner))/\(partner.weeklyCapacity)"
+                    )
+                }
+            }
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 6) {
                     let inHouseProjects = store.inventory.filter { $0.workshopProject?.outsourced == false }.count
@@ -592,21 +600,39 @@ private struct WorkshopContent: View {
                                     }
                                 }
                             } else {
-                                let previews = WorkshopProjectKind.allCases.compactMap { kind in
-                                    game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: kind)
+                                let previews = WorkshopProjectKind.allCases.flatMap { kind in
+                                    WorkFulfillmentMode.allCases
+                                        .filter { $0 != .automatic }
+                                        .compactMap { mode in
+                                            game.workshopProjectPreview(
+                                                storeID: store.id,
+                                                inventoryID: batch.id,
+                                                kind: kind,
+                                                fulfillment: mode
+                                            )
+                                        }
                                 }
                                 if previews.isEmpty {
-                                    Text("対応設備・整備担当・車種条件を確認してください").font(.caption2).foregroundStyle(.secondary)
+                                    Text("外注枠、現金、車種条件を確認してください").font(.caption2).foregroundStyle(.secondary)
                                 } else {
                                     Menu {
-                                        ForEach(previews, id: \.kind) { preview in
-                                            Button("\(preview.kind.name)：\(preview.cost.currency)・\(preview.requiredWork)工数\(preview.outsourced ? "・外注" : "")") {
-                                                message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: preview.kind)
-                                                    ? "\(preview.kind.name)を開始しました。販売目安は\(preview.projectedSalePrice.currency)です。"
+                                        ForEach(Array(previews.enumerated()), id: \.offset) { _, preview in
+                                            Button(
+                                                "\(preview.kind.name)・\(preview.fulfillmentMode.name)"
+                                                    + "｜原価\(preview.cost.currency)・\(preview.estimatedWeeks)週"
+                                                    + "・品質上限\(preview.qualityCap)・売価目安\(preview.projectedSalePrice.currency)"
+                                            ) {
+                                                message = game.startWorkshopProject(
+                                                    storeID: store.id,
+                                                    inventoryID: batch.id,
+                                                    kind: preview.kind,
+                                                    fulfillment: preview.fulfillmentMode
+                                                )
+                                                    ? "\(preview.kind.name)を\(preview.fulfillmentMode.name)で開始しました。販売目安は\(preview.projectedSalePrice.currency)です。"
                                                     : "現金、ベイ、担当者を確認してください。"
                                             }.disabled(game.cash < preview.cost)
                                         }
-                                    } label: { Label("商品化を追加", systemImage: "hammer.fill") }
+                                    } label: { Label("内製・外注を比較", systemImage: "arrow.left.arrow.right") }
                                     .font(.caption2.bold()).buttonStyle(.borderedProminent).tint(.purple)
                                 }
                             }

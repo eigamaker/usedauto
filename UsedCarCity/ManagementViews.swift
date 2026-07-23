@@ -135,7 +135,12 @@ private struct CompetitorsCard: View {
                     HStack(spacing: 11) {
                         Image(systemName: "flag.fill").foregroundStyle(GameTheme.orange).frame(width: 38, height: 38).background(GameTheme.orange.opacity(0.1)).clipShape(Circle())
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(competitor.name).font(.subheadline.bold())
+                            HStack(spacing: 6) {
+                                Text(competitor.name).font(.subheadline.bold())
+                                if competitor.isMarketEntrant {
+                                    CapsuleLabel(text: "新規参入", color: .purple, icon: "sparkles")
+                                }
+                            }
                             Text("\(competitor.strategy)・\(competitor.plotIDs.count)店舗・勢力\(Int(competitor.strength * 100))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
@@ -150,7 +155,9 @@ private struct CompetitorsCard: View {
                         .font(.caption2.bold()).foregroundStyle(GameTheme.navy)
                     ForEach(competitor.branches) { branch in
                         let district = game.plot(id: branch.plotID)?.district ?? .suburb
-                        let categoryText = branch.inventory.filter { $0.count > 0 }.map { "\($0.category.name)/\($0.purpose.name) \($0.count)" }.joined(separator: "・")
+                        let categoryText = branch.inventory.filter { $0.count > 0 }.map {
+                            "\($0.category.name)/\($0.marketProductKind.name) \($0.count)"
+                        }.joined(separator: "・")
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
                                 Text("\(district.shortName)店｜シェア\(Int(game.competitorMarketShare(competitor, in: district) * 100))%")
@@ -159,13 +166,44 @@ private struct CompetitorsCard: View {
                             }
                             Text("在庫 \(categoryText.isEmpty ? "なし" : categoryText)｜設備 \(branch.facilities.map(\.name).joined(separator: "・"))")
                             Text("直近 売上\(branch.lastRevenue.currency)・利益\(branch.lastProfit.currency)")
+                            if !branch.productizationQueue.isEmpty {
+                                Text(
+                                    "商品化中 "
+                                        + branch.productizationQueue.map {
+                                            "\($0.marketProductKind.name) \($0.outsourced ? "外注" : "内製")・残\($0.weeksRemaining)週"
+                                        }.joined(separator: "／")
+                                )
+                                .foregroundStyle(.purple)
+                            }
                         }
                         .font(.caption2).foregroundStyle(.secondary)
                     }
-                    let following = competitor.profitableSegmentWeeks.filter { $0.value >= 4 }.sorted { $0.value > $1.value }
+                    let following = competitor.segmentResponseWeeks.filter { $0.value >= 4 }.sorted { $0.value > $1.value }
                     if !following.isEmpty {
-                        Label("追随兆候：\(following.prefix(3).map { "\($0.key.name) \($0.value)週" }.joined(separator: "・"))", systemImage: "eye.trianglebadge.exclamationmark.fill")
+                        Label(
+                            "追随段階："
+                                + following.prefix(3).map {
+                                    let phase = $0.value >= 12 ? "設備投資" : $0.value >= 8 ? "広告・商品化" : "検証中"
+                                    return "\($0.key.category.name)/\($0.key.productKind.name) \(phase)"
+                                }.joined(separator: "・"),
+                            systemImage: "eye.trianglebadge.exclamationmark.fill"
+                        )
                             .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
+                        Text(
+                            following.prefix(3).map { item in
+                                let records = competitor.segmentRecords[item.key] ?? []
+                                let revenue = records.suffix(4).reduce(0) { $0 + $1.competitorRevenue }
+                                let cost = records.suffix(4).reduce(0) { $0 + $1.competitorCost }
+                                let companySales = records.suffix(4).reduce(0) { $0 + $1.competitorSales }
+                                let marketSales = game.segmentMarkets[item.key]?.recentFourWeeks.reduce(0) {
+                                    $0 + $1.fulfilled
+                                } ?? 0
+                                let share = marketSales > 0 ? companySales * 100 / marketSales : 0
+                                return "\(item.key.productKind.name)：4週粗利\((revenue - cost).currency)・成約シェア\(share)%"
+                            }.joined(separator: "／")
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     }
                     if let offer = game.competitorAcquisitionOffers.first(where: { $0.competitorID == competitor.id }),
                        let targetPlot = game.plot(id: offer.plotID) {
