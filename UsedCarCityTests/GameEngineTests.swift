@@ -62,8 +62,12 @@ final class GameEngineTests: XCTestCase {
         }
     }
 
-    private func startPlayableGame(_ game: GameEngine, plan: BusinessProfile = .family) {
-        game.startNewGame()
+    private func startPlayableGame(
+        _ game: GameEngine,
+        plan: BusinessProfile = .family,
+        simulationSeed: Int? = nil
+    ) {
+        game.startNewGame(simulationSeed: simulationSeed)
         let preferred = game.foundingCandidatePlots.first(where: { $0.district == plan.district })
         let candidates = ([preferred].compactMap { $0 } + game.plots.filter { $0.district == plan.district })
         let plot = candidates.first { candidate in
@@ -104,7 +108,7 @@ final class GameEngineTests: XCTestCase {
     ) -> BalanceSnapshot {
         let game = GameEngine()
         game.resetGame(simulationSeed: scenarioSeed)
-        startPlayableGame(game, plan: plan)
+        startPlayableGame(game, plan: plan, simulationSeed: scenarioSeed)
         game.cash = capital
         game.stores[0].marketPolicy = policy
         game.stores[0].pendingMarketPolicy = nil
@@ -126,7 +130,6 @@ final class GameEngineTests: XCTestCase {
         game.stores[0].autoMarketing = true
         game.stores[0].autoService = true
         game.stores[0].salesPolicy = .balanced
-        game.stores[0].procurementPolicy = .balanced
         game.stores[0].servicePolicy = .balanced
 
         let stockingOrder = policy.priorityCategories.isEmpty
@@ -429,6 +432,88 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.reports.count, 1)
     }
 
+    func testFourthWeekCreatesMonthlyPLFromFourWeeklyReports() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        game.resetGame(simulationSeed: 41)
+        startPlayableGame(game, plan: .discount, simulationSeed: 41)
+        game.cash = 100_000
+
+        for _ in 0..<4 { game.advanceWeek() }
+
+        let monthly = try XCTUnwrap(game.lastMonthlyReport)
+        XCTAssertEqual(game.monthlyReports.count, 1)
+        XCTAssertEqual(monthly.year, 2026)
+        XCTAssertEqual(monthly.month, 1)
+        XCTAssertEqual(monthly.weeklyReports.map(\.week), [1, 2, 3, 4])
+        XCTAssertEqual(monthly.sales, monthly.weeklyReports.reduce(0) { $0 + $1.sales })
+        XCTAssertEqual(monthly.revenue, monthly.weeklyReports.reduce(0) { $0 + $1.revenue })
+        XCTAssertEqual(monthly.costOfSales, monthly.weeklyReports.reduce(0) { $0 + $1.costOfSales })
+        XCTAssertEqual(monthly.operatingProfit, monthly.weeklyReports.reduce(0) { $0 + $1.operatingProfit })
+        XCTAssertEqual(monthly.cashChange, monthly.weeklyReports.reduce(0) { $0 + $1.cashChange })
+        XCTAssertEqual(game.month, 2)
+        XCTAssertEqual(game.weekOfMonth, 1)
+    }
+
+    func testWeeklyComparisonReportsChangesFromPreviousWeek() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        game.resetGame(simulationSeed: 73)
+        startPlayableGame(game, plan: .discount, simulationSeed: 73)
+        game.cash = 100_000
+
+        game.advanceWeek()
+        game.advanceWeek()
+
+        let current = try XCTUnwrap(game.reports.first)
+        let previous = try XCTUnwrap(game.reports.dropFirst().first)
+        let comparison = try XCTUnwrap(game.weeklyComparison(for: current))
+        XCTAssertEqual(comparison.sales, current.sales - previous.sales)
+        XCTAssertEqual(comparison.revenue, current.revenue - previous.revenue)
+        XCTAssertEqual(comparison.operatingProfit, current.operatingProfit - previous.operatingProfit)
+        XCTAssertEqual(comparison.cashChange, current.cashChange - previous.cashChange)
+        XCTAssertEqual(
+            comparison.averageInventoryWeeks,
+            current.averageInventoryWeeks - previous.averageInventoryWeeks,
+            accuracy: 0.001
+        )
+    }
+
+    func testEstablishedSpecialtyBrandGainsFirstMoverAttractionDuringBoom() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        game.resetGame(simulationSeed: 97)
+        startPlayableGame(game, simulationSeed: 97)
+        let storeID = try XCTUnwrap(game.stores.first?.id)
+        let district = try XCTUnwrap(game.plot(id: game.stores[0].plotID)?.district)
+        let key = MarketSegmentKey(
+            district: district,
+            category: .minivan,
+            purpose: .camper,
+            productKind: .camper
+        )
+        let baseline = game.specialtyBrandAttractionMultiplier(for: game.stores[0], key: key)
+
+        game.stores[0].expertise.productization[.camperConversion] = 100
+        game.stores[0].advertising = 500
+        game.stores[0].reputation = 1.20
+        game.segmentTrends = [
+            SegmentTrend(
+                kind: .campingBoom,
+                districts: [district],
+                categories: [.minivan],
+                startTurn: game.turn,
+                peakWeeks: 8,
+                peakMultiplier: 2.2
+            )
+        ]
+
+        let profile = game.specialtyBrandProfile(for: game.stores[0], productKind: .camper)
+        let boosted = game.specialtyBrandAttractionMultiplier(for: game.stores[0], key: key)
+        XCTAssertEqual(game.stores[0].id, storeID)
+        XCTAssertGreaterThan(profile.recognition, 40)
+        XCTAssertGreaterThan(profile.firstMoverBonusPercent, 0)
+        XCTAssertGreaterThan(boosted, baseline)
+        XCTAssertGreaterThan(boosted, 1)
+    }
+
     func testMarketPolicyChangesLocationFit() {
         let game = GameEngine()
         game.resetGame()
@@ -498,7 +583,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertLessThan(categories.filter { $0 == .imported }.count, categories.filter { $0 == .compact }.count)
     }
 
-    func testProcurementEmployeeAutomaticallyOrdersDemandedStockWhenInventoryIsLow() {
+    func testProcurementEmployeeAutomaticallySourcesMatchingInstruction() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -510,22 +595,25 @@ final class GameEngineTests: XCTestCase {
             procurementSkill: 90, monthlySalary: 45, assignment: .procurement
         )]
         game.stores[0].autoProcurement = true
-        game.stores[0].procurementPolicy = .volume
         game.purchaseCases = []
-        game.buyerLeads = (0..<3).map { offset in
-            BuyerLead(
-                id: UUID(), storeID: storeID, preference: .category(.suv),
-                budget: 10_000 + offset, minimumQuality: 0.5,
-                priceSensitivity: 0.5, generatedTurn: game.turn
-            )
-        }
+        XCTAssertNotNil(game.createProcurementInstruction(
+            storeID: storeID,
+            totalBudget: 20_000,
+            financialRule: .maximumOffer(10_000),
+            category: .suv,
+            modelID: nil,
+            faultOnly: false
+        ))
 
         game.advanceWeek()
 
-        let schedule = game.inboundShipments.map { "\($0.category.name)/\($0.source)" }.joined(separator: ", ")
-        XCTAssertTrue(game.inboundShipments.contains {
-            $0.storeID == storeID && $0.category == .suv && $0.source == .dealerTrade
-        }, "入庫予定: \(schedule)")
+        let instruction = try! XCTUnwrap(game.procurementInstructions(for: storeID).first)
+        XCTAssertNotEqual(instruction.lastResult, "今週は条件一致なし")
+        XCTAssertTrue(
+            game.inboundShipments.contains { $0.storeID == storeID && $0.category == .suv }
+                || game.bidReservations.contains { $0.storeID == storeID && $0.instructionID == instruction.id }
+                || game.onlineBidReservations.contains { $0.storeID == storeID && $0.instructionID == instruction.id }
+        )
     }
 
     func testUpdatedCatalogUsesHighPriceImportsAndSixHundredClassSUVs() {
@@ -609,10 +697,10 @@ final class GameEngineTests: XCTestCase {
     func testEveryGeneratedBuyerHasCategoryMakerOrModelAndOrdinarySegmentsIncludeDetailedRequests() {
         let game = GameEngine()
         game.resetGame()
-        startPlayableGame(game, plan: .family)
+        startPlayableGame(game, plan: .family, simulationSeed: 1)
         var observed: [BuyerVehiclePreference] = []
 
-        for _ in 0..<8 {
+        for _ in 0..<24 {
             observed.append(contentsOf: game.buyerLeads.map(\.preference))
             game.advanceWeek()
         }
@@ -1408,7 +1496,6 @@ final class GameEngineTests: XCTestCase {
         store = game.stores[0]
         store.delegateStaff = true
         store.delegatePricing = true
-        store.delegateProcurement = true
         store.delegateMarketing = true
         store.delegateService = true
         let advertising = store.advertising
@@ -1730,7 +1817,14 @@ final class GameEngineTests: XCTestCase {
         game.stores[0].autoSales = true
         game.stores[0].autoProcurement = true
         game.stores[0].salesPolicy = .volume
-        game.stores[0].procurementPolicy = .volume
+        _ = game.createProcurementInstruction(
+            storeID: game.stores[0].id,
+            totalBudget: 20_000,
+            financialRule: .maximumOffer(10_000),
+            category: nil,
+            modelID: nil,
+            faultOnly: false
+        )
 
         game.advanceWeek()
 
@@ -2077,7 +2171,16 @@ final class GameEngineTests: XCTestCase {
         )
         game.stores[0].employees = [appraiser]
         game.stores[0].autoProcurement = true
-        game.stores[0].procurementPolicy = .balanced
+        game.auctionListings = []
+        game.onlineListings = []
+        _ = game.createProcurementInstruction(
+            storeID: storeID,
+            totalBudget: 1_000,
+            financialRule: .minimumGrossProfit(0),
+            category: VehicleCatalog.all.first!.category,
+            modelID: VehicleCatalog.all.first!.id,
+            faultOnly: true
+        )
         XCTAssertGreaterThanOrEqual(game.employeeAppraisalAccuracyBonus(for: storeID), 14)
 
         let model = VehicleCatalog.all.first!
@@ -2087,14 +2190,32 @@ final class GameEngineTests: XCTestCase {
             let raw = abs((seed &* 1_664_525 &+ 1_013_904_223) % 10_000)
             return Double(raw) / 10_000.0 < 0.94
         }!
+        let condition = VehicleConditionProfile(exterior: 76, interior: 78, mechanical: 74)
+        let retail = game.vehicleRetailValue(
+            modelID: model.id,
+            category: model.category,
+            modelYear: modelYear,
+            mileage: mileage,
+            quality: Double(min(94, condition.score + MechanicalFaultSeverity.major.requiredWork + 3)) / 100,
+            in: game.plot(id: game.stores[0].plotID)!.district
+        )
+        let forecast = game.marketForecastRange(value: retail, storeID: storeID)
+        let predicted = (forecast.lowerBound + forecast.upperBound) / 2
+        let repair = Int((Double(max(24, model.category.purchaseCost * MechanicalFaultSeverity.major.requiredWork / 15))
+            * OutsourcePartnerKind.generalRepair.costMultiplier).rounded())
+        let beforeIssueCap = predicted - repair - Int(Double(predicted) * 0.04)
+        let afterIssueValue = Int(Double(predicted) * VehicleIssueKind.repairedHistory.disclosedValueFactor)
+        let afterIssueCap = afterIssueValue - repair - Int(Double(afterIssueValue) * 0.04)
+        let askingPrice = max(20, ((beforeIssueCap + afterIssueCap) / 2) * 100 / 85)
         let badCase = PurchaseCase(
             id: UUID(), storeID: storeID, modelID: model.id, category: model.category,
             lotCount: 1, modelYear: modelYear, mileage: mileage,
             exterior: 76, interior: 78, mechanical: 74,
-            askingPrice: 120, appraisedPrice: 112, repairCost: 5,
-            expectedSalePrice: 140, expectedDays: 22, demand: 1.0,
+            askingPrice: askingPrice, appraisedPrice: askingPrice, repairCost: repair,
+            expectedSalePrice: predicted, expectedDays: 22, demand: 1.0,
             appraisalAccuracy: 55, negotiationAttempts: 0,
-            hiddenIssue: .repairedHistory, issueRevealed: false
+            hiddenIssue: .repairedHistory, issueRevealed: false,
+            fault: .major
         )
         game.purchaseCases = [badCase]
         let inventoryBefore = game.stores[0].inventoryCount
@@ -2145,7 +2266,6 @@ final class GameEngineTests: XCTestCase {
         var store = game.stores[0]
         store.delegateStaff = true
         store.delegatePricing = true
-        store.delegateProcurement = true
         store.delegateMarketing = true
         store.delegateService = true
         store.autoSales = true
@@ -2160,7 +2280,6 @@ final class GameEngineTests: XCTestCase {
         XCTAssertNil(game.stores[0].manager)
         XCTAssertFalse(game.stores[0].delegateStaff)
         XCTAssertFalse(game.stores[0].delegatePricing)
-        XCTAssertFalse(game.stores[0].delegateProcurement)
         XCTAssertFalse(game.stores[0].delegateMarketing)
         XCTAssertFalse(game.stores[0].delegateService)
         XCTAssertTrue(game.stores[0].autoSales)
@@ -2830,9 +2949,6 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(game.canNegotiatePurchaseCase(purchaseCase.id))
         XCTAssertTrue(game.canSellManually(storeID: storeID))
 
-        store = game.stores[0]
-        store.delegateProcurement = true
-        game.updateStore(store)
         XCTAssertTrue(game.canNegotiatePurchaseCase(purchaseCase.id))
         if case .unavailable = game.negotiatePurchaseCase(purchaseCase.id, offerPercent: 100) {
             XCTFail("Management delegation must not take the case away from the owner")
@@ -3751,6 +3867,15 @@ final class GameEngineTests: XCTestCase {
         game.stores[0].autoSales = true
         game.stores[0].autoMarketing = true
         game.stores[0].salesPolicy = .profit
+        let savedInstructionID = game.createProcurementInstruction(
+            storeID: game.stores[0].id,
+            totalBudget: 900,
+            financialRule: .minimumGrossProfit(55),
+            category: .suv,
+            modelID: nil,
+            faultOnly: true
+        )
+        XCTAssertNotNil(savedInstructionID)
         game.stores[0].marketPolicy = StoreMarketPolicy(
             priorityCategories: [.suv], targetPurpose: .outdoor,
             acceptedConditions: [.normal, .rough, .faulty]
@@ -3828,6 +3953,10 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].employees[0].marketResearchSkill, 91)
         XCTAssertEqual(game.stores[0].employees[0].commissionRate, 10)
         XCTAssertEqual(game.stores[0].employees[0].recentCommissions, [1, 2, 3])
+        XCTAssertEqual(game.procurementInstructions.first?.id, savedInstructionID)
+        XCTAssertEqual(game.procurementInstructions.first?.financialRule, .minimumGrossProfit(55))
+        XCTAssertTrue(game.procurementInstructions.first?.faultOnly == true)
+        XCTAssertFalse(game.onlineListings.isEmpty)
         XCTAssertEqual(game.stores[0].marketPolicy.targetPurpose, .outdoor)
         XCTAssertEqual(game.stores[0].marketPolicy.acceptedConditions, [.normal, .rough, .faulty])
         XCTAssertEqual(game.stores[0].expertise.productization[.outdoorConversion], 18)
@@ -3840,5 +3969,302 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].marketRepositioningWeeks, 2)
         XCTAssertEqual(game.competitors[0].segmentResponseWeeks[segmentKey], 8)
         XCTAssertEqual(game.competitors[0].branches[0].productizationQueue.first?.outsourcePartner, .fabrication)
+    }
+
+    func testProcurementInstructionNormalizesModelAndSupportsLifecycle() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let model = VehicleCatalog.all.first { $0.usedMarketTurn <= game.turn }!
+
+        let instructionID = try! XCTUnwrap(game.createProcurementInstruction(
+            storeID: storeID,
+            totalBudget: 1_000,
+            financialRule: .maximumOffer(180),
+            category: model.category == .suv ? .kei : .suv,
+            modelID: model.id,
+            faultOnly: false
+        ))
+        var instruction = try! XCTUnwrap(game.procurementInstructions(for: storeID).first)
+        XCTAssertEqual(instruction.id, instructionID)
+        XCTAssertEqual(instruction.category, model.category)
+        XCTAssertEqual(instruction.remainingBudget, 1_000)
+
+        XCTAssertTrue(game.setProcurementInstructionStatus(instructionID, status: .paused))
+        XCTAssertEqual(game.procurementInstructions(for: storeID).first?.status, .paused)
+        instruction = game.procurementInstructions(for: storeID).first!
+        instruction.totalBudget = 1_200
+        instruction.financialRule = .minimumGrossProfit(60)
+        XCTAssertTrue(game.updateProcurementInstruction(instruction))
+        XCTAssertEqual(game.procurementInstructions(for: storeID).first?.financialRule, .minimumGrossProfit(60))
+
+        game.deleteProcurementInstruction(instructionID)
+        XCTAssertTrue(game.procurementInstructions(for: storeID).isEmpty)
+    }
+
+    func testOnlineManualBidRequiresProcurementEmployeeAndAutomationOff() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let listing = game.onlineListings[0]
+
+        game.stores[0].employees = []
+        XCTAssertFalse(game.reserveOnlineBid(
+            listingID: listing.id,
+            storeID: storeID,
+            maxPrice: listing.marketPrice
+        ))
+
+        game.stores[0].employees = [StoreEmployee(
+            name: "ネット仕入",
+            salesSkill: 60,
+            procurementSkill: 90,
+            researchSkill: 60,
+            serviceSkill: 50,
+            monthlySalary: 45,
+            assignment: .procurement
+        )]
+        XCTAssertTrue(game.reserveOnlineBid(
+            listingID: listing.id,
+            storeID: storeID,
+            maxPrice: max(listing.reservePrice, listing.marketPrice)
+        ))
+        game.cancelOnlineBid(listingID: listing.id)
+        XCTAssertFalse(game.onlineBidReservations.contains { $0.listingID == listing.id })
+
+        game.stores[0].autoProcurement = true
+        XCTAssertFalse(game.reserveOnlineBid(
+            listingID: listing.id,
+            storeID: storeID,
+            maxPrice: listing.marketPrice
+        ))
+    }
+
+    func testAutomaticFaultOnlyOnlineBidReservesAndReleasesInstructionBudget() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        game.stores[0].employees = [StoreEmployee(
+            name: "故障車バイヤー",
+            salesSkill: 50,
+            procurementSkill: 95,
+            researchSkill: 85,
+            serviceSkill: 50,
+            monthlySalary: 55,
+            assignment: .procurement
+        )]
+        game.stores[0].autoProcurement = true
+        game.purchaseCases = []
+        game.auctionListings = []
+        let listing = try! XCTUnwrap(game.onlineListings.first { listing in
+            guard listing.fault != .none,
+                  let categoryIndex = VehicleCategory.allCases.firstIndex(of: listing.category) else { return false }
+            let seed = listing.modelYear * 17 + listing.mileage / 500 + categoryIndex * 61
+            let raw = abs((seed &* 1_664_525 &+ 1_013_904_223) % 10_000)
+            return Double(raw) / 10_000 <= 0.89
+        })
+        game.onlineListings = [listing]
+        let instructionID = try! XCTUnwrap(game.createProcurementInstruction(
+            storeID: storeID,
+            totalBudget: 10_000,
+            financialRule: .maximumOffer(8_000),
+            category: listing.category,
+            modelID: listing.modelID,
+            faultOnly: true
+        ))
+
+        game.advanceWeek()
+
+        let reservation = try! XCTUnwrap(game.onlineBidReservations.first {
+            $0.instructionID == instructionID
+        })
+        let reservedInstruction = game.procurementInstructions.first { $0.id == instructionID }!
+        XCTAssertEqual(
+            reservedInstruction.reservedBudget,
+            reservation.maxPrice + listing.fee + listing.shippingCost
+        )
+        let reservationReport = try! XCTUnwrap(game.lastReport?.procurement.first {
+            $0.instructionID == instructionID && $0.source == .online
+        })
+        XCTAssertEqual(reservationReport.reserved, reservation.committedCost)
+        XCTAssertEqual(reservationReport.result, "入札予約")
+        XCTAssertLessThanOrEqual(
+            reservedInstruction.spentBudget + reservedInstruction.reservedBudget,
+            reservedInstruction.totalBudget
+        )
+        XCTAssertEqual(listing.fault == .none, false)
+
+        XCTAssertTrue(game.setProcurementInstructionStatus(instructionID, status: .paused))
+        game.stores[0].autoProcurement = false
+        game.stores[0].employees = []
+        game.advanceWeek()
+
+        let settledInstruction = game.procurementInstructions.first { $0.id == instructionID }!
+        XCTAssertEqual(settledInstruction.reservedBudget, 0)
+        XCTAssertLessThanOrEqual(settledInstruction.spentBudget, settledInstruction.totalBudget)
+        XCTAssertFalse(game.onlineBidReservations.contains { $0.instructionID == instructionID })
+        XCTAssertNotNil(game.lastReport?.procurement.first {
+            $0.instructionID == instructionID && $0.source == .online
+        })
+    }
+
+    func testMaximumOfferBlocksThenAllowsDealerTradeWithoutExceedingBudget() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        game.stores[0].employees = [StoreEmployee(
+            name: "業販担当",
+            salesSkill: 60,
+            procurementSkill: 95,
+            researchSkill: 80,
+            serviceSkill: 50,
+            monthlySalary: 52,
+            assignment: .procurement
+        )]
+        game.stores[0].autoProcurement = true
+        game.purchaseCases = []
+        game.auctionListings = []
+        game.onlineListings = []
+        let initialQuote = try! XCTUnwrap(game.dealerTradeQuote(category: .compact, count: 1, storeID: storeID))
+        let instructionID = try! XCTUnwrap(game.createProcurementInstruction(
+            storeID: storeID,
+            totalBudget: initialQuote.totalCost + 100,
+            financialRule: .maximumOffer(max(0, initialQuote.unitCost - 1)),
+            category: .compact,
+            modelID: initialQuote.modelID,
+            faultOnly: false
+        ))
+
+        game.advanceWeek()
+        XCTAssertFalse(game.inboundShipments.contains {
+            $0.instructionID == instructionID && $0.source == .dealerTrade
+        })
+
+        game.auctionListings = []
+        game.onlineListings = []
+        let currentQuote = try! XCTUnwrap(game.dealerTradeQuote(
+            category: .compact,
+            count: 1,
+            storeID: storeID,
+            modelID: initialQuote.modelID
+        ))
+        var instruction = game.procurementInstructions.first { $0.id == instructionID }!
+        instruction.totalBudget = max(instruction.totalBudget, currentQuote.totalCost + instruction.spentBudget)
+        instruction.financialRule = .maximumOffer(currentQuote.unitCost)
+        XCTAssertTrue(game.updateProcurementInstruction(instruction))
+
+        game.advanceWeek()
+
+        let shipment = try! XCTUnwrap(game.inboundShipments.first {
+            $0.instructionID == instructionID && $0.source == .dealerTrade
+        })
+        XCTAssertEqual(shipment.modelID, initialQuote.modelID)
+        let updated = game.procurementInstructions.first { $0.id == instructionID }!
+        XCTAssertLessThanOrEqual(updated.spentBudget + updated.reservedBudget, updated.totalBudget)
+    }
+
+    func testDealerTradeCompletesInstructionWhenBudgetIsFullySpent() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        game.stores[0].employees = [StoreEmployee(
+            name: "完遂担当",
+            salesSkill: 60,
+            procurementSkill: 95,
+            researchSkill: 80,
+            serviceSkill: 50,
+            monthlySalary: 52,
+            assignment: .procurement
+        )]
+        game.stores[0].autoProcurement = true
+        game.purchaseCases = []
+        game.auctionListings = []
+        game.onlineListings = []
+        let quote = try! XCTUnwrap(game.dealerTradeQuote(
+            category: .compact,
+            count: 1,
+            storeID: storeID
+        ))
+        let instructionID = try! XCTUnwrap(game.createProcurementInstruction(
+            storeID: storeID,
+            totalBudget: quote.totalCost,
+            financialRule: .maximumOffer(quote.unitCost),
+            category: .compact,
+            modelID: quote.modelID,
+            faultOnly: false
+        ))
+
+        game.advanceWeek()
+
+        let instruction = try! XCTUnwrap(game.procurementInstructions.first {
+            $0.id == instructionID
+        })
+        XCTAssertEqual(instruction.spentBudget, instruction.totalBudget)
+        XCTAssertEqual(instruction.status, .completed)
+        let line = try! XCTUnwrap(game.lastReport?.procurement.first {
+            $0.instructionID == instructionID && $0.source == .dealerTrade
+        })
+        XCTAssertEqual(line.acquiredCount, 1)
+        XCTAssertEqual(line.spent, quote.totalCost)
+    }
+
+    func testFaultyInboundWaitsUntilServiceAutomationIsEnabled() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        let storeID = game.stores[0].id
+        let model = VehicleCatalog.all.first { $0.category == .compact }!
+        game.stores[0].inventory = []
+        game.stores[0].facilities.insert(.serviceWorkshop)
+        game.stores[0].employees = [StoreEmployee(
+            name: "故障車整備",
+            salesSkill: 40,
+            procurementSkill: 60,
+            researchSkill: 60,
+            serviceSkill: 90,
+            monthlySalary: 55,
+            assignment: .service
+        )]
+        game.stores[0].autoService = false
+        game.inboundShipments = [InboundShipment(
+            storeID: storeID,
+            source: .online,
+            modelID: model.id,
+            category: model.category,
+            count: 1,
+            unitCost: 60,
+            quality: 0.52,
+            modelYear: game.year - 6,
+            mileage: 82_000,
+            condition: VehicleConditionProfile(exterior: 58, interior: 55, mechanical: 38),
+            fault: .major,
+            acquiredTurn: game.turn,
+            monthsRemaining: 1
+        )]
+
+        game.advanceWeek()
+
+        let waiting = try! XCTUnwrap(game.stores[0].inventory.first {
+            $0.modelID == model.id && $0.fault == .major
+        })
+        XCTAssertNil(waiting.workshopProject)
+
+        game.stores[0].autoService = true
+        game.advanceWeek()
+
+        let repairing = try! XCTUnwrap(game.stores[0].inventory.first {
+            $0.id == waiting.id
+        })
+        XCTAssertEqual(repairing.workshopProject?.kind, .repair)
     }
 }

@@ -643,6 +643,7 @@ private struct StoreInventoryPanel: View {
     let store: Store
     @State private var showAll = false
     @State private var message: String?
+    @State private var customizationBatch: InventoryBatch?
 
     private var sortedInventory: [InventoryBatch] {
         store.inventory.filter { $0.count > 0 }.sorted {
@@ -702,16 +703,28 @@ private struct StoreInventoryPanel: View {
                             if let project = batch.workshopProject {
                                 Label(project.outsourced ? "\(project.kind.name) あと\(project.remainingWeeks)週" : "\(project.kind.name) 残\(project.remainingWork)工数", systemImage: project.kind.icon)
                                     .font(.caption2.bold()).foregroundStyle(.purple)
-                            } else if let preview = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: batch.fault == .none ? .basicService : .repair) {
-                                Button("\(preview.kind.name) \(preview.cost.currency)") {
-                                    message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: preview.kind)
-                                        ? "\(preview.kind.name)を商品化キューへ追加しました。"
-                                        : "整備を実行できませんでした。"
-                                }
-                                .font(.caption2.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
-                                .disabled(game.cash < preview.cost)
                             } else {
-                                Text("整備上限").font(.caption2.bold()).foregroundStyle(GameTheme.teal)
+                                if hasCustomizationOption(batch) {
+                                    Button {
+                                        customizationBatch = batch
+                                    } label: {
+                                        Label("カスタマイズ", systemImage: "paintbrush.pointed.fill")
+                                    }
+                                    .font(.caption2.bold())
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(.purple)
+                                }
+                                if let preview = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: batch.fault == .none ? .basicService : .repair) {
+                                    Button("\(preview.kind.name) \(preview.cost.currency)") {
+                                        message = game.startWorkshopProject(storeID: store.id, inventoryID: batch.id, kind: preview.kind)
+                                            ? "\(preview.kind.name)を商品化キューへ追加しました。"
+                                            : "整備を実行できませんでした。"
+                                    }
+                                    .font(.caption2.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
+                                    .disabled(game.cash < preview.cost)
+                                } else if !hasCustomizationOption(batch) {
+                                    Text("整備上限").font(.caption2.bold()).foregroundStyle(GameTheme.teal)
+                                }
                             }
                         }
                     }
@@ -727,7 +740,18 @@ private struct StoreInventoryPanel: View {
             }
         }
         .gameCard()
+        .sheet(item: $customizationBatch) { batch in
+            InventoryCustomizationSheet(storeID: store.id, inventoryID: batch.id)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         .alert("在庫整備", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK") { message = nil } } message: { Text(message ?? "") }
+    }
+
+    private func hasCustomizationOption(_ batch: InventoryBatch) -> Bool {
+        [.camperConversion, .refurbishment, .outdoorConversion, .workConversion].contains {
+            game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: $0) != nil
+        }
     }
 
     private func ageTint(for batch: InventoryBatch) -> Color {
@@ -1516,7 +1540,7 @@ private struct ManagerPanel: View {
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(title: "社員の自動運用", subtitle: "ONの部門は残り案件を週間処理し、仕入担当は不足在庫も手配します")
+                SectionTitle(title: "社員の自動運用", subtitle: "ONの部門は週間処理し、仕入担当は登録した指示だけを実行します")
                 AutomationPolicyRow(
                     title: "販売",
                     icon: "person.line.dotted.person.fill",
@@ -1525,16 +1549,6 @@ private struct ManagerPanel: View {
                 ) {
                     Picker("販売方針", selection: binding(\.salesPolicy)) {
                         ForEach(SalesAutomationPolicy.allCases) { Text($0.name).tag($0) }
-                    }
-                }
-                AutomationPolicyRow(
-                    title: "買取・仕入",
-                    icon: "car.badge.gearshape",
-                    isOn: binding(\.autoProcurement),
-                    policyName: store.procurementPolicy.name
-                ) {
-                    Picker("仕入方針", selection: binding(\.procurementPolicy)) {
-                        ForEach(ProcurementAutomationPolicy.allCases) { Text($0.name).tag($0) }
                     }
                 }
                 AutomationPolicyRow(
@@ -1557,10 +1571,24 @@ private struct ManagerPanel: View {
                         ForEach(ServiceAutomationPolicy.allCases) { Text($0.name).tag($0) }
                     }
                 }
-                Label("オーナーの手動枠は週7件。販売・買取担当は別に1人週7件を処理し、仕入担当は不足時に週1回だけ業者間手配します。", systemImage: "hand.raised.fill")
+                HStack {
+                    Toggle(isOn: binding(\.autoProcurement)) {
+                        Label("買取・仕入", systemImage: "car.badge.gearshape")
+                            .font(.subheadline.bold())
+                    }
+                    .tint(GameTheme.teal)
+                    Spacer()
+                    Text("有効な指示 \(game.procurementInstructions(for: store.id).filter { $0.status == .active }.count)件")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+                Label("オーナーの手動枠とは別に、販売・仕入担当は1人週7件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .gameCard()
+
+            ProcurementInstructionPanel(store: store)
 
             VStack(alignment: .leading, spacing: 13) {
                 SectionTitle(title: "店員・育成", subtitle: "販売・仕入・調査・整備の4能力を担当実績と研修で育成します")
@@ -1724,7 +1752,6 @@ private struct ManagerPanel: View {
                     SectionTitle(title: "管理委任", subtitle: "店長は社員の実働には参加せず、ON部門の配置・方針・予算を調整します")
                     DelegationToggle(title: "採用と人員配置", icon: "person.2.fill", isOn: binding(\.delegateStaff))
                     DelegationToggle(title: "販売方針と価格設定", icon: "tag.fill", isOn: binding(\.delegatePricing))
-                    DelegationToggle(title: "仕入方針と在庫目標", icon: "car.badge.gearshape", isOn: binding(\.delegateProcurement))
                     DelegationToggle(title: "集客方針と広告予算", icon: "megaphone.fill", isOn: binding(\.delegateMarketing))
                     DelegationToggle(title: "整備方針と配分", icon: "wrench.and.screwdriver.fill", isOn: binding(\.delegateService))
                 }.gameCard()
@@ -1765,6 +1792,262 @@ private struct ManagerPanel: View {
             return "週\(employee.serviceComposite >= 80 ? 3 : employee.serviceComposite >= 60 ? 2 : 1)台整備"
         case .unassigned:
             return "担当を設定してください"
+        }
+    }
+}
+
+private struct ProcurementInstructionPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    @State private var showCreate = false
+    @State private var editingInstruction: ProcurementInstruction?
+
+    private var instructions: [ProcurementInstruction] {
+        game.procurementInstructions(for: store.id)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionTitle(
+                    title: "自動仕入れ指示",
+                    subtitle: "総予算と1台ごとの採算条件を守り、店舗買取・業者間・AA・ネットを横断"
+                )
+                Spacer()
+                Button {
+                    showCreate = true
+                } label: {
+                    Label("指示を追加", systemImage: "plus.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(GameTheme.teal)
+                .font(.caption.bold())
+            }
+
+            if !game.hasProcurementEmployee(storeID: store.id) {
+                Label("自動実行とネット市場の利用には、社員を「買取・査定」へ配置してください", systemImage: "person.crop.circle.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(GameTheme.orange)
+            } else if store.autoProcurement && instructions.filter({ $0.status == .active }).isEmpty {
+                Label("自動仕入れはONですが、有効な指示がありません", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(GameTheme.orange)
+            }
+
+            if instructions.isEmpty {
+                Text("指示はまだありません。条件を指定しない場合は、予算と金額条件内の車を幅広く探します。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(instructions.enumerated()), id: \.element.id) { position, instruction in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(instruction.targetName)
+                                    .font(.subheadline.bold())
+                                Text("\(instruction.financialRule.name) \(instruction.financialRule.amount.currency)／台\(instruction.faultOnly ? "・故障車のみ" : "")")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(instruction.status.name)
+                                .font(.caption2.bold())
+                                .foregroundStyle(instruction.status == .active ? GameTheme.teal : .secondary)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background((instruction.status == .active ? GameTheme.teal : Color.gray).opacity(0.12))
+                                .clipShape(Capsule())
+                            Menu {
+                                Button("編集") { editingInstruction = instruction }
+                                if instruction.status != .completed {
+                                    Button(instruction.status == .paused ? "再開" : "一時停止") {
+                                        _ = game.setProcurementInstructionStatus(
+                                            instruction.id,
+                                            status: instruction.status == .paused ? .active : .paused
+                                        )
+                                    }
+                                    Button("完了") {
+                                        _ = game.setProcurementInstructionStatus(instruction.id, status: .completed)
+                                    }
+                                }
+                                Button("削除", role: .destructive) {
+                                    game.deleteProcurementInstruction(instruction.id)
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                        }
+                        HStack {
+                            ProposalMetric(title: "総予算", value: instruction.totalBudget.currency)
+                            ProposalMetric(title: "支出", value: instruction.spentBudget.currency)
+                            ProposalMetric(title: "予約", value: instruction.reservedBudget.currency)
+                            ProposalMetric(title: "残り", value: instruction.remainingBudget.currency)
+                            ProposalMetric(title: "取得", value: "\(instruction.acquiredCount)台")
+                        }
+                        ProgressView(
+                            value: Double(instruction.spentBudget + instruction.reservedBudget),
+                            total: Double(max(1, instruction.totalBudget))
+                        )
+                        .tint(GameTheme.teal)
+                        HStack {
+                            Text(instruction.lastResult)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                _ = game.moveProcurementInstruction(instruction.id, direction: -1)
+                            } label: {
+                                Image(systemName: "arrow.up")
+                            }
+                            .disabled(position == 0)
+                            Button {
+                                _ = game.moveProcurementInstruction(instruction.id, direction: 1)
+                            } label: {
+                                Image(systemName: "arrow.down")
+                            }
+                            .disabled(position == instructions.count - 1)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(10)
+                    .background(GameTheme.cream)
+                    .clipShape(RoundedRectangle(cornerRadius: 11))
+                }
+            }
+        }
+        .gameCard()
+        .sheet(isPresented: $showCreate) {
+            ProcurementInstructionEditor(storeID: store.id, instruction: nil)
+        }
+        .sheet(item: $editingInstruction) { instruction in
+            ProcurementInstructionEditor(storeID: store.id, instruction: instruction)
+        }
+    }
+}
+
+private enum ProcurementRuleSelection: String, CaseIterable, Identifiable {
+    case minimumGrossProfit, maximumOffer
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .minimumGrossProfit: "最低粗利額"
+        case .maximumOffer: "入札・提示上限"
+        }
+    }
+}
+
+private struct ProcurementInstructionEditor: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+    let storeID: UUID
+    let instruction: ProcurementInstruction?
+    @State private var totalBudget: Int
+    @State private var ruleSelection: ProcurementRuleSelection
+    @State private var ruleAmount: Int
+    @State private var category: VehicleCategory?
+    @State private var modelID: String?
+    @State private var faultOnly: Bool
+
+    init(storeID: UUID, instruction: ProcurementInstruction?) {
+        self.storeID = storeID
+        self.instruction = instruction
+        _totalBudget = State(initialValue: instruction?.totalBudget ?? 800)
+        switch instruction?.financialRule {
+        case .maximumOffer(let amount):
+            _ruleSelection = State(initialValue: .maximumOffer)
+            _ruleAmount = State(initialValue: amount)
+        case .minimumGrossProfit(let amount):
+            _ruleSelection = State(initialValue: .minimumGrossProfit)
+            _ruleAmount = State(initialValue: amount)
+        case nil:
+            _ruleSelection = State(initialValue: .minimumGrossProfit)
+            _ruleAmount = State(initialValue: 40)
+        }
+        _category = State(initialValue: instruction?.category)
+        _modelID = State(initialValue: instruction?.modelID)
+        _faultOnly = State(initialValue: instruction?.faultOnly ?? false)
+    }
+
+    private var availableModels: [VehicleCatalogEntry] {
+        game.availableVehicleCatalog.filter { category == nil || $0.category == category }
+    }
+
+    private var minimumBudget: Int {
+        max(10, (instruction?.spentBudget ?? 0) + (instruction?.reservedBudget ?? 0))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("対象車両") {
+                    Picker("カテゴリ", selection: $category) {
+                        Text("指定なし").tag(VehicleCategory?.none)
+                        ForEach(VehicleCategory.allCases) { item in
+                            Text(item.name).tag(Optional(item))
+                        }
+                    }
+                    Picker("車種", selection: $modelID) {
+                        Text("指定なし").tag(String?.none)
+                        ForEach(availableModels) { model in
+                            Text(model.fullName).tag(Optional(model.id))
+                        }
+                    }
+                    Toggle("故障車のみ", isOn: $faultOnly)
+                }
+                Section("金額条件") {
+                    Stepper("総予算 \(totalBudget.currency)", value: $totalBudget, in: minimumBudget...100_000, step: 10)
+                    Picker("判定方法", selection: $ruleSelection) {
+                        ForEach(ProcurementRuleSelection.allCases) { Text($0.name).tag($0) }
+                    }
+                    Stepper("\(ruleSelection.name) \(ruleAmount.currency)／台", value: $ruleAmount, in: 0...20_000, step: 5)
+                    Text("総予算には車両価格・手数料・輸送費を含みます。最低粗利は予測修理費も差し引いて判定します。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle(instruction == nil ? "仕入れ指示を追加" : "仕入れ指示を編集")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: category) { _, newCategory in
+                if let modelID,
+                   VehicleCatalog.entry(id: modelID)?.category != newCategory {
+                    self.modelID = nil
+                }
+            }
+            .onChange(of: modelID) { _, newModelID in
+                if let newModelID {
+                    category = VehicleCatalog.entry(id: newModelID)?.category
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let rule: ProcurementFinancialRule = ruleSelection == .minimumGrossProfit
+                            ? .minimumGrossProfit(ruleAmount)
+                            : .maximumOffer(ruleAmount)
+                        if var changed = instruction {
+                            changed.totalBudget = totalBudget
+                            changed.financialRule = rule
+                            changed.category = category
+                            changed.modelID = modelID
+                            changed.faultOnly = faultOnly
+                            _ = game.updateProcurementInstruction(changed)
+                        } else {
+                            _ = game.createProcurementInstruction(
+                                storeID: storeID,
+                                totalBudget: totalBudget,
+                                financialRule: rule,
+                                category: category,
+                                modelID: modelID,
+                                faultOnly: faultOnly
+                            )
+                        }
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
@@ -1850,6 +2133,7 @@ private struct MarketPanel: View {
         VStack(spacing: 14) {
             SegmentOpportunityPanel(store: store, district: plot.district)
             ProcurementPanel(store: store, plot: plot)
+            OnlineMarketPanel(store: store, plot: plot)
             VehicleCatalogPanel(store: store, district: plot.district)
             VStack(alignment: .leading, spacing: 12) {
                 SectionTitle(
@@ -2036,6 +2320,209 @@ private struct SegmentOpportunityPanel: View {
         case .balanced: "equal.circle.fill"
         case .crowded: "person.3.fill"
         case .shrinking: "arrow.down.right"
+        }
+    }
+}
+
+private struct OnlineMarketPanel: View {
+    @EnvironmentObject private var game: GameEngine
+    let store: Store
+    let plot: LandPlot
+    @State private var category: VehicleCategory?
+    @State private var message: String?
+
+    private var listings: [OnlineListing] {
+        game.onlineListings
+            .filter { category == nil || $0.category == category }
+            .sorted { $0.reservePrice < $1.reservePrice }
+    }
+
+    private var canOperateManually: Bool {
+        game.hasProcurementEmployee(storeID: store.id) && !store.autoProcurement
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(
+                title: "全国オンライン仕入れ",
+                subtitle: "全カテゴリの出品を上限入札。故障車が多く、結果は翌週に確定します"
+            )
+            Picker("カテゴリ", selection: $category) {
+                Text("すべて").tag(VehicleCategory?.none)
+                ForEach(VehicleCategory.allCases) { item in
+                    Text(item.name).tag(Optional(item))
+                }
+            }
+            .pickerStyle(.menu)
+
+            if !game.hasProcurementEmployee(storeID: store.id) {
+                Label("閲覧のみ：社員を「買取・査定」に配置すると入札できます", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(GameTheme.orange)
+            } else if store.autoProcurement {
+                Label("自動仕入れON：有効な仕入れ指示が条件一致した出品へ入札します", systemImage: "gearshape.2.fill")
+                    .font(.caption)
+                    .foregroundStyle(GameTheme.teal)
+            } else {
+                Label("手動入札可能：この操作はオーナーの週間商談枠を消費しません", systemImage: "hand.tap.fill")
+                    .font(.caption)
+                    .foregroundStyle(GameTheme.teal)
+            }
+
+            ForEach(listings.prefix(12)) { listing in
+                OnlineListingRow(
+                    listing: listing,
+                    store: store,
+                    plot: plot,
+                    manualEnabled: canOperateManually
+                ) { message = $0 }
+                if listing.id != listings.prefix(12).last?.id { Divider() }
+            }
+
+            let results = game.onlineBidResults.filter { $0.storeID == store.id }
+            if !results.isEmpty {
+                Divider()
+                Text("直近の入札結果").font(.subheadline.bold())
+                ForEach(results.prefix(5)) { result in
+                    HStack {
+                        Image(systemName: result.status == .won ? "checkmark.circle.fill" : "xmark.circle")
+                            .foregroundStyle(result.status == .won ? GameTheme.teal : .secondary)
+                        Text(result.vehicleName).font(.caption.bold())
+                        Spacer()
+                        Text("\(result.status.name)・\(result.totalCost.currency)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .gameCard()
+        .alert("オンライン仕入れ", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK") { message = nil }
+        } message: {
+            Text(message ?? "")
+        }
+    }
+}
+
+private struct OnlineListingRow: View {
+    @EnvironmentObject private var game: GameEngine
+    let listing: OnlineListing
+    let store: Store
+    let plot: LandPlot
+    let manualEnabled: Bool
+    let result: (String) -> Void
+    @State private var maxPrice: Int
+
+    init(
+        listing: OnlineListing,
+        store: Store,
+        plot: LandPlot,
+        manualEnabled: Bool,
+        result: @escaping (String) -> Void
+    ) {
+        self.listing = listing
+        self.store = store
+        self.plot = plot
+        self.manualEnabled = manualEnabled
+        self.result = result
+        _maxPrice = State(initialValue: max(listing.reservePrice, listing.marketPrice))
+    }
+
+    private var reservation: OnlineBidReservation? {
+        game.onlineBidReservations.first { $0.listingID == listing.id }
+    }
+
+    private var automaticInstruction: ProcurementInstruction? {
+        reservation?.instructionID.flatMap { id in game.procurementInstructions.first { $0.id == id } }
+    }
+
+    private var retailRange: ClosedRange<Int> {
+        let retail = game.vehicleRetailValue(
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            quality: listing.quality,
+            in: plot.district
+        )
+        return game.marketForecastRange(value: retail, storeID: store.id)
+    }
+
+    private var upperBound: Int {
+        max(listing.marketPrice * 8 / 5, retailRange.upperBound)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: listing.category.icon)
+                    .foregroundStyle(listing.fault == .none ? GameTheme.teal : GameTheme.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(listing.vehicleName).font(.subheadline.bold())
+                    Text("\(listing.category.name)・\(listing.modelYear)年・\(listing.mileage.formatted())km・状態\(listing.condition.score)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("開始 \(listing.reservePrice.currency)").font(.caption.bold())
+                    Text("相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
+                    Text("諸費用 \((listing.fee + listing.shippingCost).currency)")
+                        .font(.caption2)
+                        .foregroundStyle(GameTheme.orange)
+                }
+            }
+            HStack {
+                Text(listing.fault.name)
+                    .font(.caption2.bold())
+                    .foregroundStyle(listing.fault == .none ? GameTheme.teal : GameTheme.orange)
+                Text("販売予測 \(retailRange.lowerBound.currency)〜\(retailRange.upperBound.currency)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(listing.shippingWeeks)週で入庫").font(.caption2).foregroundStyle(.secondary)
+            }
+            if let automaticInstruction {
+                Label("自動予約：\(automaticInstruction.targetName)・上限\(reservation?.maxPrice.currency ?? "—")", systemImage: "gearshape.fill")
+                    .font(.caption2.bold())
+                    .foregroundStyle(GameTheme.teal)
+            } else {
+                HStack {
+                    Stepper(
+                        "上限 \(maxPrice.currency)",
+                        value: $maxPrice,
+                        in: listing.reservePrice...upperBound,
+                        step: game.onlineBidStep(for: listing)
+                    )
+                    .font(.caption.bold())
+                    Text("落札見込 \(Int(game.onlineBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
+                        .font(.caption2.bold())
+                        .foregroundStyle(GameTheme.teal)
+                    Button(reservation == nil ? "予約" : "更新") {
+                        result(game.reserveOnlineBid(listingID: listing.id, storeID: store.id, maxPrice: maxPrice)
+                            ? "上限\(maxPrice.currency)で予約しました"
+                            : "担当者・自動化設定・展示枠を確認してください")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(GameTheme.teal)
+                    .disabled(!manualEnabled)
+                    if reservation != nil {
+                        Button("取消") {
+                            game.cancelOnlineBid(listingID: listing.id)
+                            result("入札を取り消しました")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!manualEnabled)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .onAppear {
+            if let reservation, reservation.instructionID == nil {
+                maxPrice = reservation.maxPrice
+            }
         }
     }
 }

@@ -81,7 +81,7 @@ private struct ProfitLossCard: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(title: "損益計算書（当月）", subtitle: "店舗がどれだけ利益を生んだか")
+            SectionTitle(title: "損益計算書（直近週）", subtitle: "月末には4週間を合算した月次PLを表示")
             FinanceRow(title: "売上高", value: game.finance.revenue)
             FinanceRow(title: "売上原価", value: -game.finance.costOfSales, negative: true)
             FinanceRow(title: "売上総利益", value: game.finance.revenue - game.finance.costOfSales, total: true)
@@ -90,7 +90,9 @@ private struct ProfitLossCard: View {
                 .font(.caption2).foregroundStyle(.secondary)
             FinanceRow(title: "賃料", value: -game.finance.rent, negative: true)
             FinanceRow(title: "広告費", value: -game.finance.advertising, negative: true)
+            FinanceRow(title: "店舗・設備固定費", value: -game.finance.fixedCosts, negative: true)
             FinanceRow(title: "減価償却", value: -game.finance.depreciation, negative: true)
+            FinanceRow(title: "支払利息", value: -game.finance.interest, negative: true)
             if game.finance.customerClaims > 0 {
                 FinanceRow(title: "販売後補償・クレーム", value: -game.finance.customerClaims, negative: true)
             }

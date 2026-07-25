@@ -63,6 +63,7 @@ private struct InventoryRow: View {
     @EnvironmentObject private var game: GameEngine
     let batch: InventoryBatch
     let store: Store
+    @State private var showCustomization = false
 
     var body: some View {
         HStack(spacing: 11) {
@@ -101,13 +102,195 @@ private struct InventoryRow: View {
                         .foregroundStyle(GameTheme.teal)
                 }
             }
+            Button {
+                showCustomization = true
+            } label: {
+                Image(systemName: "paintbrush.pointed.fill")
+                    .foregroundStyle(.purple)
+            }
+            .buttonStyle(.plain)
+            .disabled(!hasCustomizationOption)
+            .opacity(hasCustomizationOption ? 1 : 0.28)
+            .accessibilityLabel("\(batch.vehicleName)をカスタマイズ")
         }
         .padding(.vertical, 3)
+        .sheet(isPresented: $showCustomization) {
+            InventoryCustomizationSheet(storeID: store.id, inventoryID: batch.id)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var hasCustomizationOption: Bool {
+        guard !batch.isInWorkshop, !batch.isReserved else { return false }
+        return customizationKinds.contains {
+            game.workshopProjectPreview(
+                storeID: store.id,
+                inventoryID: batch.id,
+                kind: $0
+            ) != nil
+        }
+    }
+
+    private var customizationKinds: [WorkshopProjectKind] {
+        [.camperConversion, .refurbishment, .outdoorConversion, .workConversion]
     }
 
     private var ageTint: Color {
         let weeks = game.inventoryAgeWeeks(for: batch)
         return weeks <= 2 ? GameTheme.teal : weeks <= 12 ? GameTheme.navy : weeks <= 25 ? GameTheme.orange : GameTheme.danger
+    }
+}
+
+struct InventoryCustomizationSheet: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+    let storeID: UUID
+    let inventoryID: UUID
+    @State private var resultMessage: String?
+
+    private let kinds: [WorkshopProjectKind] = [
+        .camperConversion,
+        .refurbishment,
+        .outdoorConversion,
+        .workConversion
+    ]
+
+    private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
+    private var batch: InventoryBatch? {
+        store?.inventory.first(where: { $0.id == inventoryID })
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 14) {
+                    if let store, let batch {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: batch.category.icon)
+                                    .font(.title2)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 48, height: 48)
+                                    .background(Color.purple)
+                                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(batch.vehicleName).font(.headline)
+                                    Text("\(batch.category.name)・品質\(Int((batch.quality * 100).rounded()))・現在 \(batch.productState.name)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            Text("在庫車をベースに商品を作ります。内製は工房・整備担当が必要で、外注は費用と納期が増えます。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .gameCard()
+
+                        ForEach(kinds) { kind in
+                            let previews = WorkFulfillmentMode.allCases
+                                .filter { $0 != .automatic }
+                                .compactMap {
+                                    game.workshopProjectPreview(
+                                        storeID: storeID,
+                                        inventoryID: inventoryID,
+                                        kind: kind,
+                                        fulfillment: $0
+                                    )
+                                }
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Label(kind.name, systemImage: kind.icon)
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.purple)
+                                    Spacer()
+                                    if kind == .camperConversion && batch.category == .minivan {
+                                        CapsuleLabel(text: "ミニバン適合", color: GameTheme.teal, icon: "checkmark.circle.fill")
+                                    } else if kind == .refurbishment && batch.isRareClassic {
+                                        CapsuleLabel(text: "旧車向け", color: GameTheme.orange, icon: "clock.arrow.circlepath")
+                                    }
+                                }
+                                if previews.isEmpty {
+                                    Text(unavailableReason(kind: kind, store: store, batch: batch))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(Array(previews.enumerated()), id: \.offset) { _, preview in
+                                        VStack(alignment: .leading, spacing: 7) {
+                                            HStack {
+                                                Text(preview.fulfillmentMode.name).font(.caption.bold())
+                                                Spacer()
+                                                Text("原価 \(preview.cost.currency)").font(.caption.bold().monospacedDigit())
+                                            }
+                                            HStack {
+                                                MetricView(title: "納期", value: "\(preview.estimatedWeeks)週")
+                                                MetricView(title: "完成品質", value: "\(preview.resultingQuality)")
+                                                MetricView(title: "販売目安", value: preview.projectedSalePrice.currency, tint: GameTheme.teal)
+                                            }
+                                            Button {
+                                                let started = game.startWorkshopProject(
+                                                    storeID: storeID,
+                                                    inventoryID: inventoryID,
+                                                    kind: kind,
+                                                    fulfillment: preview.fulfillmentMode
+                                                )
+                                                resultMessage = started
+                                                    ? "\(kind.name)を\(preview.fulfillmentMode.name)で開始しました。"
+                                                    : "現金、設備、担当者、外注枠を確認してください。"
+                                            } label: {
+                                                Label("\(preview.fulfillmentMode.name)で開始", systemImage: "hammer.fill")
+                                                    .frame(maxWidth: .infinity)
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .tint(.purple)
+                                            .disabled(game.cash < preview.cost)
+                                        }
+                                        .padding(10)
+                                        .background(Color.purple.opacity(0.055))
+                                        .clipShape(RoundedRectangle(cornerRadius: 11))
+                                    }
+                                }
+                            }
+                            .gameCard()
+                        }
+                    } else {
+                        ContentUnavailableView("在庫が見つかりません", systemImage: "car.circle")
+                    }
+                }
+                .padding(14)
+            }
+            .background(GameTheme.cream)
+            .navigationTitle("在庫をカスタマイズ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } }
+            }
+            .alert("カスタマイズ", isPresented: Binding(
+                get: { resultMessage != nil },
+                set: { if !$0 { resultMessage = nil } }
+            )) {
+                Button("OK") {
+                    resultMessage = nil
+                    if batch?.isInWorkshop == true { dismiss() }
+                }
+            } message: {
+                Text(resultMessage ?? "")
+            }
+        }
+    }
+
+    private func unavailableReason(kind: WorkshopProjectKind, store: Store, batch: InventoryBatch) -> String {
+        if kind == .camperConversion && batch.category != .minivan {
+            return "キャンピングカー化はミニバンが対象です。"
+        }
+        if kind == .outdoorConversion && ![VehicleCategory.suv, .pickup, .minivan].contains(batch.category) {
+            return "アウトドア仕様はSUV・ピックアップ・ミニバンが対象です。"
+        }
+        if kind == .workConversion && ![VehicleCategory.minivan, .commercial, .pickup].contains(batch.category) {
+            return "職人・配送仕様はミニバン・商用車・ピックアップが対象です。"
+        }
+        if !store.facilities.contains(.customWorkshop) {
+            return "内製にはカスタム工房、外注には提携先の空き枠が必要です。"
+        }
+        return "整備担当、工房ベイ、外注枠、または車両の現在状態を確認してください。"
     }
 }
 
@@ -275,8 +458,8 @@ struct StoreSettingsView: View {
                                     }
                                 }
                             }
-                            if store.wrappedValue.hasManager && (store.wrappedValue.delegatePricing || store.wrappedValue.delegateProcurement) {
-                                Label("販売または仕入方針は店長へ管理委任中です。社員の自動実行とは独立しています。", systemImage: "person.crop.circle.badge.checkmark")
+                            if store.wrappedValue.hasManager && store.wrappedValue.delegatePricing {
+                                Label("販売方針は店長へ管理委任中です。社員の自動実行とは独立しています。", systemImage: "person.crop.circle.badge.checkmark")
                                     .font(.caption).foregroundStyle(GameTheme.teal)
                             }
                         }
@@ -307,7 +490,7 @@ struct StoreSettingsView: View {
                                 MetricView(title: "手動枠", value: "週7回")
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・担当配置・4能力研修・自動化方針は店舗画面の「店員」で設定します。販売・仕入担当は1人週7件を自動処理します。")
+                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は1人週7件まで、登録した指示を4経路で処理します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

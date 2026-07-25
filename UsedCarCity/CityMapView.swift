@@ -13,6 +13,7 @@ struct CityMapView: View {
     @State private var showNotifications = false
     @State private var showNationalMap = false
     @State private var showCompanyDashboard = false
+    @State private var showMarketNewspaper = false
     @State private var didOpenDemoFacility = false
 
     var body: some View {
@@ -40,6 +41,11 @@ struct CityMapView: View {
                                 MapTopControlLabel(title: "経営", icon: "chart.bar.xaxis")
                             }
                             .buttonStyle(.plain)
+                            Button { showMarketNewspaper = true } label: {
+                                MapTopControlLabel(title: "新聞", icon: "newspaper.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(game.isTutorialActive)
                             Spacer()
                             Menu {
                                 ForEach(MapLayer.allCases) { item in
@@ -133,6 +139,11 @@ struct CityMapView: View {
             }
             .sheet(isPresented: $showCompanyDashboard) {
                 CompanyDashboardView()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showMarketNewspaper) {
+                MarketNewspaperView()
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }

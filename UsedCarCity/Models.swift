@@ -1487,7 +1487,7 @@ enum WorkshopProjectKind: String, Codable, Hashable, CaseIterable, Identifiable 
         switch self {
         case .basicService: "基本整備"
         case .repair: "故障修理"
-        case .refurbishment: "完全再生"
+        case .refurbishment: "リストア・完全再生"
         case .camperConversion: "キャンピングカー改造"
         case .workConversion: "職人・配送仕様"
         case .outdoorConversion: "アウトドア仕様"
@@ -1699,6 +1699,8 @@ struct AuctionListing: Identifiable, Codable, Hashable {
     let modelYear: Int
     let mileage: Int
     let quality: Double
+    let condition: VehicleConditionProfile
+    let fault: MechanicalFaultSeverity
     let reservePrice: Int
     let marketPrice: Int
     let seller: String
@@ -1714,7 +1716,9 @@ struct BidReservation: Identifiable, Codable, Hashable {
     let listingID: UUID
     var storeID: UUID
     var maxPrice: Int
+    var committedCost: Int
     let resultTurn: Int
+    let instructionID: UUID?
 }
 
 enum AuctionBidResultStatus: String, Codable, Hashable {
@@ -1769,7 +1773,7 @@ struct CompetitorAuctionPurchase: Identifiable, Codable, Hashable {
 }
 
 enum ProcurementSource: String, Codable, Hashable, CaseIterable, Identifiable {
-    case storePurchase, tradeIn, auction, dealerTrade, corporateLot
+    case storePurchase, tradeIn, auction, dealerTrade, corporateLot, online
     var id: String { rawValue }
     var name: String {
         switch self {
@@ -1778,6 +1782,7 @@ enum ProcurementSource: String, Codable, Hashable, CaseIterable, Identifiable {
         case .auction: "オークション"
         case .dealerTrade: "業者間取引"
         case .corporateLot: "法人一括"
+        case .online: "オンライン"
         }
     }
 }
@@ -1793,12 +1798,190 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     let quality: Double
     let modelYear: Int?
     let mileage: Int?
+    let condition: VehicleConditionProfile?
+    let fault: MechanicalFaultSeverity
+    let instructionID: UUID?
     let acquiredTurn: Int
     var monthsRemaining: Int
+
+    init(
+        id: UUID = UUID(),
+        storeID: UUID,
+        source: ProcurementSource,
+        modelID: String?,
+        category: VehicleCategory,
+        count: Int,
+        unitCost: Int,
+        quality: Double,
+        modelYear: Int?,
+        mileage: Int?,
+        condition: VehicleConditionProfile? = nil,
+        fault: MechanicalFaultSeverity = .none,
+        instructionID: UUID? = nil,
+        acquiredTurn: Int,
+        monthsRemaining: Int
+    ) {
+        self.id = id
+        self.storeID = storeID
+        self.source = source
+        self.modelID = modelID
+        self.category = category
+        self.count = count
+        self.unitCost = unitCost
+        self.quality = quality
+        self.modelYear = modelYear
+        self.mileage = mileage
+        self.condition = condition
+        self.fault = fault
+        self.instructionID = instructionID
+        self.acquiredTurn = acquiredTurn
+        self.monthsRemaining = monthsRemaining
+    }
 
     var vehicleName: String {
         guard let modelID else { return category.name }
         return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
+}
+
+struct OnlineListing: Identifiable, Codable, Hashable {
+    let id: UUID
+    let modelID: String
+    let category: VehicleCategory
+    let modelYear: Int
+    let mileage: Int
+    let quality: Double
+    let condition: VehicleConditionProfile
+    let fault: MechanicalFaultSeverity
+    let reservePrice: Int
+    let marketPrice: Int
+    let seller: String
+    let fee: Int
+    let shippingCost: Int
+    let shippingWeeks: Int
+    let createdTurn: Int
+
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
+}
+
+struct OnlineBidReservation: Identifiable, Codable, Hashable {
+    let id: UUID
+    let listingID: UUID
+    let storeID: UUID
+    var maxPrice: Int
+    var committedCost: Int
+    let resultTurn: Int
+    let instructionID: UUID?
+}
+
+struct OnlineBidResult: Identifiable, Codable, Hashable {
+    let id: UUID
+    let listingID: UUID
+    let storeID: UUID
+    let modelID: String
+    let category: VehicleCategory
+    let modelYear: Int
+    let mileage: Int
+    let maxPrice: Int
+    let hammerPrice: Int
+    let totalCost: Int
+    let status: AuctionBidResultStatus
+    let winningCompetitorID: UUID?
+    let resolvedTurn: Int
+
+    var vehicleName: String {
+        VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
+}
+
+enum ProcurementInstructionStatus: String, Codable, Hashable, CaseIterable, Identifiable {
+    case active, paused, completed
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .active: "実行中"
+        case .paused: "一時停止"
+        case .completed: "完了"
+        }
+    }
+}
+
+enum ProcurementFinancialRule: Codable, Hashable {
+    case minimumGrossProfit(Int)
+    case maximumOffer(Int)
+
+    var amount: Int {
+        switch self {
+        case .minimumGrossProfit(let amount), .maximumOffer(let amount): amount
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .minimumGrossProfit: "最低粗利"
+        case .maximumOffer: "入札・提示上限"
+        }
+    }
+}
+
+struct ProcurementInstruction: Identifiable, Codable, Hashable {
+    let id: UUID
+    let storeID: UUID
+    var priority: Int
+    var status: ProcurementInstructionStatus
+    var totalBudget: Int
+    var spentBudget: Int
+    var reservedBudget: Int
+    var financialRule: ProcurementFinancialRule
+    var category: VehicleCategory?
+    var modelID: String?
+    var faultOnly: Bool
+    var acquiredCount: Int
+    let createdTurn: Int
+    var lastResult: String
+
+    init(
+        id: UUID = UUID(),
+        storeID: UUID,
+        priority: Int,
+        status: ProcurementInstructionStatus = .active,
+        totalBudget: Int,
+        spentBudget: Int = 0,
+        reservedBudget: Int = 0,
+        financialRule: ProcurementFinancialRule,
+        category: VehicleCategory? = nil,
+        modelID: String? = nil,
+        faultOnly: Bool = false,
+        acquiredCount: Int = 0,
+        createdTurn: Int,
+        lastResult: String = "探索待ち"
+    ) {
+        self.id = id
+        self.storeID = storeID
+        self.priority = priority
+        self.status = status
+        self.totalBudget = totalBudget
+        self.spentBudget = spentBudget
+        self.reservedBudget = reservedBudget
+        self.financialRule = financialRule
+        self.category = modelID.flatMap { VehicleCatalog.entry(id: $0)?.category } ?? category
+        self.modelID = modelID
+        self.faultOnly = faultOnly
+        self.acquiredCount = acquiredCount
+        self.createdTurn = createdTurn
+        self.lastResult = lastResult
+    }
+
+    var remainingBudget: Int {
+        max(0, totalBudget - spentBudget - reservedBudget)
+    }
+
+    var targetName: String {
+        if let modelID { return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID }
+        if let category { return category.name }
+        return "車種指定なし"
     }
 }
 
@@ -2123,16 +2306,6 @@ enum SalesAutomationPolicy: String, Codable, CaseIterable, Identifiable {
     var strategy: SaleNegotiationStrategy { switch self { case .profit: .holdPrice; case .balanced: .smallDiscount; case .volume: .closeDeal } }
 }
 
-enum ProcurementAutomationPolicy: String, Codable, CaseIterable, Identifiable {
-    case profit
-    case balanced
-    case volume
-
-    var id: String { rawValue }
-    var name: String { switch self { case .profit: "利益重視"; case .balanced: "バランス"; case .volume: "件数重視" } }
-    var offerPercent: Int { switch self { case .profit: 88; case .balanced: 94; case .volume: 100 } }
-}
-
 enum MarketingAutomationPolicy: String, Codable, CaseIterable, Identifiable {
     case buyers
     case balanced
@@ -2401,7 +2574,6 @@ struct Store: Identifiable, Codable, Hashable {
     var serviceAllocation: Double
     var delegateStaff: Bool
     var delegatePricing: Bool
-    var delegateProcurement: Bool
     var delegateMarketing: Bool
     var delegateService: Bool
     var autoSales: Bool
@@ -2409,7 +2581,6 @@ struct Store: Identifiable, Codable, Hashable {
     var autoMarketing: Bool
     var autoService: Bool
     var salesPolicy: SalesAutomationPolicy
-    var procurementPolicy: ProcurementAutomationPolicy
     var marketingPolicy: MarketingAutomationPolicy
     var servicePolicy: ServiceAutomationPolicy
     var lastSales: Int
@@ -2452,7 +2623,6 @@ struct Store: Identifiable, Codable, Hashable {
         serviceAllocation = 0.35
         delegateStaff = false
         delegatePricing = false
-        delegateProcurement = false
         delegateMarketing = false
         delegateService = false
         autoSales = false
@@ -2460,7 +2630,6 @@ struct Store: Identifiable, Codable, Hashable {
         autoMarketing = false
         autoService = false
         salesPolicy = .balanced
-        procurementPolicy = .balanced
         marketingPolicy = .balanced
         servicePolicy = .balanced
         lastSales = 0
@@ -2710,6 +2879,51 @@ struct CompetitorAcquisitionOffer: Identifiable, Hashable {
     var id: Int { plotID }
 }
 
+struct ProcurementReportLine: Identifiable, Codable, Hashable {
+    let id: UUID
+    let instructionID: UUID
+    let storeID: UUID
+    let instructionName: String
+    let source: ProcurementSource?
+    let acquiredCount: Int
+    let spent: Int
+    let reserved: Int
+    let result: String
+
+    init(
+        id: UUID = UUID(),
+        instructionID: UUID,
+        storeID: UUID,
+        instructionName: String,
+        source: ProcurementSource?,
+        acquiredCount: Int,
+        spent: Int,
+        reserved: Int,
+        result: String
+    ) {
+        self.id = id
+        self.instructionID = instructionID
+        self.storeID = storeID
+        self.instructionName = instructionName
+        self.source = source
+        self.acquiredCount = acquiredCount
+        self.spent = spent
+        self.reserved = reserved
+        self.result = result
+    }
+}
+
+struct StoreWeeklyResult: Identifiable, Codable, Hashable {
+    let storeID: UUID
+    let storeName: String
+    let sales: Int
+    let revenue: Int
+    let operatingProfit: Int
+    let causes: [ResultCause]
+
+    var id: UUID { storeID }
+}
+
 struct MonthlyReport: Identifiable, Codable, Hashable {
     let id: UUID
     let year: Int
@@ -2717,12 +2931,86 @@ struct MonthlyReport: Identifiable, Codable, Hashable {
     var week: Int
     let sales: Int
     let revenue: Int
+    let costOfSales: Int
     let grossProfit: Int
+    let personnel: Int
+    let rent: Int
+    let advertising: Int
+    let depreciation: Int
+    let fixedCosts: Int
+    let interest: Int
+    let customerClaims: Int
     let operatingProfit: Int
     let cashChange: Int
     let averageInventoryWeeks: Double
     let headline: String
     let notes: [String]
+    let procurement: [ProcurementReportLine]
+    let storeResults: [StoreWeeklyResult]
+}
+
+struct WeeklyReportComparison: Hashable {
+    let sales: Int
+    let revenue: Int
+    let grossProfit: Int
+    let operatingProfit: Int
+    let cashChange: Int
+    let averageInventoryWeeks: Double
+}
+
+struct MonthlyPLReport: Identifiable, Codable, Hashable {
+    let id: UUID
+    let year: Int
+    let month: Int
+    let weeklyReports: [MonthlyReport]
+    let sales: Int
+    let revenue: Int
+    let costOfSales: Int
+    let grossProfit: Int
+    let personnel: Int
+    let rent: Int
+    let advertising: Int
+    let depreciation: Int
+    let fixedCosts: Int
+    let interest: Int
+    let customerClaims: Int
+    let operatingProfit: Int
+    let cashChange: Int
+    let averageInventoryWeeks: Double
+    let endingCash: Int
+    let debt: Int
+    let inventoryAssets: Int
+    let companyValue: Int
+
+    var grossMargin: Double {
+        guard revenue > 0 else { return 0 }
+        return Double(grossProfit) / Double(revenue)
+    }
+
+    var operatingMargin: Double {
+        guard revenue > 0 else { return 0 }
+        return Double(operatingProfit) / Double(revenue)
+    }
+}
+
+struct SpecialtyBrandProfile: Identifiable, Hashable {
+    let productKind: MarketProductKind
+    let recognition: Int
+    let expertise: Int
+    let recentSales: Int
+    let firstMoverBonusPercent: Int
+
+    var id: MarketProductKind { productKind }
+
+    var tierName: String {
+        switch recognition {
+        case 80...: "全国指名ブランド"
+        case 60...: "地域トップブランド"
+        case 40...: "専門店として定着"
+        case 20...: "地域で認知"
+        default: "ブランド育成中"
+        }
+    }
 }
 
 enum BusinessMilestoneID: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -2900,6 +3188,8 @@ struct FinanceSnapshot: Codable, Hashable {
     var rent: Int = 0
     var advertising: Int = 0
     var depreciation: Int = 0
+    var fixedCosts: Int = 0
+    var interest: Int = 0
     var customerClaims: Int = 0
     var operatingProfit: Int = 0
     var landAssets: Int = 0

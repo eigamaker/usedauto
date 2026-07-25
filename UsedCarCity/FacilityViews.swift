@@ -179,6 +179,8 @@ private struct CompanyDashboardContent: View {
         VStack(spacing: 14) {
             HStack { MetricView(title: "企業価値", value: game.companyValue.currency, tint: GameTheme.teal); MetricView(title: "店舗", value: "\(game.stores.count)店"); MetricView(title: "在庫", value: "\(game.totalInventory)台") }.gameCard()
             MarketEnvironmentCard()
+            MonthlyReportHistoryCard()
+            BrandDashboardCard()
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(title: "全社ダッシュボード", subtitle: "会社全体のPL・BS・資金繰り")
                 FacilityRow("売上高", game.finance.revenue.currency)
@@ -192,6 +194,114 @@ private struct CompanyDashboardContent: View {
                 ForEach(game.stores) { store in FacilityRow(store.name, "\(store.lastSales)台・利益 \(store.lastProfit.currency)", tint: store.lastProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
             }.gameCard()
             StoreNetworkContent()
+        }
+    }
+}
+
+private struct MonthlyReportHistoryCard: View {
+    @EnvironmentObject private var game: GameEngine
+    @State private var selectedReport: MonthlyPLReport?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionTitle(title: "月次PL", subtitle: "毎月の最終週終了時に4週間を集計")
+            if game.monthlyReports.isEmpty {
+                Label("最初の月末に月次経営レポートが作成されます", systemImage: "calendar.badge.clock")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(game.monthlyReports.prefix(3)) { report in
+                    Button {
+                        selectedReport = report
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(report.year)年\(report.month)月").font(.subheadline.bold())
+                                Text("売上 \(report.revenue.currency)・\(report.sales)台")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(report.operatingProfit.currency)
+                                .font(.subheadline.bold().monospacedDigit())
+                                .foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.danger)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 3)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .gameCard()
+        .sheet(item: $selectedReport) { report in
+            MonthlyPLDashboardView(report: report)
+        }
+    }
+}
+
+private struct BrandDashboardCard: View {
+    @EnvironmentObject private var game: GameEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(
+                title: "ブランド・知名度",
+                subtitle: "広告、口コミ、専門実績で上昇。ブーム時は既に認知された専門店へ来店が集中"
+            )
+            ForEach(game.stores) { store in
+                let recognition = game.storeRecognitionScore(for: store)
+                let profiles = game.specialtyBrandProfiles(for: store)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(store.name).font(.subheadline.bold())
+                            Text(game.derivedBusinessName(for: store)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        CapsuleLabel(
+                            text: "店舗知名度 \(recognition)",
+                            color: recognition >= 60 ? GameTheme.teal : GameTheme.orange,
+                            icon: "star.circle.fill"
+                        )
+                    }
+                    ProgressView(value: Double(recognition), total: 100)
+                        .tint(recognition >= 60 ? GameTheme.teal : GameTheme.orange)
+                    ForEach(profiles.prefix(3)) { profile in
+                        HStack {
+                            Label(profile.productKind.name, systemImage: brandIcon(profile.productKind))
+                                .font(.caption.bold())
+                            Spacer()
+                            Text("\(profile.tierName) \(profile.recognition)/100")
+                                .font(.caption2.bold().monospacedDigit())
+                                .foregroundStyle(profile.recognition >= 40 ? GameTheme.teal : .secondary)
+                            if profile.firstMoverBonusPercent > 0 {
+                                CapsuleLabel(
+                                    text: "先行者 +\(profile.firstMoverBonusPercent)%",
+                                    color: .purple,
+                                    icon: "bolt.fill"
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(10)
+                .background(GameTheme.navy.opacity(0.045))
+                .clipShape(RoundedRectangle(cornerRadius: 11))
+            }
+            Text("専門知名度は、対象商品の完成・販売実績を積み、広告と高評価口コミを継続すると育ちます。")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .gameCard()
+    }
+
+    private func brandIcon(_ productKind: MarketProductKind) -> String {
+        switch productKind {
+        case .camper: "tent.fill"
+        case .outdoor: "mountain.2.fill"
+        case .collector: "clock.arrow.circlepath"
+        case .workCargo: "shippingbox.fill"
+        case .refurbished, .repaired: "wrench.and.screwdriver.fill"
+        case .standard: "car.side.fill"
         }
     }
 }
@@ -235,7 +345,7 @@ private struct StoreNetworkContent: View {
                             Text("在庫\(store.inventoryCount)/\(store.type.capacity)台・入庫予定\(game.incomingCount(for: store.id))台").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateProcurement, store.delegateMarketing, store.delegateService].filter { $0 }.count
+                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateMarketing, store.delegateService].filter { $0 }.count
                         CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/5委任", color: delegated == 5 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
                     }
                     if game.stores.count > 1 {
@@ -390,6 +500,9 @@ private struct AuctionBidRow: View {
 
     private var reservation: BidReservation? { game.bidReservations.first { $0.listingID == listing.id } }
     private var reserved: Bool { reservation != nil }
+    private var automaticInstruction: ProcurementInstruction? {
+        reservation?.instructionID.flatMap { id in game.procurementInstructions.first { $0.id == id } }
+    }
     private var retailReferencePrice: Int? {
         guard let store = game.stores.first(where: { $0.id == storeID }),
               let plot = game.plot(id: store.plotID) else { return nil }
@@ -430,7 +543,7 @@ private struct AuctionBidRow: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・評価\(Int(listing.quality * 100))・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・状態\(listing.condition.score)・\(listing.fault.name)・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
@@ -443,19 +556,28 @@ private struct AuctionBidRow: View {
                     Text("諸費用 +\((listing.venue.fee + listing.venue.shippingCost).currency)").font(.caption2).foregroundStyle(GameTheme.orange)
                 }
             }
-            HStack {
-                Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
-                    .font(.caption.bold())
-                Text("落札見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
-                    .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.venue.tint)
-                Button(reserved ? "更新" : "予約") {
-                    result(game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice) ? "上限\(maxPrice.currency)で入札を予約しました。結果は翌週に確定します" : "入庫枠を確保できません")
-                }.buttonStyle(.borderedProminent).tint(listing.venue.tint)
-                if reserved {
-                    Button("取消") {
-                        game.cancelBid(listingID: listing.id)
-                        result("入札予約を取り消しました")
-                    }.buttonStyle(.bordered).tint(.gray)
+            if let automaticInstruction {
+                Label(
+                    "自動予約：\(automaticInstruction.targetName)・上限\(reservation?.maxPrice.currency ?? "—")",
+                    systemImage: "gearshape.fill"
+                )
+                .font(.caption.bold())
+                .foregroundStyle(GameTheme.teal)
+            } else {
+                HStack {
+                    Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
+                        .font(.caption.bold())
+                    Text("落札見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
+                        .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.venue.tint)
+                    Button(reserved ? "更新" : "予約") {
+                        result(game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice) ? "上限\(maxPrice.currency)で入札を予約しました。結果は翌週に確定します" : "入庫枠を確保できません")
+                    }.buttonStyle(.borderedProminent).tint(listing.venue.tint)
+                    if reserved {
+                        Button("取消") {
+                            game.cancelBid(listingID: listing.id)
+                            result("入札予約を取り消しました")
+                        }.buttonStyle(.bordered).tint(.gray)
+                    }
                 }
             }
         }

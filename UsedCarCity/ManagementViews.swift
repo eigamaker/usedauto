@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct ManagementView: View {
     @EnvironmentObject private var game: GameEngine
@@ -366,25 +367,40 @@ struct CompetitionDemoView: View {
 
 private struct RecentReportsCard: View {
     @EnvironmentObject private var game: GameEngine
+    @State private var selectedReport: MonthlyReport?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "週間履歴", subtitle: "最近の業績")
+            SectionTitle(title: "週間履歴", subtitle: "前週からの変化をタップして確認")
             if game.reports.isEmpty {
                 Text("1週間進めるとレポートが記録されます").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 20)
             } else {
                 ForEach(game.reports.prefix(6)) { report in
-                    HStack {
-                        Text("\(report.month)月\(report.week)週").font(.caption.bold().monospacedDigit()).frame(width: 64, alignment: .leading)
-                        Text("\(report.sales)台").font(.subheadline.monospacedDigit())
-                        Spacer()
-                        Text(String(format: "在庫 %.1f週", report.averageInventoryWeeks))
-                            .font(.caption2.bold().monospacedDigit()).foregroundStyle(.secondary)
-                        Text(report.operatingProfit.currency).font(.subheadline.bold().monospacedDigit()).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.danger)
+                    Button {
+                        selectedReport = report
+                    } label: {
+                        HStack {
+                            Text("\(report.month)月\(report.week)週").font(.caption.bold().monospacedDigit()).frame(width: 64, alignment: .leading)
+                            Text("\(report.sales)台").font(.subheadline.monospacedDigit())
+                            if let change = game.weeklyComparison(for: report) {
+                                Text(change.sales == 0 ? "±0" : String(format: "%+d", change.sales))
+                                    .font(.caption2.bold().monospacedDigit())
+                                    .foregroundStyle(change.sales >= 0 ? GameTheme.teal : GameTheme.orange)
+                            }
+                            Spacer()
+                            Text(String(format: "在庫 %.1f週", report.averageInventoryWeeks))
+                                .font(.caption2.bold().monospacedDigit()).foregroundStyle(.secondary)
+                            Text(report.operatingProfit.currency).font(.subheadline.bold().monospacedDigit()).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.danger)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
         .gameCard()
+        .sheet(item: $selectedReport) { report in
+            MonthlyReportView(report: report)
+        }
     }
 }
 
@@ -419,11 +435,35 @@ struct MonthlyReportView: View {
                         MetricView(title: "現金増減", value: report.cashChange.currency, tint: report.cashChange >= 0 ? GameTheme.teal : GameTheme.danger)
                     }
                     .gameCard()
+                    if let comparison = game.weeklyComparison(for: report) {
+                        VStack(alignment: .leading, spacing: 11) {
+                            SectionTitle(title: "前週からの変化", subtitle: "同じ指標を並べ、良化・悪化をすばやく確認")
+                            HStack {
+                                WeeklyDeltaMetric(title: "販売", value: "\(signed(comparison.sales))台", favorable: comparison.sales >= 0)
+                                WeeklyDeltaMetric(title: "売上", value: signedCurrency(comparison.revenue), favorable: comparison.revenue >= 0)
+                                WeeklyDeltaMetric(title: "営業利益", value: signedCurrency(comparison.operatingProfit), favorable: comparison.operatingProfit >= 0)
+                            }
+                            HStack {
+                                WeeklyDeltaMetric(title: "粗利", value: signedCurrency(comparison.grossProfit), favorable: comparison.grossProfit >= 0)
+                                WeeklyDeltaMetric(title: "現金増減", value: signedCurrency(comparison.cashChange), favorable: comparison.cashChange >= 0)
+                                WeeklyDeltaMetric(
+                                    title: "平均在庫",
+                                    value: String(format: "%+.1f週", comparison.averageInventoryWeeks),
+                                    favorable: comparison.averageInventoryWeeks <= 0
+                                )
+                            }
+                        }
+                        .gameCard()
+                    }
                     VStack(alignment: .leading, spacing: 12) {
                         SectionTitle(title: "店舗別の結果", subtitle: "数字が動いた理由")
-                        ForEach(game.stores) { store in
+                        ForEach(report.storeResults) { store in
                             VStack(alignment: .leading, spacing: 8) {
-                                HStack { Text(store.name).font(.subheadline.bold()); Spacer(); Text("\(store.lastSales)台 / \(store.lastProfit.currency)").font(.caption.bold()) }
+                                HStack {
+                                    Text(store.storeName).font(.subheadline.bold())
+                                    Spacer()
+                                    Text("\(store.sales)台 / \(store.operatingProfit.currency)").font(.caption.bold())
+                                }
                                 ForEach(store.causes) { cause in
                                     HStack { Text(cause.effect >= 0 ? "+" : "−").foregroundStyle(cause.effect >= 0 ? GameTheme.teal : GameTheme.orange); Text(cause.title); Spacer(); Text(String(format: "%+.1f台", cause.effect)).monospacedDigit() }.font(.caption)
                                 }
@@ -432,9 +472,38 @@ struct MonthlyReportView: View {
                         }
                     }
                     .gameCard()
+                    if !report.procurement.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionTitle(
+                                title: "仕入れ指示の実績",
+                                subtitle: "指示別・仕入れ先別の取得、支出、次週確定の予約"
+                            )
+                            ForEach(report.procurement) { line in
+                                VStack(alignment: .leading, spacing: 7) {
+                                    HStack {
+                                        Text(line.instructionName).font(.subheadline.bold())
+                                        Spacer()
+                                        Text(line.source?.name ?? "全経路")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(GameTheme.teal)
+                                    }
+                                    HStack {
+                                        MetricView(title: "取得", value: "\(line.acquiredCount)台")
+                                        MetricView(title: "支出", value: line.spent.currency)
+                                        MetricView(title: "入札予約", value: line.reserved.currency)
+                                    }
+                                    Text(line.result)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        .gameCard()
+                    }
                     if !report.notes.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionTitle(title: "今週のニュース")
+                            SectionTitle(title: "今週の主な出来事")
                             ForEach(report.notes, id: \.self) { note in Label(note, systemImage: "bell.fill").font(.subheadline).foregroundStyle(GameTheme.ink) }
                         }
                         .gameCard()
@@ -468,9 +537,408 @@ struct MonthlyReportView: View {
         .interactiveDismissDisabled(game.tutorialStep == .reviewFirstResult)
     }
 
+    private func signed(_ value: Int) -> String {
+        value == 0 ? "±0" : String(format: "%+d", value)
+    }
+
+    private func signedCurrency(_ value: Int) -> String {
+        if value == 0 { return "±0" }
+        return "\(value > 0 ? "+" : "−")\(abs(value).currency)"
+    }
+
     private func finishTutorial() {
         game.completeTutorial()
         dismiss()
+    }
+}
+
+private struct WeeklyDeltaMetric: View {
+    let title: String
+    let value: String
+    let favorable: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Image(systemName: favorable ? "arrow.up.right" : "arrow.down.right")
+                Text(value).monospacedDigit()
+            }
+            .font(.caption.bold())
+            .foregroundStyle(favorable ? GameTheme.teal : GameTheme.orange)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct MonthlyPLDashboardView: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+    let report: MonthlyPLReport
+
+    private var previousReport: MonthlyPLReport? {
+        guard let index = game.monthlyReports.firstIndex(where: { $0.id == report.id }),
+              game.monthlyReports.indices.contains(index + 1) else { return nil }
+        return game.monthlyReports[index + 1]
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 15) {
+                    VStack(spacing: 7) {
+                        Image(systemName: report.operatingProfit >= 0 ? "chart.xyaxis.line" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 43, weight: .bold))
+                            .foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.orange)
+                        Text("\(report.year)年\(report.month)月 月次PL")
+                            .font(.title2.bold())
+                        Text(report.operatingProfit >= 0 ? "月間黒字を確保しました" : "月間赤字です。費用構造と在庫回転を確認してください")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .gameCard()
+
+                    HStack {
+                        MetricView(title: "販売台数", value: "\(report.sales)台")
+                        MetricView(title: "売上高", value: report.revenue.currency)
+                        MetricView(
+                            title: "営業利益",
+                            value: report.operatingProfit.currency,
+                            detail: "利益率 \(percent(report.operatingMargin))",
+                            tint: report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.danger
+                        )
+                    }
+                    .gameCard()
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionTitle(title: "週ごとの営業利益", subtitle: "月内の変化と振れ幅")
+                        Chart(report.weeklyReports) { week in
+                            BarMark(
+                                x: .value("週", "第\(week.week)週"),
+                                y: .value("営業利益", week.operatingProfit)
+                            )
+                            .foregroundStyle(week.operatingProfit >= 0 ? GameTheme.teal : GameTheme.orange)
+                            .annotation(position: week.operatingProfit >= 0 ? .top : .bottom) {
+                                Text(week.operatingProfit.currency)
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(height: 180)
+                        .chartYAxis {
+                            AxisMarks(position: .leading)
+                        }
+                    }
+                    .gameCard()
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        SectionTitle(title: "損益計算書", subtitle: "4週間を合算した月次実績")
+                        MonthlyPLRow(title: "売上高", value: report.revenue)
+                        MonthlyPLRow(title: "売上原価", value: -report.costOfSales, isExpense: true)
+                        MonthlyPLRow(title: "売上総利益", value: report.grossProfit, isTotal: true)
+                        MonthlyPLRow(title: "人件費", value: -report.personnel, isExpense: true)
+                        MonthlyPLRow(title: "賃料", value: -report.rent, isExpense: true)
+                        MonthlyPLRow(title: "広告費", value: -report.advertising, isExpense: true)
+                        MonthlyPLRow(title: "店舗・設備固定費", value: -report.fixedCosts, isExpense: true)
+                        MonthlyPLRow(title: "減価償却", value: -report.depreciation, isExpense: true)
+                        MonthlyPLRow(title: "支払利息", value: -report.interest, isExpense: true)
+                        if report.customerClaims > 0 {
+                            MonthlyPLRow(title: "販売後補償・クレーム", value: -report.customerClaims, isExpense: true)
+                        }
+                        MonthlyPLRow(
+                            title: "営業利益",
+                            value: report.operatingProfit,
+                            isTotal: true,
+                            isExpense: report.operatingProfit < 0
+                        )
+                    }
+                    .gameCard()
+
+                    VStack(alignment: .leading, spacing: 11) {
+                        SectionTitle(title: "経営状態", subtitle: "資金・在庫・収益性を月末時点で確認")
+                        HStack {
+                            MetricView(title: "月末現金", value: report.endingCash.currency, tint: report.endingCash >= 0 ? GameTheme.teal : GameTheme.danger)
+                            MetricView(title: "現金増減", value: report.cashChange.currency, tint: report.cashChange >= 0 ? GameTheme.teal : GameTheme.orange)
+                            MetricView(title: "借入金", value: report.debt.currency)
+                        }
+                        HStack {
+                            MetricView(title: "在庫資産", value: report.inventoryAssets.currency)
+                            MetricView(title: "平均在庫", value: String(format: "%.1f週", report.averageInventoryWeeks), tint: report.averageInventoryWeeks <= 12 ? GameTheme.teal : GameTheme.orange)
+                            MetricView(title: "企業価値", value: report.companyValue.currency)
+                        }
+                        if let previousReport {
+                            Divider()
+                            HStack {
+                                Text("前月比").font(.caption.bold()).foregroundStyle(.secondary)
+                                Spacer()
+                                Text("売上 \(deltaCurrency(report.revenue - previousReport.revenue))")
+                                Text("営業利益 \(deltaCurrency(report.operatingProfit - previousReport.operatingProfit))")
+                            }
+                            .font(.caption.bold().monospacedDigit())
+                        }
+                    }
+                    .gameCard()
+
+                    VStack(alignment: .leading, spacing: 9) {
+                        SectionTitle(title: "経営チェック", subtitle: "来月の意思決定に使う要点")
+                        ForEach(managementComments, id: \.self) { comment in
+                            Label(comment, systemImage: comment.contains("良好") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(comment.contains("良好") ? GameTheme.teal : GameTheme.ink)
+                        }
+                    }
+                    .gameCard()
+                }
+                .padding(15)
+            }
+            .background(GameTheme.cream)
+            .navigationTitle("月次経営レポート")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }.bold()
+                }
+            }
+        }
+    }
+
+    private var managementComments: [String] {
+        var comments: [String] = []
+        if report.operatingProfit < 0 {
+            comments.append("営業赤字です。店舗別利益と固定費を確認してください")
+        } else if report.operatingMargin < 0.08 {
+            comments.append("黒字ですが営業利益率は8%未満です。粗利と値引きを見直しましょう")
+        } else {
+            comments.append("収益性は良好です。成長投資後の現金余力を確認しましょう")
+        }
+        if report.grossMargin < 0.18 {
+            comments.append("粗利率が18%未満です。仕入原価・商品化原価・販売価格を再点検してください")
+        }
+        if report.averageInventoryWeeks > 12 {
+            comments.append("平均在庫が12週を超えています。滞留車の値下げ・移動・AA出品を検討してください")
+        }
+        if report.cashChange < 0 {
+            comments.append("月間で現金が減少しました。利益とキャッシュの差を仕入・投資から確認してください")
+        }
+        return comments
+    }
+
+    private func percent(_ value: Double) -> String {
+        String(format: "%.1f%%", value * 100)
+    }
+
+    private func deltaCurrency(_ value: Int) -> String {
+        if value == 0 { return "±0" }
+        return "\(value > 0 ? "+" : "−")\(abs(value).currency)"
+    }
+}
+
+private struct MonthlyPLRow: View {
+    let title: String
+    let value: Int
+    var isTotal = false
+    var isExpense = false
+
+    var body: some View {
+        HStack {
+            Text(title).font(isTotal ? .headline : .subheadline)
+            Spacer()
+            Text(value.currency)
+                .font((isTotal ? Font.headline : Font.subheadline).monospacedDigit())
+                .foregroundStyle(isExpense ? GameTheme.danger : GameTheme.ink)
+        }
+        .padding(.vertical, isTotal ? 7 : 3)
+        .overlay(alignment: .top) {
+            if isTotal { Divider() }
+        }
+    }
+}
+
+struct MarketNewspaperView: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+
+    private var researchStore: Store? {
+        game.stores.max {
+            researchRank(for: $0) < researchRank(for: $1)
+        }
+    }
+
+    private var hasResearcher: Bool {
+        researchStore.map { game.hasMarketResearcher(storeID: $0.id) } ?? false
+    }
+
+    private var visibleCompetitors: ArraySlice<Competitor> {
+        let count: Int
+        guard let store = researchStore, hasResearcher else { return game.competitors.prefix(1) }
+        let score = game.marketResearchScore(for: store.id)
+        count = score >= 85 ? 4 : score >= 70 ? 3 : 2
+        return game.competitors.prefix(count)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 14) {
+                    VStack(spacing: 7) {
+                        HStack {
+                            Image(systemName: "newspaper.fill")
+                                .font(.system(size: 36))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("翠浜モビリティ経済新聞")
+                                    .font(.title2.weight(.black))
+                                Text("\(game.year)年\(game.month)月 第\(game.weekOfMonth)週号")
+                                    .font(.caption.bold().monospacedDigit())
+                            }
+                            Spacer()
+                        }
+                        Divider().overlay(GameTheme.ink)
+                        HStack {
+                            Label(publicationSpeed, systemImage: hasResearcher ? "bolt.fill" : "clock.fill")
+                            Spacer()
+                            Text(researchByline)
+                        }
+                        .font(.caption.bold())
+                        .foregroundStyle(hasResearcher ? GameTheme.teal : .secondary)
+                    }
+                    .gameCard()
+
+                    if let store = researchStore {
+                        let intelligence = game.marketIntelligence(for: store.id)
+                        VStack(alignment: .leading, spacing: 11) {
+                            NewspaperSectionHeader(kicker: "経済面", title: "景気・燃料・中古車需要")
+                            Text(intelligence.shortTermOutlook)
+                                .font(.headline)
+                            HStack {
+                                NewspaperMarketMetric(title: "ガソリン", value: "\(game.gasolinePricePerLiter)円/L", forecast: "\(intelligence.gasolineRange.lowerBound)〜\(intelligence.gasolineRange.upperBound)円")
+                                NewspaperMarketMetric(title: "日経平均", value: "\(game.nikkeiAverageYen.formatted())円", forecast: "\(intelligence.nikkeiRange.lowerBound.formatted())〜\(intelligence.nikkeiRange.upperBound.formatted())円")
+                                NewspaperMarketMetric(title: "中古車需要", value: "\(game.marketDemandPercentage)%", forecast: "\(intelligence.demandRange.lowerBound)〜\(intelligence.demandRange.upperBound)%")
+                            }
+                            Text(intelligence.longTermOutlook).font(.caption).foregroundStyle(.secondary)
+                            Label(intelligence.recommendedAction, systemImage: "lightbulb.fill")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(GameTheme.teal)
+                        }
+                        .gameCard()
+
+                        VStack(alignment: .leading, spacing: 11) {
+                            NewspaperSectionHeader(kicker: "業界面", title: "競合各社の動き")
+                            ForEach(visibleCompetitors) { competitor in
+                                let inventory = competitor.branches.reduce(0) { $0 + $1.inventoryCount }
+                                let range = game.competitorEstimateRange(value: inventory, storeID: hasResearcher ? store.id : nil, seed: competitor.name.count)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(competitor.name).font(.subheadline.bold())
+                                        Spacer()
+                                        Text("推定在庫 \(range.lowerBound)〜\(range.upperBound)台")
+                                            .font(.caption.bold().monospacedDigit())
+                                    }
+                                    Text(competitor.strategy).font(.caption).foregroundStyle(.secondary)
+                                    if hasResearcher {
+                                        Text(game.competitorAuctionTrend(competitorID: competitor.id, storeID: store.id))
+                                            .font(.caption2).foregroundStyle(GameTheme.teal)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                                if competitor.id != visibleCompetitors.last?.id { Divider() }
+                            }
+                            if !hasResearcher {
+                                Label("調査担当を配置すると、全競合の仕入れ・在庫・先行投資を追跡できます", systemImage: "person.badge.plus")
+                                    .font(.caption).foregroundStyle(GameTheme.orange)
+                            }
+                        }
+                        .gameCard()
+
+                        VStack(alignment: .leading, spacing: 11) {
+                            NewspaperSectionHeader(kicker: "市場特集", title: "専門市場・トレンド")
+                            if trendSignals(storeID: store.id).isEmpty {
+                                Text(hasResearcher ? "現在、確度の高い専門市場シグナルはありません。" : "担当者不在のため、発生後のトレンドだけを掲載しています。")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            } else {
+                                ForEach(trendSignals(storeID: store.id)) { signal in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Image(systemName: signal.startRange.lowerBound <= game.turn ? "flame.fill" : "binoculars.fill")
+                                            .foregroundStyle(signal.startRange.lowerBound <= game.turn ? GameTheme.orange : GameTheme.teal)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(signal.kind.name).font(.subheadline.bold())
+                                            Text(signal.startRange.lowerBound <= game.turn
+                                                ? "需要拡大中・専門店ブランドが来店先選びに強く影響"
+                                                : "開始予測 \(signal.startRange.lowerBound - game.turn)〜\(signal.startRange.upperBound - game.turn)週後・確度\(signal.confidenceRange.lowerBound)〜\(signal.confidenceRange.upperBound)%")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .gameCard()
+                    } else {
+                        ContentUnavailableView("店舗開業後に発行されます", systemImage: "newspaper")
+                    }
+                }
+                .padding(15)
+            }
+            .background(GameTheme.cream)
+            .navigationTitle("市場新聞")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var publicationSpeed: String {
+        guard let store = researchStore, hasResearcher else { return "概況版・事後情報中心" }
+        let score = game.marketResearchScore(for: store.id)
+        if score >= 85 { return "速報版・最大6週先を追跡" }
+        if score >= 70 { return "週刊詳報・最大4週先を追跡" }
+        return "週刊版・最大2週先を追跡"
+    }
+
+    private var researchByline: String {
+        guard let store = researchStore else { return "編集：オーナー" }
+        return hasResearcher
+            ? "調査：\(game.marketResearcherName(for: store.id))・精度\(Int((1 - game.marketForecastErrorRate(for: store.id)) * 100))%"
+            : "編集：オーナー調査"
+    }
+
+    private func researchRank(for store: Store) -> Double {
+        game.hasMarketResearcher(storeID: store.id) ? game.marketResearchScore(for: store.id) : 0
+    }
+
+    private func trendSignals(storeID: UUID) -> [TrendSignal] {
+        MarketProductKind.allCases
+            .filter(\.isNiche)
+            .compactMap { game.trendSignal(for: $0, storeID: storeID) }
+            .sorted { $0.startRange.lowerBound < $1.startRange.lowerBound }
+    }
+}
+
+private struct NewspaperSectionHeader: View {
+    let kicker: String
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(kicker).font(.caption2.weight(.black)).tracking(1.2).foregroundStyle(GameTheme.orange)
+            Text(title).font(.title3.weight(.black))
+        }
+    }
+}
+
+private struct NewspaperMarketMetric: View {
+    let title: String
+    let value: String
+    let forecast: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.caption.bold().monospacedDigit())
+            Text("予測 \(forecast)").font(.system(size: 8, weight: .medium)).foregroundStyle(GameTheme.teal)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
