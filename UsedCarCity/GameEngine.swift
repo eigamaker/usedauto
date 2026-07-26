@@ -54,9 +54,12 @@ final class GameEngine: ObservableObject {
     @Published var showWeeklyReport = false
     @Published var showMonthlyReport = false
     @Published var gameOver = false
-    @Published var tutorialMessage: String?
     @Published var tutorialStep: TutorialStep?
     @Published var tutorialPlotID: Int?
+    /// ガイド（浜岡ナオ）のレッスン進行。案内は助言のみで、操作を禁止しません。
+    @Published var guide = GuideProgress.dismissed
+    /// ガイドから店舗画面の特定タブへ誘導するためのリクエスト。
+    @Published var guideStorePanelRequest: GuideStorePanel?
     @Published var unlockedFeatures: Set<String> = ["仕入", "価格設定", "出店"]
     @Published var regionalOperations: [RegionalOperation] = []
     @Published var intercityShipments: [IntercityShipment] = []
@@ -149,6 +152,7 @@ final class GameEngine: ObservableObject {
         let segmentTrends: [SegmentTrend]
         let simulationSeed: Int
         let openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord]
+        let guide: GuideProgress
     }
 
     private struct RegionalMonthResult {
@@ -185,7 +189,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v39"
+    private static let saveKey = "UsedCarCity.save.v40"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -252,13 +256,10 @@ final class GameEngine: ObservableObject {
                     loanAmount: StoreFacility.kidsSpace.installationCost
                 )
             }
-            tutorialMessage = nil
         } else if CommandLine.arguments.contains("-demo-tutorial"), !hasStarted {
             startNewGame()
-            tutorialMessage = nil
         } else if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-map-zoom") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-workshop") || CommandLine.arguments.contains("-demo-hq") || CommandLine.arguments.contains("-demo-goals") || CommandLine.arguments.contains("-demo-ending") || CommandLine.arguments.contains("-demo-competition") || CommandLine.arguments.contains("-demo-construction") || CommandLine.arguments.contains("-demo-national")) && !hasStarted {
             prepareDemoCompany()
-            tutorialMessage = nil
         }
         if CommandLine.arguments.contains("-demo-goals") {
             companyValue = 32_000
@@ -305,7 +306,6 @@ final class GameEngine: ObservableObject {
         if CommandLine.arguments.contains("-demo-construction"), stores.count == 1,
            let plot = plots.first(where: { $0.district == .highway && isAvailable($0.occupant) && $0.development == nil }) {
             _ = buildStore(on: plot, type: .roadside, mode: .lease, marketPolicy: StoreMarketPolicy(priorityCategories: [.commercial, .pickup], targetPurpose: .corporate), facilities: [.corporateDesk], loanAmount: 100_000)
-            tutorialMessage = nil
         }
         if CommandLine.arguments.contains("-demo-national"), regionalOperations.isEmpty {
             companyValue = 120_000
@@ -315,13 +315,20 @@ final class GameEngine: ObservableObject {
             _ = acquireLocalDealer(in: "shinonome")
             _ = establishRegionalOffice(in: "naniwa")
             _ = openFranchise(in: "naniwa")
-            tutorialMessage = nil
         }
 #endif
     }
 
     var progress: Double { Double(turn) / Double(maxTurns) }
     var totalInventory: Int { stores.reduce(0) { $0 + $1.inventoryCount } }
+
+    func canSelectFoundingInventory(storeID: UUID) -> Bool {
+        turn == 0
+            && tutorialStep == .purchaseInventory
+            && stores.count == 1
+            && stores.first?.id == storeID
+            && totalInventory == 0
+    }
     var gasolinePricePerLiter: Int { Int(gasolinePrice.rounded()) }
     var nikkeiAverageYen: Int { Int(nikkeiAverage.rounded()) }
     var marketDemandPercentage: Int { Int((marketDemandIndex * 100).rounded()) }
@@ -374,10 +381,8 @@ final class GameEngine: ObservableObject {
     }
     var currentDistrictsByKind: [DistrictKind: District] { Dictionary(uniqueKeysWithValues: districts.map { ($0.kind, $0) }) }
     var nationalCities: [NationalCity] { Self.makeNationalCities() }
-    var isTutorialActive: Bool {
-        guard let tutorialStep else { return false }
-        return tutorialStep != .completed
-    }
+    /// 創業（1店舗目の開店）がまだ終わっていない状態。
+    var isFoundingPhase: Bool { stores.isEmpty }
 
     var leadingDistricts: [DistrictKind] {
         DistrictKind.allCases.filter { kind in
@@ -552,11 +557,11 @@ final class GameEngine: ObservableObject {
         companyValue = 3_500
         tutorialStep = .chooseLocation
         tutorialPlotID = nil
+        guide = GuideProgress()
         cityEvents = plots.compactMap { plot in
             guard let project = plot.development else { return nil }
             return CityEvent(turn: 0, kind: .development, title: "\(project.title)が計画中", detail: "完成まで\(project.monthsRemaining)週間。周辺人口と交通量が増える見込みです", district: plot.district, plotID: plot.id)
         }
-        tutorialMessage = nil
         generateAuctionListings()
         generateOnlineListings()
         generateCorporateOpportunities()
@@ -608,7 +613,9 @@ final class GameEngine: ObservableObject {
         nikkeiMomentum = 0
         demandMomentum = 0
         activeMarketShocks = []
-        careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; lastMonthlyReport = nil; showWeeklyReport = false; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil; tutorialMessage = nil
+        careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; lastMonthlyReport = nil; showWeeklyReport = false; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil
+        guide = .dismissed
+        guideStorePanelRequest = nil
         unlockedFeatures = ["仕入", "価格設定", "出店"]
         placeCompetitors()
         if removeSave && persistenceEnabled {
@@ -672,6 +679,7 @@ final class GameEngine: ObservableObject {
         segmentTrends = saved.segmentTrends
         simulationSeed = saved.simulationSeed
         openSegmentWeek = saved.openSegmentWeek
+        guide = saved.guide
         lastReport = reports.first
         lastMonthlyReport = monthlyReports.first
     }
@@ -712,16 +720,17 @@ final class GameEngine: ObservableObject {
     }
 
     func selectFoundingPlot(_ plotID: Int) {
-        guard tutorialStep == .chooseLocation || tutorialStep == .buildStore,
+        guard stores.isEmpty,
               let plot = plot(id: plotID), isAvailable(plot.occupant), plot.development == nil else { return }
         tutorialPlotID = plotID
-        tutorialStep = .buildStore
+        if tutorialStep == .chooseLocation || tutorialStep == .buildStore { tutorialStep = .buildStore }
         save()
     }
 
+    /// 創業前でも空き区画なら計画に進めます。ガイドの有無で出店可否は変わりません。
     func canPlanStore(on plot: LandPlot) -> Bool {
-        if stores.isEmpty, tutorialStep == .buildStore { return tutorialPlotID == plot.id }
-        return !stores.isEmpty
+        if !stores.isEmpty { return true }
+        return isAvailable(plot.occupant) && plot.development == nil
     }
 
     func estimatedVisitors(for plot: LandPlot) -> Int {
@@ -1372,7 +1381,8 @@ final class GameEngine: ObservableObject {
         facilities: Set<StoreFacility> = [],
         loanAmount: Int
     ) -> Bool {
-        let isFoundingStore = stores.isEmpty && tutorialStep == .buildStore && tutorialPlotID == plot.id
+        // 1店舗目は創業店として即日開店します（案内の有無では変わりません）。
+        let isFoundingStore = stores.isEmpty
         let footprint = footprintPlots(startingAt: plot, type: type, mode: mode)
         guard stores.count < 5,
               footprint.count == type.requiredGridCells,
@@ -1463,7 +1473,7 @@ final class GameEngine: ObservableObject {
         ))
         stores[index].expertise.add(category: category, purpose: stores[index].marketPolicy.targetPurpose, source: .dealerTrade, points: 1)
         companyExpertise.add(category: category, purpose: stores[index].marketPolicy.targetPurpose, source: .dealerTrade, points: 1)
-        if tutorialStep == .purchaseInventory, stores[index].plotID == tutorialPlotID {
+        if tutorialStep == .purchaseInventory {
             tutorialStep = .runFirstMonth
         }
         recalculateAssets()
@@ -1498,18 +1508,128 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    func setTutorialPrice(storeID: UUID, priceIndex: Double) {
-        guard tutorialStep == .setPrice,
-              let index = stores.firstIndex(where: { $0.id == storeID && $0.plotID == tutorialPlotID }) else { return }
-        stores[index].priceIndex = min(1.18, max(0.88, priceIndex))
-        tutorialStep = .runFirstMonth
+    func completeTutorial() {
+        tutorialStep = .completed
         save()
     }
 
-    func completeTutorial() {
-        tutorialStep = .completed
-        tutorialMessage = "創業チュートリアル完了。ここからは自由に街と会社を育てられます。"
+    // MARK: - ガイド（浜岡ナオ）
+
+    /// いま案内中のレッスン。案内オフ、または全レッスン修了なら nil。
+    var currentGuideLesson: GuideLesson? {
+        guard guide.mode != .off else { return nil }
+        return guide.currentLesson
+    }
+
+    var isGuideRunning: Bool { currentGuideLesson != nil }
+
+    /// 開始時の確認で選んだモードで案内を始めます。
+    func beginGuide(mode: GuideMode) {
+        var progress = GuideProgress(mode: mode)
+        progress.hasChosenMode = true
+        progress.currentLessonID = GuideCurriculum.lessons(for: mode).first?.id
+        progress.speechPage = 0
+        guide = progress
+        refreshGuideProgress()
         save()
+    }
+
+    /// 途中から案内を呼び戻します。達成済みのレッスンは自動で読み飛ばします。
+    func restartGuide(mode: GuideMode = .full) {
+        beginGuide(mode: mode)
+    }
+
+    /// 指定した章の先頭から読み直します。
+    func replayGuideChapter(_ chapter: GuideChapter) {
+        guard guide.mode != .off else { return }
+        guard let first = guide.lessons.first(where: { $0.chapter == chapter }) else { return }
+        guide.completedLessons.remove(first.id)
+        guide.currentLessonID = first.id
+        guide.speechPage = 0
+        save()
+    }
+
+    /// ふきだしを次のページへ。最終ページなら「確認済み」として次のレッスンへ進みます。
+    func advanceGuide() {
+        guard let lesson = currentGuideLesson else { return }
+        if guide.speechPage + 1 < lesson.speech.count {
+            guide.speechPage += 1
+            return
+        }
+        acknowledgeGuide(lesson.id)
+    }
+
+    func rewindGuide() {
+        guard guide.speechPage > 0 else { return }
+        guide.speechPage -= 1
+    }
+
+    /// レッスンの達成条件が「確認」のものを満たしたことを記録します。
+    /// 画面を開いた・商談したなど、状態から判定できない達成に使います。
+    func acknowledgeGuide(_ id: GuideLessonID) {
+        guard guide.mode != .off else { return }
+        guard !guide.acknowledgedLessons.contains(id) else {
+            refreshGuideProgress()
+            return
+        }
+        guide.acknowledgedLessons.insert(id)
+        refreshGuideProgress()
+        save()
+    }
+
+    /// 現在のレッスンだけを飛ばします。
+    func skipCurrentGuideLesson() {
+        guard let lesson = currentGuideLesson else { return }
+        guide.completedLessons.insert(lesson.id)
+        guide.currentLessonID = guide.nextLessonID(after: lesson.id)
+        guide.speechPage = 0
+        save()
+    }
+
+    /// 案内そのものを終了します（設定からいつでも再開できます）。
+    func stopGuide() {
+        guide.currentLessonID = nil
+        guide.speechPage = 0
+        save()
+    }
+
+    func requestGuideStorePanel(_ panel: GuideStorePanel) {
+        guideStorePanelRequest = panel
+    }
+
+    /// 達成済みのレッスンを畳んで、案内位置を最新へ揃えます。
+    func refreshGuideProgress() {
+        guard guide.mode != .off else { return }
+        var safety = 0
+        while let id = guide.currentLessonID, safety < GuideLessonID.allCases.count + 2 {
+            safety += 1
+            guard isGuideGoalSatisfied(id.lesson) else { break }
+            guide.completedLessons.insert(id)
+            let next = guide.nextLessonID(after: id)
+            guide.currentLessonID = next
+            guide.speechPage = 0
+        }
+    }
+
+    private func isGuideGoalSatisfied(_ lesson: GuideLesson) -> Bool {
+        switch lesson.goal {
+        case .acknowledge:
+            return guide.acknowledgedLessons.contains(lesson.id)
+        case .plotSelected:
+            return tutorialPlotID != nil || !stores.isEmpty
+        case .storeOpened:
+            return !stores.isEmpty
+        case .inventoryStocked:
+            return totalInventory > 0
+        case .weekAdvanced:
+            return turn >= 1
+        case .staffAssigned:
+            return stores.contains { store in
+                store.employees.contains { $0.assignment != .unassigned }
+            }
+        case .automationEnabled:
+            return stores.contains { $0.autoSales || $0.autoProcurement || $0.autoMarketing || $0.autoService }
+        }
     }
 
     func incomingCount(for storeID: UUID) -> Int {
@@ -3246,6 +3366,8 @@ final class GameEngine: ObservableObject {
                 registerSegmentUnmet(segmentKey(for: lead))
             }
         }
+        // 成約・不成約にかかわらず「商談を体験した」時点でレッスンは達成です。
+        guide.acknowledgedLessons.insert(.sellCar)
         save()
         return SaleNegotiationResult(
             succeeded: succeeded,
@@ -3937,21 +4059,14 @@ final class GameEngine: ObservableObject {
 
     func advanceWeek() {
         guard !gameOver else { return }
-        if let tutorialStep, tutorialStep != .completed, tutorialStep != .runFirstMonth {
-            tutorialMessage = "先に「\(tutorialStep.title)」を完了してください。"
-            return
-        }
+        // ガイドは助言のみで、週の進行や画面操作を禁止しません。
         let isFirstTutorialMonth = tutorialStep == .runFirstMonth
-        if isFirstTutorialMonth,
-           !stores.contains(where: { $0.plotID == tutorialPlotID && $0.manualNegotiationsThisWeek > 0 }) {
-            tutorialMessage = "店舗画面でお客様と販売価格を交渉してから、最初の1週間を完了してください。"
-            return
-        }
         let reportYear = year, reportMonth = month, reportWeek = weekOfMonth
         var totalSales = 0, revenue = 0, costOfSales = 0, personnel = 0, rent = 0, ads = 0, depreciation = 0
         var revenueToCollect = 0
         var notes: [String] = []
         procurementWeekActivities = [:]
+        beginProcurementWeek()
         beginEmployeeWeek()
         let claimCostsByStore = resolveCustomerClaims(at: turn + 1, notes: &notes)
         let claimCosts = claimCostsByStore.values.reduce(0, +)
@@ -4155,9 +4270,8 @@ final class GameEngine: ObservableObject {
             monthlyReports.insert(completedMonth, at: 0)
             lastMonthlyReport = completedMonth
         }
-        if isFirstTutorialMonth {
+        if isFirstTutorialMonth || (tutorialStep != nil && tutorialStep != .completed && !stores.isEmpty) {
             tutorialStep = .completed
-            tutorialMessage = "創業チュートリアル完了。店員で対応枠を増やし、必要になったら店長へ業務を委任しましょう。"
         }
         let automaticallyShowReport = persistenceEnabled
             ? UserDefaults.standard.object(forKey: "settings.autoShowWeeklyReport") as? Bool ?? true
@@ -6170,13 +6284,10 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func completeInstructionIfExhausted(at index: Int) {
-        guard procurementInstructions.indices.contains(index),
-              procurementInstructions[index].status != .completed,
-              procurementInstructions[index].reservedBudget == 0,
-              procurementInstructions[index].spentBudget >= procurementInstructions[index].totalBudget else { return }
-        procurementInstructions[index].status = .completed
-        procurementInstructions[index].lastResult += "・予算消化完了"
+    private func beginProcurementWeek() {
+        for index in procurementInstructions.indices {
+            procurementInstructions[index].spentBudget = 0
+        }
     }
 
     private func instructionMatches(
@@ -6612,7 +6723,6 @@ final class GameEngine: ObservableObject {
                     spent: total,
                     result: "取得"
                 )
-                completeInstructionIfExhausted(at: instructionIndex)
                 updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
                     $0.successes += 1
                     $0.grossProfit += candidate.predictedUnitGrossProfit * item.lotCount
@@ -6667,7 +6777,6 @@ final class GameEngine: ObservableObject {
                 spent: quote.totalCost,
                 result: "取得"
             )
-            completeInstructionIfExhausted(at: instructionIndex)
             updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
                 $0.handled += 1
                 $0.successes += 1
@@ -7190,7 +7299,6 @@ final class GameEngine: ObservableObject {
                 result: failureReason
             )
         }
-        completeInstructionIfExhausted(at: index)
     }
 
     private func resolveOnlineBids(at resolvingTurn: Int, notes: inout [String]) {
@@ -7679,8 +7787,9 @@ final class GameEngine: ObservableObject {
     }
 
     private func save() {
+        refreshGuideProgress()
         guard persistenceEnabled else { return }
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, onlineListings: onlineListings, onlineBidReservations: onlineBidReservations, onlineBidResults: onlineBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, onlineListings: onlineListings, onlineBidReservations: onlineBidReservations, onlineBidResults: onlineBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -7707,7 +7816,6 @@ final class GameEngine: ObservableObject {
             }
         }
         completeTutorial()
-        tutorialMessage = nil
     }
 
     private func placeCompetitors() {

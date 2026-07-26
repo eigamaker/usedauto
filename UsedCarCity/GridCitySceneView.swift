@@ -118,8 +118,7 @@ struct GridCityMapSurface: View {
 
     private func select(plotID: Int) {
         guard let plot = game.plot(id: plotID) else { return }
-        if case .available = plot.occupant,
-           game.tutorialStep == .chooseLocation || game.tutorialStep == .buildStore {
+        if case .available = plot.occupant, game.stores.isEmpty {
             game.selectFoundingPlot(plot.id)
         }
         selectedPlot = plot
@@ -286,6 +285,7 @@ private struct GridSceneRepresentable: UIViewRepresentable {
             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
             pan.minimumNumberOfTouches = 1
             pan.maximumNumberOfTouches = 1
+            tap.delegate = self
             pan.delegate = self
             pinch.delegate = self
             tap.require(toFail: pan)
@@ -299,6 +299,14 @@ private struct GridSceneRepresentable: UIViewRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             true
+        }
+
+        /// マップの上に重なっているガイドカードの内側では、マップ操作を受け付けません。
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldReceive touch: UITouch
+        ) -> Bool {
+            !GuideOverlayHitArea.contains(touch.location(in: nil))
         }
 
         @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -1984,8 +1992,9 @@ private final class GridCitySceneController {
 
     private func emissionColor(plot: LandPlot?, game: GameEngine, isSelected: Bool) -> UIColor {
         if isSelected { return UIColor(red: 0.20, green: 0.15, blue: 0.02, alpha: 1) }
+        // 創業前だけ、候補区画をほのかに光らせます。
         guard let plot,
-              game.isTutorialActive,
+              game.stores.isEmpty,
               game.isFoundingCandidate(plot) else { return .black }
         return UIColor(red: 0.13, green: 0.17, blue: 0.02, alpha: 1)
     }

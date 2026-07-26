@@ -29,9 +29,7 @@ struct BuildStoreView: View {
                 ProgressView(value: Double(step + 1), total: 3).tint(GameTheme.teal).padding()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        if game.tutorialStep == .buildStore {
-                            TutorialCoachCard(step: .buildStore)
-                        }
+                        GuideInlineCard(showing: [.planStore])
                         Text(stepTitle).font(.title2.bold()).foregroundStyle(GameTheme.ink)
                         if step == 0 { acquisitionStep }
                         if step == 1 { storeTypeStep }
@@ -194,7 +192,7 @@ struct BuildStoreView: View {
     }
 
     private func completeBuild() {
-        let isFounding = game.stores.isEmpty && game.tutorialStep == .buildStore
+        let isFounding = game.stores.isEmpty
         if game.buildStore(on: plot, type: type, mode: mode, marketPolicy: marketPolicy, facilities: facilities, loanAmount: loan) {
             foundingBuildCompleted = isFounding
             completed = true

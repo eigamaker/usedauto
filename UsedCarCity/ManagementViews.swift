@@ -413,9 +413,7 @@ struct MonthlyReportView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    if game.tutorialStep == .reviewFirstResult {
-                        TutorialCoachCard(step: .reviewFirstResult)
-                    }
+                    GuideInlineCard(showing: [.readWeeklyReport])
                     VStack(spacing: 7) {
                         Image(systemName: report.operatingProfit >= 0 ? "chart.line.uptrend.xyaxis.circle.fill" : "exclamationmark.circle.fill")
                             .font(.system(size: 48)).foregroundStyle(report.operatingProfit >= 0 ? GameTheme.teal : GameTheme.orange)
@@ -504,19 +502,24 @@ struct MonthlyReportView: View {
                     if !report.notes.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             SectionTitle(title: "今週の主な出来事")
-                            ForEach(report.notes, id: \.self) { note in Label(note, systemImage: "bell.fill").font(.subheadline).foregroundStyle(GameTheme.ink) }
+                            ForEach(WeeklyReportCategory.allCases) { category in
+                                let categoryNotes = report.notes(in: category)
+                                if !categoryNotes.isEmpty {
+                                    VStack(alignment: .leading, spacing: 7) {
+                                        Label(category.title, systemImage: category.icon)
+                                            .font(.subheadline.bold())
+                                            .foregroundStyle(GameTheme.teal)
+                                        ForEach(categoryNotes, id: \.self) { note in
+                                            Text("・\(note)")
+                                                .font(.subheadline)
+                                                .foregroundStyle(GameTheme.ink)
+                                        }
+                                    }
+                                    .padding(.vertical, 3)
+                                }
+                            }
                         }
                         .gameCard()
-                    }
-                    if game.tutorialStep == .reviewFirstResult {
-                        Button(action: finishTutorial) {
-                            Label("結果を確認して自由経営へ", systemImage: "checkmark.seal.fill")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 5)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(GameTheme.teal)
                     }
                 }
                 .padding(15)
@@ -526,15 +529,11 @@ struct MonthlyReportView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(game.tutorialStep == .reviewFirstResult ? "完了" : "閉じる") {
-                        if game.tutorialStep == .reviewFirstResult { game.completeTutorial() }
-                        dismiss()
-                    }
-                    .bold()
+                    Button("閉じる") { dismiss() }
+                        .bold()
                 }
             }
         }
-        .interactiveDismissDisabled(game.tutorialStep == .reviewFirstResult)
     }
 
     private func signed(_ value: Int) -> String {
@@ -544,11 +543,6 @@ struct MonthlyReportView: View {
     private func signedCurrency(_ value: Int) -> String {
         if value == 0 { return "±0" }
         return "\(value > 0 ? "+" : "−")\(abs(value).currency)"
-    }
-
-    private func finishTutorial() {
-        game.completeTutorial()
-        dismiss()
     }
 }
 
@@ -575,6 +569,7 @@ struct MonthlyPLDashboardView: View {
     @EnvironmentObject private var game: GameEngine
     @Environment(\.dismiss) private var dismiss
     let report: MonthlyPLReport
+    @State private var showGuideLesson = false
 
     private var previousReport: MonthlyPLReport? {
         guard let index = game.monthlyReports.firstIndex(where: { $0.id == report.id }),
@@ -597,6 +592,21 @@ struct MonthlyPLDashboardView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .gameCard()
+
+                    Button { showGuideLesson = true } label: {
+                        HStack(spacing: 11) {
+                            GuideAvatarView(expression: .think, size: 38)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("PLの読み方を教わる").font(.subheadline.bold()).foregroundStyle(GameTheme.ink)
+                                Text("売上高から営業利益までを、いまの数字で解説します")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary)
+                        }
+                        .gameCard(padding: 12)
+                    }
+                    .buttonStyle(.plain)
 
                     HStack {
                         MetricView(title: "販売台数", value: "\(report.sales)台")
@@ -698,6 +708,11 @@ struct MonthlyPLDashboardView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("閉じる") { dismiss() }.bold()
                 }
+            }
+            .sheet(isPresented: $showGuideLesson) {
+                GuideProfitLossLessonView()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
         }
     }

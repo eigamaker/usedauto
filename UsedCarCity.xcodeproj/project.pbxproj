@@ -17,11 +17,14 @@
 		2F050F3BFF7469D85AF5EC4D /* GridMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927B65887C66F2E1A15FB150 /* GridMapTests.swift */; };
 		379C75F3E29895381B88D9E5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9818ABA4195147A46D2CA15C /* RootView.swift */; };
 		3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */; };
+		4DF8DE21F0BD17E71F68B779 /* GuideAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38DE7E3A1FBA33E59A6FC7FA /* GuideAvatarView.swift */; };
+		60F1C990E6F86BC93A2EACD1 /* GuideViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CB0160CCC35CF15EF7592A /* GuideViews.swift */; };
 		8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */; };
 		8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */; };
 		9040838EF619B02856AC5667 /* CityMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E28EC484C7566BDF62A0D40 /* CityMapView.swift */; };
 		915A34939801912EE62728E4 /* LongTermSimulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB73E465D918E8A8C86961F0 /* LongTermSimulation.swift */; };
 		986C38B0EF96B2249A269A48 /* CityAssetCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5835EE83D490DDA8757F0AB /* CityAssetCatalog.swift */; };
+		9CF8CC38FC4051EC378C6B24 /* TutorialGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A3F976ABD76CB627DE4EA5 /* TutorialGuide.swift */; };
 		AA385308489176468FE026E8 /* PlotDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */; };
 		C01DACAB305E7954E49CA4FA /* LongTermSimulationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1BC34FACD26F52467A60837 /* LongTermSimulationTests.swift */; };
 		C12475F7972B43622615DBCE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1FAE8B5F6C57CDB708261A /* Theme.swift */; };
@@ -52,14 +55,17 @@
 		1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildStoreView.swift; sourceTree = "<group>"; };
 		29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsedCarCityApp.swift; sourceTree = "<group>"; };
 		2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngine.swift; sourceTree = "<group>"; };
+		38DE7E3A1FBA33E59A6FC7FA /* GuideAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideAvatarView.swift; sourceTree = "<group>"; };
 		412AFB3815F6E33D7B734156 /* OperationsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsViews.swift; sourceTree = "<group>"; };
 		467AB062A23FFB7FE409BCBA /* UsedCarCityTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = UsedCarCityTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E28EC484C7566BDF62A0D40 /* CityMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMapView.swift; sourceTree = "<group>"; };
+		50A3F976ABD76CB627DE4EA5 /* TutorialGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialGuide.swift; sourceTree = "<group>"; };
 		50CF6EAF3FF4026F9CC7ED6A /* CityGroundArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityGroundArt.swift; sourceTree = "<group>"; };
 		5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceViews.swift; sourceTree = "<group>"; };
 		6F61274CC4DE98047FE3A25E /* UsedCarCity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UsedCarCity.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7096782B05120F5807D91227 /* StoreCommandCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreCommandCenterView.swift; sourceTree = "<group>"; };
 		74048FF6EAF92884804658F0 /* GridMapModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapModels.swift; sourceTree = "<group>"; };
+		77CB0160CCC35CF15EF7592A /* GuideViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideViews.swift; sourceTree = "<group>"; };
 		7E05CB3F0B106E864CD5E80A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		7E1FAE8B5F6C57CDB708261A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		927B65887C66F2E1A15FB150 /* GridMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapTests.swift; sourceTree = "<group>"; };
@@ -118,6 +124,8 @@
 				2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */,
 				F38E41AEC301DF8AE2DB192A /* GridCitySceneView.swift */,
 				74048FF6EAF92884804658F0 /* GridMapModels.swift */,
+				38DE7E3A1FBA33E59A6FC7FA /* GuideAvatarView.swift */,
+				77CB0160CCC35CF15EF7592A /* GuideViews.swift */,
 				04B96C4CD1B6B808F7892797 /* ManagementViews.swift */,
 				FE73B5C41E1720C59FD0FACB /* Models.swift */,
 				F8B963E2680F1614B9C82085 /* OnboardingView.swift */,
@@ -127,6 +135,7 @@
 				7096782B05120F5807D91227 /* StoreCommandCenterView.swift */,
 				0DDF85F1F83A9866196A31F9 /* SuihamaCityMap.swift */,
 				7E1FAE8B5F6C57CDB708261A /* Theme.swift */,
+				50A3F976ABD76CB627DE4EA5 /* TutorialGuide.swift */,
 				29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */,
 			);
 			path = UsedCarCity;
@@ -242,6 +251,8 @@
 				8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */,
 				1AC84B5C81F75768AD6A0717 /* GridCitySceneView.swift in Sources */,
 				0E28654C0A46E76D3A3B40F8 /* GridMapModels.swift in Sources */,
+				4DF8DE21F0BD17E71F68B779 /* GuideAvatarView.swift in Sources */,
+				60F1C990E6F86BC93A2EACD1 /* GuideViews.swift in Sources */,
 				1E54382B49F8B1DFC56E3C01 /* ManagementViews.swift in Sources */,
 				DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */,
 				29DFFEE10959B681CCD3EEB6 /* OnboardingView.swift in Sources */,
@@ -251,6 +262,7 @@
 				F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */,
 				2901D7D67C967233486BE7D1 /* SuihamaCityMap.swift in Sources */,
 				C12475F7972B43622615DBCE /* Theme.swift in Sources */,
+				9CF8CC38FC4051EC378C6B24 /* TutorialGuide.swift in Sources */,
 				DF9BE19281A9C7D295B9B99F /* UsedCarCityApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -361,12 +373,6 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = J4SJR8W4AS;
-				INFOPLIST_KEY_CFBundleDisplayName = "カーシティ経営";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIStatusBarStyle = "";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -384,12 +390,6 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = J4SJR8W4AS;
-				INFOPLIST_KEY_CFBundleDisplayName = "カーシティ経営";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIStatusBarStyle = "";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

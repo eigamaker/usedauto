@@ -11,9 +11,7 @@ struct PlotDetailView: View {
             ScrollView {
                 if let plot = game.plot(id: plotID) {
                     VStack(spacing: 16) {
-                        if let step = game.tutorialStep, game.isTutorialActive, step == .buildStore {
-                            TutorialCoachCard(step: step)
-                        }
+                        GuideInlineCard(showing: [.chooseLocation, .planStore])
                         switch plot.occupant {
                         case .player:
                             if let store = game.store(at: plot.id) {
@@ -34,7 +32,7 @@ struct PlotDetailView: View {
                                         .foregroundStyle(.white).background(GameTheme.teal).clipShape(RoundedRectangle(cornerRadius: 15))
                                 }
                             } else {
-                                Label("マップ上で創業する土地を選択してください", systemImage: "location.fill")
+                                Label("この区画には出店できません", systemImage: "location.slash")
                                     .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(15).background(.gray.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14))
                             }
                         case .unavailable:

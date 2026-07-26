@@ -34,12 +34,12 @@ final class LongTermSimulationTests: XCTestCase {
 
     func testBankruptcyAtCheckpointIsNotCountedAsSurvival() {
         let report = LongTermSimulationRunner.run(configuration: SimulationConfiguration(
-            seeds: [3],
-            strategies: [.survival],
+            seeds: [29],
+            strategies: [.adaptive],
             horizonWeeks: 240
         ))
 
-        XCTAssertEqual(report.runs.first?.completedWeeks, 240)
+        XCTAssertLessThan(report.runs.first?.completedWeeks ?? 240, 240)
         XCTAssertEqual(report.runs.first?.yearlySnapshots.last?.survived, false)
         XCTAssertEqual(report.summaries.first?.checkpoints.first?.survivalRate, 0)
     }

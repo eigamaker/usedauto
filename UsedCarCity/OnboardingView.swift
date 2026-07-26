@@ -3,6 +3,7 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject private var game: GameEngine
     @State private var confirmNewGame = false
+    @State private var showGuideIntro = false
 
     var body: some View {
         ZStack {
@@ -32,7 +33,7 @@ struct OnboardingView: View {
                 VStack(spacing: 12) {
                     Button {
                         if game.hasSaveData { confirmNewGame = true }
-                        else { game.startNewGame() }
+                        else { showGuideIntro = true }
                     } label: {
                         TitleActionLabel(title: "新しいゲーム", icon: "plus", prominent: true)
                     }
@@ -55,6 +56,23 @@ struct OnboardingView: View {
                 }
                 .frame(maxWidth: 430)
 
+                HStack(spacing: 10) {
+                    GuideAvatarView(expression: .smile, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("案内役　\(GuideCharacter.nao.name)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                        Text("土地選び・仕入れ・販売・委任・PLの読み方まで案内します")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(12)
+                .frame(maxWidth: 430)
+                .background(.white.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                 VStack(spacing: 7) {
                     Text("安く仕入れ、値引きを判断し、1台ずつ商談")
                         .font(.caption.bold())
@@ -72,10 +90,16 @@ struct OnboardingView: View {
             .padding(24)
         }
         .confirmationDialog("新しいゲームを始めますか？", isPresented: $confirmNewGame, titleVisibility: .visible) {
-            Button("セーブデータを上書きして開始", role: .destructive) { game.startNewGame() }
+            Button("セーブデータを上書きして開始", role: .destructive) { showGuideIntro = true }
             Button("キャンセル", role: .cancel) {}
         } message: {
             Text("現在のセーブデータは削除されます。")
+        }
+        .fullScreenCover(isPresented: $showGuideIntro) {
+            GuideIntroView { mode in
+                game.startNewGame()
+                game.beginGuide(mode: mode)
+            }
         }
     }
 }

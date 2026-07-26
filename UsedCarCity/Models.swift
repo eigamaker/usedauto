@@ -50,6 +50,9 @@ enum DistrictKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 創業フローの内部進行。プレイヤーへの案内は `GuideProgress`（浜岡ナオ）が担当し、
+/// こちらは「創業地を選んだ／店を建てた」といった段階の記録と、
+/// 既存セーブとの互換のために残しています。ケースは削除しないでください。
 enum TutorialStep: String, Codable, CaseIterable, Identifiable {
     case chooseLocation
     case buildStore
@@ -60,54 +63,6 @@ enum TutorialStep: String, Codable, CaseIterable, Identifiable {
     case completed
 
     var id: String { rawValue }
-
-    var number: Int {
-        switch self {
-        case .chooseLocation: 1
-        case .buildStore: 2
-        case .purchaseInventory: 3
-        case .setPrice, .runFirstMonth: 4
-        case .reviewFirstResult, .completed: 5
-        }
-    }
-
-    var progress: Double { Double(number) / 5.0 }
-
-    var title: String {
-        switch self {
-        case .chooseLocation: "創業地を選ぶ"
-        case .buildStore: "店舗を計画する"
-        case .purchaseInventory: "販売車を仕入れる"
-        case .setPrice: "最初の販売商談"
-        case .runFirstMonth: "最初の1週間を営業する"
-        case .reviewFirstResult: "経営結果を確認する"
-        case .completed: "チュートリアル完了"
-        }
-    }
-
-    var instruction: String {
-        switch self {
-        case .chooseLocation: "光っている候補地をタップ。客層、交通量、賃料を比べて最初の店を置く場所を選びましょう。"
-        case .buildStore: "選んだ土地の詳細から出店計画へ進み、取得方法・店舗タイプ・資金計画を決めて契約します。運営方針はオーナーがいつでも設定できます。"
-        case .purchaseInventory: "店舗画面で地域需要を確認し、売りたい車種を3台仕入れましょう。支払った金額と在庫が本番データに反映されます。"
-        case .setPrice: "店舗の店頭販売から1台を選び、お客様との値下げ交渉を始めましょう。"
-        case .runFirstMonth: "店舗の「店頭販売」で値引き幅を選んで商談し、右上の「1週間進める」を押して最初の結果を確定しましょう。商談は不成立になることもあります。"
-        case .reviewFirstResult: "販売台数、売上、営業利益と、その数字になった理由を確認しましょう。"
-        case .completed: "ここからは自由経営です。街の変化を見ながら会社を育ててください。"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .chooseLocation: "mappin.and.ellipse"
-        case .buildStore: "hammer.fill"
-        case .purchaseInventory: "car.2.fill"
-        case .setPrice: "tag.fill"
-        case .runFirstMonth: "play.fill"
-        case .reviewFirstResult: "chart.bar.fill"
-        case .completed: "checkmark.seal.fill"
-        }
-    }
 }
 
 enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
@@ -2924,6 +2879,52 @@ struct StoreWeeklyResult: Identifiable, Codable, Hashable {
     var id: UUID { storeID }
 }
 
+enum WeeklyReportCategory: String, CaseIterable, Identifiable {
+    case procurement
+    case sales
+    case operations
+    case market
+    case management
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .procurement: "仕入れレポート"
+        case .sales: "販売レポート"
+        case .operations: "店舗・人員レポート"
+        case .market: "市場レポート"
+        case .management: "経営レポート"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .procurement: "car.badge.gearshape"
+        case .sales: "person.crop.circle.badge.checkmark"
+        case .operations: "building.2.crop.circle"
+        case .market: "chart.line.uptrend.xyaxis"
+        case .management: "briefcase.fill"
+        }
+    }
+
+    static func category(for note: String) -> WeeklyReportCategory {
+        let procurementTerms = ["仕入", "入庫", "落札", "入札", "業者間", "AA", "ネット市場", "下取り車"]
+        if procurementTerms.contains(where: note.contains) { return .procurement }
+
+        let salesTerms = ["販売", "商談", "成約", "出品車", "受注", "クレーム", "販売客"]
+        if salesTerms.contains(where: note.contains) { return .sales }
+
+        let marketTerms = ["市場", "競合", "ガソリン", "日経", "需要", "価格戦争", "新型", "地価"]
+        if marketTerms.contains(where: note.contains) { return .market }
+
+        let operationsTerms = ["社員", "店長", "整備", "完成", "建設", "改装", "店舗外観", "開店", "引き抜き", "仕入担当"]
+        if operationsTerms.contains(where: note.contains) { return .operations }
+
+        return .management
+    }
+}
+
 struct MonthlyReport: Identifiable, Codable, Hashable {
     let id: UUID
     let year: Int
@@ -2947,6 +2948,10 @@ struct MonthlyReport: Identifiable, Codable, Hashable {
     let notes: [String]
     let procurement: [ProcurementReportLine]
     let storeResults: [StoreWeeklyResult]
+
+    func notes(in category: WeeklyReportCategory) -> [String] {
+        notes.filter { WeeklyReportCategory.category(for: $0) == category }
+    }
 }
 
 struct WeeklyReportComparison: Hashable {

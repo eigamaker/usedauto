@@ -14,13 +14,10 @@ struct StoreCommandCenterView: View {
     var body: some View {
         if let store, let plot {
             VStack(spacing: 14) {
-                if let step = game.tutorialStep,
-                   step == .purchaseInventory || step == .runFirstMonth {
-                    TutorialCoachCard(step: step)
-                }
+                GuideInlineCard(showing: [.stockInventory, .sellCar, .hireStaff, .delegateWork])
                 StoreSceneHeader(store: store, plot: plot, managerName: managerName)
                 if store.isOperational {
-                    if game.tutorialStep == .purchaseInventory {
+                    if game.canSelectFoundingInventory(storeID: store.id) {
                         FoundingInventoryTutorialPanel(store: store, plot: plot)
                     }
                     StorePanelPicker(selection: $panel)
@@ -51,11 +48,25 @@ struct StoreCommandCenterView: View {
             .alert("アクション結果", isPresented: Binding(get: { actionMessage != nil }, set: { if !$0 { actionMessage = nil } })) {
                 Button("OK") { actionMessage = nil }
             } message: { Text(actionMessage ?? "") }
+            .onAppear(perform: applyGuidePanelRequest)
+            .onChange(of: game.guideStorePanelRequest) { _, _ in applyGuidePanelRequest() }
         }
     }
 
     private var managerName: String {
         store?.manager?.name ?? "未採用"
+    }
+
+    /// ガイドの誘導ボタンから開かれたときに、対象タブへ切り替えます。
+    private func applyGuidePanelRequest() {
+        guard let request = game.guideStorePanelRequest else { return }
+        switch request {
+        case .store: panel = .store
+        case .team: panel = .team
+        case .market: panel = .market
+        case .finance: panel = .finance
+        }
+        game.guideStorePanelRequest = nil
     }
 
     private func update(_ changed: Store) { game.updateStore(changed) }
@@ -403,7 +414,7 @@ private struct ManualSalesPanel: View {
         }
         .gameCard()
         .overlay {
-            if game.tutorialStep == .runFirstMonth {
+            if game.currentGuideLesson?.id == .sellCar {
                 RoundedRectangle(cornerRadius: 18).stroke(GameTheme.orange, lineWidth: 2)
             }
         }
@@ -1811,7 +1822,7 @@ private struct ProcurementInstructionPanel: View {
             HStack {
                 SectionTitle(
                     title: "自動仕入れ指示",
-                    subtitle: "総予算と1台ごとの採算条件を守り、店舗買取・業者間・AA・ネットを横断"
+                    subtitle: "週間予算と1台ごとの採算条件を守り、店舗買取・業者間・AA・ネットを横断"
                 )
                 Spacer()
                 Button {
@@ -1878,10 +1889,10 @@ private struct ProcurementInstructionPanel: View {
                             }
                         }
                         HStack {
-                            ProposalMetric(title: "総予算", value: instruction.totalBudget.currency)
-                            ProposalMetric(title: "支出", value: instruction.spentBudget.currency)
+                            ProposalMetric(title: "週間予算", value: instruction.totalBudget.currency)
+                            ProposalMetric(title: "今週支出", value: instruction.spentBudget.currency)
                             ProposalMetric(title: "予約", value: instruction.reservedBudget.currency)
-                            ProposalMetric(title: "残り", value: instruction.remainingBudget.currency)
+                            ProposalMetric(title: "今週残り", value: instruction.remainingBudget.currency)
                             ProposalMetric(title: "取得", value: "\(instruction.acquiredCount)台")
                         }
                         ProgressView(
@@ -1995,12 +2006,12 @@ private struct ProcurementInstructionEditor: View {
                     Toggle("故障車のみ", isOn: $faultOnly)
                 }
                 Section("金額条件") {
-                    Stepper("総予算 \(totalBudget.currency)", value: $totalBudget, in: minimumBudget...100_000, step: 10)
+                    Stepper("1週間の総予算 \(totalBudget.currency)", value: $totalBudget, in: minimumBudget...100_000, step: 10)
                     Picker("判定方法", selection: $ruleSelection) {
                         ForEach(ProcurementRuleSelection.allCases) { Text($0.name).tag($0) }
                     }
                     Stepper("\(ruleSelection.name) \(ruleAmount.currency)／台", value: $ruleAmount, in: 0...20_000, step: 5)
-                    Text("総予算には車両価格・手数料・輸送費を含みます。最低粗利は予測修理費も差し引いて判定します。")
+                    Text("週間予算は毎週更新され、車両価格・手数料・輸送費を含みます。未決済の入札予約は翌週の予算枠にも引き継がれます。最低粗利は予測修理費も差し引いて判定します。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

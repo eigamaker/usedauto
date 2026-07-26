@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CityMapView: View {
     @EnvironmentObject private var game: GameEngine
-    @AppStorage("settings.showTutorialHints") private var showTutorialHints = true
     @Binding var isExpanded: Bool
     @State private var layer: MapLayer = CommandLine.arguments.contains("-demo-competition") ? .competition : (CommandLine.arguments.contains("-demo-vehicle-demand") ? .vehicleDemand : .normal)
     @State private var demandCategory: VehicleCategory = .kei
@@ -15,6 +14,7 @@ struct CityMapView: View {
     @State private var showCompanyDashboard = false
     @State private var showMarketNewspaper = false
     @State private var didOpenDemoFacility = false
+    @State private var showGuideProfitLoss = false
 
     var body: some View {
         NavigationStack {
@@ -36,7 +36,6 @@ struct CityMapView: View {
                                 MapTopControlLabel(title: "全国", icon: "globe.asia.australia.fill")
                             }
                             .buttonStyle(.plain)
-                            .disabled(game.isTutorialActive)
                             Button { showCompanyDashboard = true } label: {
                                 MapTopControlLabel(title: "経営", icon: "chart.bar.xaxis")
                             }
@@ -45,7 +44,7 @@ struct CityMapView: View {
                                 MapTopControlLabel(title: "新聞", icon: "newspaper.fill")
                             }
                             .buttonStyle(.plain)
-                            .disabled(game.isTutorialActive)
+                            GuideToggleButton()
                             Spacer()
                             Menu {
                                 ForEach(MapLayer.allCases) { item in
@@ -89,18 +88,7 @@ struct CityMapView: View {
                         )
                         .padding(.horizontal, 14).padding(.bottom, 82)
                     }
-                    if showTutorialHints, let step = game.tutorialStep, game.isTutorialActive, step != .reviewFirstResult {
-                        VStack {
-                            TutorialCoachCard(
-                                step: step,
-                                actionTitle: tutorialActionTitle(for: step),
-                                action: tutorialAction(for: step)
-                            )
-                            .padding(.horizontal, 12)
-                            .padding(.top, 102)
-                            Spacer()
-                        }
-                    }
+                    GuideFloatingPanel(bounds: proxy.size, perform: handleGuideAction)
                 }
             }
             .background(Color(red: 0.71, green: 0.83, blue: 0.91))
@@ -150,7 +138,36 @@ struct CityMapView: View {
             .fullScreenCover(isPresented: $showNationalMap) {
                 NationalExpansionView()
             }
+            .sheet(isPresented: $showGuideProfitLoss) {
+                GuideProfitLossLessonView()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
             .onAppear(perform: openDemoFacilityIfNeeded)
+        }
+    }
+
+    /// ガイドカードの誘導ボタンから、該当画面へ移動します。
+    private func handleGuideAction(_ action: GuideAction) {
+        switch action {
+        case .focusRecommendedPlot:
+            guard let plot = game.recommendedFoundingPlot else { return }
+            focusRequest = MapFocusRequest(plotID: plot.id)
+        case .openChosenPlot:
+            let target = game.tutorialPlotID.flatMap { game.plot(id: $0) } ?? game.recommendedFoundingPlot
+            guard let target else { return }
+            focusRequest = MapFocusRequest(plotID: target.id)
+            selectedPlot = target
+        case .openStore(let panel):
+            guard let store = game.stores.first, let plot = game.plot(id: store.plotID) else { return }
+            game.requestGuideStorePanel(panel)
+            focusRequest = MapFocusRequest(plotID: plot.id)
+            selectedPlot = plot
+        case .openWeeklyReport:
+            guard game.lastReport != nil else { return }
+            game.showWeeklyReport = true
+        case .openProfitLossLesson:
+            showGuideProfitLoss = true
         }
     }
 
@@ -168,38 +185,6 @@ struct CityMapView: View {
         didOpenDemoFacility = true
     }
 
-    private func tutorialActionTitle(for step: TutorialStep) -> String? {
-        switch step {
-        case .chooseLocation: "おすすめ候補を拡大"
-        case .buildStore: "選んだ土地を開く"
-        case .purchaseInventory, .setPrice, .runFirstMonth: "創業店を開く"
-        default: nil
-        }
-    }
-
-    private func tutorialAction(for step: TutorialStep) -> (() -> Void)? {
-        switch step {
-        case .chooseLocation:
-            return {
-                guard let plot = game.recommendedFoundingPlot else { return }
-                focusRequest = MapFocusRequest(plotID: plot.id)
-            }
-        case .buildStore:
-            return {
-                guard let id = game.tutorialPlotID, let plot = game.plot(id: id) else { return }
-                focusRequest = MapFocusRequest(plotID: id)
-                selectedPlot = plot
-            }
-        case .purchaseInventory, .setPrice, .runFirstMonth:
-            return {
-                guard let store = game.stores.first, let plot = game.plot(id: store.plotID) else { return }
-                focusRequest = MapFocusRequest(plotID: plot.id)
-                selectedPlot = plot
-            }
-        default:
-            return nil
-        }
-    }
 }
 
 private struct MapTopControlLabel: View {

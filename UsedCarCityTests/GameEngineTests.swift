@@ -93,7 +93,6 @@ final class GameEngineTests: XCTestCase {
             XCTAssertTrue(game.buyInventory(category: category, count: 2, storeID: store.id))
         }
         game.completeTutorial()
-        game.tutorialMessage = nil
     }
 
     private func runBalanceScenario(
@@ -4170,7 +4169,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(updated.spentBudget + updated.reservedBudget, updated.totalBudget)
     }
 
-    func testDealerTradeCompletesInstructionWhenBudgetIsFullySpent() {
+    func testDealerTradeWeeklyBudgetRenewsAfterBeingFullySpent() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -4209,12 +4208,56 @@ final class GameEngineTests: XCTestCase {
             $0.id == instructionID
         })
         XCTAssertEqual(instruction.spentBudget, instruction.totalBudget)
-        XCTAssertEqual(instruction.status, .completed)
+        XCTAssertEqual(instruction.status, .active)
         let line = try! XCTUnwrap(game.lastReport?.procurement.first {
             $0.instructionID == instructionID && $0.source == .dealerTrade
         })
         XCTAssertEqual(line.acquiredCount, 1)
         XCTAssertEqual(line.spent, quote.totalCost)
+
+        game.stores[0].autoProcurement = false
+        game.advanceWeek()
+
+        let renewed = try! XCTUnwrap(game.procurementInstructions.first {
+            $0.id == instructionID
+        })
+        XCTAssertEqual(renewed.spentBudget, 0)
+        XCTAssertEqual(renewed.remainingBudget, renewed.totalBudget)
+        XCTAssertEqual(renewed.status, .active)
+    }
+
+    func testFoundingInventorySelectionDoesNotReturnWhenInventoryLaterReachesZero() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+
+        game.stores[0].inventory = []
+
+        XCTAssertFalse(game.canSelectFoundingInventory(storeID: storeID))
+    }
+
+    func testWeeklyReportNotesAreSeparatedIntoCategories() {
+        XCTAssertEqual(
+            WeeklyReportCategory.category(for: "中央店仕入指示：AAでコンパクトへ入札予約"),
+            .procurement
+        )
+        XCTAssertEqual(
+            WeeklyReportCategory.category(for: "中央店で販売商談が3台成約"),
+            .sales
+        )
+        XCTAssertEqual(
+            WeeklyReportCategory.category(for: "ガソリン価格が前週から上昇しました"),
+            .market
+        )
+        XCTAssertEqual(
+            WeeklyReportCategory.category(for: "中央店の店舗外観が成長しました"),
+            .operations
+        )
+        XCTAssertEqual(
+            WeeklyReportCategory.category(for: "資金危機1/2週"),
+            .management
+        )
     }
 
     func testFaultyInboundWaitsUntilServiceAutomationIsEnabled() {

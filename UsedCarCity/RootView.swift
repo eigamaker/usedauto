@@ -2,7 +2,6 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var game: GameEngine
-    @AppStorage("settings.showTutorialHints") private var showTutorialHints = true
     @State private var isMapExpanded = false
 
     var body: some View {
@@ -47,14 +46,6 @@ struct RootView: View {
                 .sheet(isPresented: $game.gameOver) {
                     GameEndView()
                 }
-                .overlay(alignment: .top) {
-                    if showTutorialHints, let message = game.tutorialMessage {
-                        TutorialBanner(message: message) { game.tutorialMessage = nil }
-                            .padding(.horizontal, 12)
-                            .padding(.top, 78)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
             } else {
                 OnboardingView()
             }
@@ -71,7 +62,13 @@ private struct GameHeader: View {
     @EnvironmentObject private var game: GameEngine
     @AppStorage("settings.confirmWeeklyAdvance") private var confirmWeeklyAdvance = true
     @State private var confirmAdvance = false
+    @State private var warnBeforeFirstStore = false
     @State private var showSettings = false
+
+    /// ガイドが「1週間進める」を案内している最中だけ、ボタンを目立たせます。
+    private var highlightsAdvance: Bool {
+        game.currentGuideLesson?.id == .advanceWeek || game.tutorialStep == .runFirstMonth
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -93,7 +90,8 @@ private struct GameHeader: View {
                     .foregroundStyle(game.cash < 0 ? Color.red.opacity(0.9) : .white)
             }
             Button {
-                if confirmWeeklyAdvance { confirmAdvance = true }
+                if game.stores.isEmpty { warnBeforeFirstStore = true }
+                else if confirmWeeklyAdvance { confirmAdvance = true }
                 else { game.advanceWeek() }
             } label: {
                 HStack(spacing: 6) {
@@ -109,14 +107,12 @@ private struct GameHeader: View {
                 .background(GameTheme.mint)
                 .clipShape(Capsule())
                 .overlay {
-                    if game.tutorialStep == .runFirstMonth {
+                    if highlightsAdvance {
                         Capsule().stroke(.white, lineWidth: 3)
                     }
                 }
-                .shadow(color: game.tutorialStep == .runFirstMonth ? GameTheme.mint.opacity(0.7) : .clear, radius: 9)
+                .shadow(color: highlightsAdvance ? GameTheme.mint.opacity(0.7) : .clear, radius: 9)
             }
-            .disabled(game.isTutorialActive && game.tutorialStep != .runFirstMonth)
-            .opacity(game.isTutorialActive && game.tutorialStep != .runFirstMonth ? 0.48 : 1)
             Button { showSettings = true } label: {
                 VStack(spacing: 2) {
                     Image(systemName: "gearshape.fill")
@@ -139,59 +135,15 @@ private struct GameHeader: View {
         } message: {
             Text("仕入・価格・広告など、現在の設定を使って販売結果を計算します。")
         }
+        .confirmationDialog("まだ店舗がありません", isPresented: $warnBeforeFirstStore, titleVisibility: .visible) {
+            Button("それでも1週間進める") { game.advanceWeek() }
+            Button("先に創業する", role: .cancel) {}
+        } message: {
+            Text("店舗がない状態で週を進めると、売上のないまま1週間が過ぎます。マップで区画を選んで創業できます。")
+        }
         .sheet(isPresented: $showSettings) {
             GameSettingsView()
         }
-    }
-}
-
-struct TutorialCoachCard: View {
-    let step: TutorialStep
-    var actionTitle: String? = nil
-    var action: (() -> Void)? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 10) {
-                Image(systemName: step.icon)
-                    .font(.headline.bold())
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(GameTheme.orange)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(step == .reviewFirstResult ? "FINAL STEP" : "STEP \(step.number) / 5")
-                        .font(.caption2.weight(.black))
-                        .tracking(1)
-                        .foregroundStyle(GameTheme.orange)
-                    Text(step.title).font(.subheadline.bold()).foregroundStyle(GameTheme.ink)
-                }
-                Spacer()
-                Text("\(Int(step.progress * 100))%")
-                    .font(.caption.bold().monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            ProgressView(value: step.progress).tint(GameTheme.orange)
-            Text(step.instruction)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let actionTitle, let action {
-                Button(action: action) {
-                    Label(actionTitle, systemImage: "scope")
-                        .font(.caption.bold())
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(GameTheme.teal)
-            }
-        }
-        .gameCard(padding: 13)
-        .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .stroke(GameTheme.orange.opacity(0.55), lineWidth: 1.5)
-        }
-        .shadow(color: GameTheme.ink.opacity(0.13), radius: 9, y: 4)
     }
 }
 
@@ -200,7 +152,6 @@ private struct GameSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("settings.confirmWeeklyAdvance") private var confirmWeeklyAdvance = true
     @AppStorage("settings.autoShowWeeklyReport") private var autoShowWeeklyReport = true
-    @AppStorage("settings.showTutorialHints") private var showTutorialHints = true
     @State private var confirmRestart = false
     @State private var confirmDelete = false
 
@@ -210,8 +161,9 @@ private struct GameSettingsView: View {
                 Section("ゲーム進行") {
                     Toggle("週を進める前に確認", isOn: $confirmWeeklyAdvance)
                     Toggle("週間レポートを自動表示", isOn: $autoShowWeeklyReport)
-                    Toggle("チュートリアル案内を表示", isOn: $showTutorialHints)
                 }
+
+                GuideSettingsSection()
 
                 Section("現在のゲーム") {
                     LabeledContent("日時", value: "\(game.year)年\(game.month)月 第\(game.weekOfMonth)週")
@@ -247,8 +199,10 @@ private struct GameSettingsView: View {
             }
             .confirmationDialog("最初からやり直しますか？", isPresented: $confirmRestart, titleVisibility: .visible) {
                 Button("新しいゲームを開始", role: .destructive) {
+                    let mode = game.guide.mode
                     dismiss()
                     game.startNewGame()
+                    game.beginGuide(mode: mode)
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
@@ -262,22 +216,6 @@ private struct GameSettingsView: View {
                 Button("キャンセル", role: .cancel) {}
             }
         }
-    }
-}
-
-private struct TutorialBanner: View {
-    let message: String
-    let dismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Image(systemName: "lightbulb.max.fill")
-                .foregroundStyle(GameTheme.orange)
-            Text(message).font(.subheadline.weight(.medium))
-            Spacer(minLength: 6)
-            Button(action: dismiss) { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-        }
-        .gameCard(padding: 13)
     }
 }
 
