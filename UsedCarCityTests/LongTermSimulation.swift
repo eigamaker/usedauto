@@ -19,7 +19,7 @@ enum SimulationStrategy: String, Codable, CaseIterable {
         switch self {
         case .survival: 3
         case .growth: 1.5
-        case .adaptive: 2
+        case .adaptive: 3
         }
     }
 
@@ -27,7 +27,7 @@ enum SimulationStrategy: String, Codable, CaseIterable {
         switch self {
         case .survival: 0.30
         case .growth: 0.65
-        case .adaptive: 0.50
+        case .adaptive: 0.45
         }
     }
 
@@ -35,7 +35,7 @@ enum SimulationStrategy: String, Codable, CaseIterable {
         switch self {
         case .survival: 3
         case .growth: 8
-        case .adaptive: 6
+        case .adaptive: 4
         }
     }
 }
@@ -88,6 +88,10 @@ struct SimulationYearSnapshot: Codable, Equatable {
     var inventoryCount: Int
     var inventoryValue: Int
     var averageInventoryWeeks: Double
+    var priorityPurchaseShare: Double
+    var referralPurchaseShare: Double
+    var campaignSalesPerStoreWeek: Double
+    var specialtyGrossProfit: [String: Int]
     var storeCount: Int
     var operationalStoreCount: Int
     var storeTypes: [String: Int]
@@ -124,12 +128,13 @@ struct SimulationRunResult: Codable, Equatable {
 struct SimulationCheckpointSummary: Codable, Equatable {
     var years: Int
     var runs: Int
+    var survivingRuns: Int
     var survivalRate: Double
-    var medianSales: Int
-    var medianOperatingProfit: Int
-    var medianCompanyValue: Int
-    var lowerQuartileCompanyValue: Int
-    var upperQuartileCompanyValue: Int
+    var medianSales: Int?
+    var medianOperatingProfit: Int?
+    var medianCompanyValue: Int?
+    var lowerQuartileCompanyValue: Int?
+    var upperQuartileCompanyValue: Int?
     var specializationRate: Double
     var advancedStoreRate: Double
     var roadsideStoreRate: Double
@@ -160,15 +165,15 @@ struct SimulationReport: Codable, Equatable {
             "",
             "## 戦略別サマリー",
             "",
-            "| 戦略 | 時点 | 生存率 | 販売中央値 | 営業利益中央値 | 企業価値中央値 | 専門化到達率 | 上位専門店到達率 | 大型店到達率 | 多店舗到達率 |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+            "| 戦略 | 時点 | 生存数 | 生存率 | 販売中央値 | 営業利益中央値 | 企業価値中央値 | 専門化到達率 | 上位専門店到達率 | 大型店到達率 | 多店舗到達率 |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
         ]
         for summary in summaries {
             for checkpoint in summary.checkpoints {
                 lines.append(
-                    "| \(summary.strategy.displayName) | \(checkpoint.years)年 | "
-                        + "\(percent(checkpoint.survivalRate)) | \(checkpoint.medianSales) | "
-                        + "\(checkpoint.medianOperatingProfit) | \(checkpoint.medianCompanyValue) | "
+                    "| \(summary.strategy.displayName) | \(checkpoint.years)年 | \(checkpoint.survivingRuns)/\(checkpoint.runs) | "
+                        + "\(percent(checkpoint.survivalRate)) | \(number(checkpoint.medianSales)) | "
+                        + "\(number(checkpoint.medianOperatingProfit)) | \(number(checkpoint.medianCompanyValue)) | "
                         + "\(percent(checkpoint.specializationRate)) | \(percent(checkpoint.advancedStoreRate)) | "
                         + "\(percent(checkpoint.roadsideStoreRate)) | \(percent(checkpoint.multipleStoreRate)) |"
                 )
@@ -191,8 +196,54 @@ struct SimulationReport: Codable, Equatable {
             )
         }
 
+        lines += [
+            "",
+            "## 専門施策・在庫回転（各Run最終時点）",
+            "",
+            "| 戦略 | Seed | 優先カテゴリ買取 | 指名買取 | 平均在庫週 | セール中販売/店週 | 専門別累計粗利 |",
+            "|---|---:|---:|---:|---:|---:|---|"
+        ]
+        for run in runs {
+            guard let snapshot = run.yearlySnapshots.last else { continue }
+            let specialty = snapshot.specialtyGrossProfit
+                .filter { $0.value != 0 }
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key):\($0.value)" }
+                .joined(separator: " / ")
+            lines.append(
+                "| \(run.strategy.displayName) | \(run.seed) | \(percent(snapshot.priorityPurchaseShare)) | "
+                    + "\(percent(snapshot.referralPurchaseShare)) | \(String(format: "%.1f", snapshot.averageInventoryWeeks)) | "
+                    + "\(String(format: "%.2f", snapshot.campaignSalesPerStoreWeek)) | \(specialty.isEmpty ? "—" : specialty) |"
+            )
+        }
+
         let violations = runs.flatMap { run in
             run.invariantViolations.map { "\(run.strategy.displayName) seed \(run.seed): \($0)" }
+        }
+        if configuration.seeds.count == 30,
+           configuration.horizonWeeks >= 480,
+           let adaptive = summaries.first(where: { $0.strategy == .adaptive }),
+           let fiveYear = adaptive.checkpoints.first(where: { $0.years == 5 }),
+           let tenYear = adaptive.checkpoints.first(where: { $0.years == 10 }) {
+            let tenYearSurvivors = runs
+                .filter { $0.strategy == .adaptive }
+                .compactMap { $0.yearlySnapshots.first(where: { $0.turn >= 480 && $0.survived }) }
+            let medianInventoryWeeks = median(tenYearSurvivors.map(\.averageInventoryWeeks))
+            let medianPriorityShare = median(tenYearSurvivors.map(\.priorityPurchaseShare))
+            let medianProfit = tenYear.medianOperatingProfit
+            lines += [
+                "",
+                "## 合格基準",
+                "",
+                "| 指標 | 実績 | 基準 | 判定 |",
+                "|---|---:|---:|---:|",
+                "| 適応型5年生存 | \(fiveYear.survivingRuns)/30 | 24/30以上 | \(fiveYear.survivingRuns >= 24 ? "合格" : "未達") |",
+                "| 適応型10年生存 | \(tenYear.survivingRuns)/30 | 18/30以上 | \(tenYear.survivingRuns >= 18 ? "合格" : "未達") |",
+                "| 10年生存者の利益中央値 | \(medianProfit.map(String.init) ?? "—") | 0超 | \((medianProfit ?? Int.min) > 0 ? "合格" : "未達") |",
+                "| 優先カテゴリ店頭買取中央値 | \(percent(medianPriorityShare ?? 0)) | 65%以上 | \((medianPriorityShare ?? 0) >= 0.65 ? "合格" : "未達") |",
+                "| 在庫回転中央値 | \(medianInventoryWeeks.map { String(format: "%.1f週", $0) } ?? "—") | 12週以内 | \((medianInventoryWeeks ?? .infinity) <= 12 ? "合格" : "未達") |",
+                "| 整合性違反 | \(violations.count) | 0 | \(violations.isEmpty ? "合格" : "未達") |"
+            ]
         }
         lines += ["", "## 整合性チェック", ""]
         lines.append(violations.isEmpty ? "- 違反なし" : violations.map { "- \($0)" }.joined(separator: "\n"))
@@ -205,6 +256,7 @@ struct SimulationReport: Codable, Equatable {
                 "strategy", "seed", "elapsed_years", "turn", "survived", "cash", "debt",
                 "company_value", "acquisitions", "sales", "revenue", "gross_profit",
                 "operating_profit", "inventory", "inventory_value", "average_inventory_weeks",
+                "priority_purchase_share", "referral_purchase_share", "campaign_sales_per_store_week",
                 "stores", "operational_stores", "employees", "maximum_market_share",
                 "policy_changes", "expansions", "renovations", "specialized",
                 "advanced_specialist_store", "roadside_store", "top_expertise", "top_expertise_score"
@@ -229,6 +281,9 @@ struct SimulationReport: Codable, Equatable {
                     String(snapshot.inventoryCount),
                     String(snapshot.inventoryValue),
                     String(format: "%.2f", snapshot.averageInventoryWeeks),
+                    String(format: "%.4f", snapshot.priorityPurchaseShare),
+                    String(format: "%.4f", snapshot.referralPurchaseShare),
+                    String(format: "%.4f", snapshot.campaignSalesPerStoreWeek),
                     String(snapshot.storeCount),
                     String(snapshot.operationalStoreCount),
                     String(snapshot.employeeCount),
@@ -249,6 +304,19 @@ struct SimulationReport: Codable, Equatable {
 
     private func percent(_ value: Double) -> String {
         String(format: "%.1f%%", value * 100)
+    }
+
+    private func number(_ value: Int?) -> String {
+        value.map(String.init) ?? "—"
+    }
+
+    private func median(_ values: [Double]) -> Double? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+        return sorted.count.isMultiple(of: 2)
+            ? (sorted[middle - 1] + sorted[middle]) / 2
+            : sorted[middle]
     }
 
     private func turnText(_ turn: Int?) -> String {
@@ -302,7 +370,15 @@ final class LongTermSimulationRunner {
         var expansionCount = 0
         var renovationCount = 0
         var policyChangeCount = 0
+        var campaignStoreWeeks = 0
+        var campaignSales = 0
         var invariantViolations: [String] = []
+    }
+
+    private final class PurchaseMetrics {
+        var storePurchaseCount = 0
+        var priorityStorePurchaseCount = 0
+        var referralStorePurchaseCount = 0
     }
 
     static func run(configuration: SimulationConfiguration) -> SimulationReport {
@@ -329,8 +405,19 @@ final class LongTermSimulationRunner {
         let game = GameEngine(persistenceEnabled: false)
         var ledger = Ledger()
         var state = RunState()
+        let purchaseMetrics = PurchaseMetrics()
         game.simulationTransactionHandler = { transaction in
             ledger.record(transaction)
+            guard case .acquired = transaction.kind,
+                  transaction.source == .storePurchase else { return }
+            purchaseMetrics.storePurchaseCount += transaction.count
+            if game.stores.first(where: { $0.id == transaction.storeID })?
+                .marketPolicy.priorityCategories.contains(transaction.category) == true {
+                purchaseMetrics.priorityStorePurchaseCount += transaction.count
+            }
+            if transaction.purchaseOrigin == .specialtyReferral {
+                purchaseMetrics.referralStorePurchaseCount += transaction.count
+            }
         }
 
         game.startNewGame(simulationSeed: seed)
@@ -362,6 +449,12 @@ final class LongTermSimulationRunner {
             if game.turn.isMultiple(of: 4) {
                 makeMonthlyDecisions(game: game, strategy: strategy, state: &state)
             }
+            let campaignStoreIDs = Set(game.stores.filter {
+                $0.inventorySaleCampaign != nil
+            }.map(\.id))
+            if strategy == .adaptive {
+                executeAdaptiveWeeklyOperations(game: game)
+            }
 
             let previousTurn = game.turn
             game.advanceWeek()
@@ -372,6 +465,10 @@ final class LongTermSimulationRunner {
             if let report = game.lastReport {
                 state.weeklyOperatingProfit[game.turn] = report.operatingProfit
             }
+            state.campaignStoreWeeks += campaignStoreIDs.count
+            state.campaignSales += game.stores
+                .filter { campaignStoreIDs.contains($0.id) }
+                .reduce(0) { $0 + $1.lastSales }
             finishRepositionEvaluations(game: game, strategy: strategy, state: &state)
             updateMilestones(game: game, state: &state)
             validate(game: game, state: &state)
@@ -381,6 +478,7 @@ final class LongTermSimulationRunner {
                     game: game,
                     ledger: ledger,
                     state: state,
+                    purchaseMetrics: purchaseMetrics,
                     reachedCheckpoint: true
                 ))
             }
@@ -391,6 +489,7 @@ final class LongTermSimulationRunner {
                 game: game,
                 ledger: ledger,
                 state: state,
+                purchaseMetrics: purchaseMetrics,
                 reachedCheckpoint: game.turn >= targetWeeks
             ))
         }
@@ -437,7 +536,14 @@ final class LongTermSimulationRunner {
                 == StoreType.standard.requiredGridCells
         }) else { return false }
 
-        let categories = Array(game.recommendedCategories(for: plot.district).prefix(2))
+        let categories = Array(
+            (game.recommendedCategories(for: plot.district).filter { $0 != .sports }
+                + game.recommendedCategories(for: plot.district))
+                .reduce(into: [VehicleCategory]()) { result, category in
+                    if !result.contains(category) { result.append(category) }
+                }
+                .prefix(2)
+        )
         let policy = StoreMarketPolicy(
             priorityCategories: Set(categories),
             targetPurpose: foundingPurpose(for: plot.district)
@@ -583,7 +689,12 @@ final class LongTermSimulationRunner {
         strategy: SimulationStrategy
     ) {
         guard game.stores.contains(where: { $0.id == storeID }) else { return }
-        for role in [EmployeeAssignment.sales, .procurement] {
+        let needsService = strategy == .adaptive
+            && game.stores.first(where: { $0.id == storeID })?.facilities.contains(.customWorkshop) == true
+        let requiredRoles: [EmployeeAssignment] = needsService
+            ? [.sales, .procurement, .service]
+            : [.sales, .procurement]
+        for role in requiredRoles {
             guard let current = game.stores.first(where: { $0.id == storeID }),
                   !current.employees.contains(where: { $0.assignment == role }) else { continue }
             hireBestEmployee(for: role, storeID: storeID, game: game)
@@ -593,7 +704,14 @@ final class LongTermSimulationRunner {
         let reserve = reserveAmount(game: game, strategy: strategy)
         guard game.cash > reserve else { return }
 
-        let inventoryDriven = 2 + store.inventoryCount / 8
+        let inventoryDriven: Int
+        if strategy == .adaptive, !needsService {
+            // 通常店ではまず販売・仕入の2名で固定費を抑える。専門設備を
+            // 導入して初めてサービス担当を含む増員を許可する。
+            inventoryDriven = 2
+        } else {
+            inventoryDriven = 2 + store.inventoryCount / 8
+        }
         let desired = min(strategy.maximumStaffPerStore, max(2, inventoryDriven))
         guard store.employees.count < desired else { return }
 
@@ -603,6 +721,104 @@ final class LongTermSimulationRunner {
                 < store.employees.filter { $0.assignment == rhs }.count
         } ?? .sales
         hireBestEmployee(for: role, storeID: storeID, game: game)
+    }
+
+    private static func executeAdaptiveWeeklyOperations(game: GameEngine) {
+        let reserve = reserveAmount(game: game, strategy: .adaptive)
+        for store in game.stores where store.isOperational {
+            if game.cash > reserve {
+                for order in game.customizationOrders(for: store.id)
+                    .filter({ $0.status == .pending && $0.expectedGrossProfit >= max(25, $0.materialCost / 4) })
+                    .sorted(by: { $0.expectedGrossProfit > $1.expectedGrossProfit }) {
+                    _ = game.acceptCustomizationOrder(order.id)
+                }
+            }
+
+            if store.inventorySaleCampaign == nil,
+               store.inventorySaleCooldownWeeks == 0,
+               game.cash > reserve,
+               rollingProfit(game: game, weeks: 8) > 0 {
+                let age = game.averageInventoryWeeks(storeID: store.id)
+                let tier: InventorySaleTier? = age > 18 ? .twenty : age > 12 ? .fifteen : age > 8 ? .ten : nil
+                if let tier {
+                    _ = game.startInventorySaleCampaign(storeID: store.id, tier: tier)
+                }
+            }
+
+            let referralIDs = game.purchaseCases
+                .filter {
+                    $0.storeID == store.id
+                        && $0.origin == .specialtyReferral
+                        && specialtyTrendMultiplier(for: $0, store: store, game: game) >= 1.10
+                        && game.purchaseExpectedGrossProfit(for: $0) >= max(50, $0.askingPrice / 10)
+                }
+                .sorted { game.purchaseExpectedGrossProfit(for: $0) > game.purchaseExpectedGrossProfit(for: $1) }
+                .map(\.id)
+            for caseID in referralIDs where game.cash > reserve {
+                _ = game.negotiatePurchaseCase(caseID, offerPercent: 100)
+            }
+
+            guard let project = adaptiveProjectKind(for: store.marketPolicy.targetPurpose) else { continue }
+            let candidates = store.inventory.filter { $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }
+            for batch in candidates {
+                let targetState = project.productState ?? batch.productState
+                let key = MarketSegmentKey(
+                    district: game.plot(id: store.plotID)?.district ?? .suburb,
+                    category: batch.category,
+                    purpose: targetState.purpose ?? store.marketPolicy.targetPurpose,
+                    productKind: MarketProductKind.resolve(
+                        productState: targetState,
+                        isRareClassic: VehicleCatalog.entry(id: batch.modelID)?.isRareClassic == true
+                    )
+                )
+                guard game.cash > reserve,
+                      game.activeTrendMultiplier(for: key) >= 1.25,
+                      let preview = game.workshopProjectPreview(
+                        storeID: store.id,
+                        inventoryID: batch.id,
+                        kind: project
+                      ),
+                      preview.projectedSalePrice - batch.averageCost - preview.cost >= max(100, preview.cost / 3) else { continue }
+                _ = game.startWorkshopProject(
+                    storeID: store.id,
+                    inventoryID: batch.id,
+                    kind: project
+                )
+                break
+            }
+        }
+    }
+
+    private static func specialtyTrendMultiplier(
+        for item: PurchaseCase,
+        store: Store,
+        game: GameEngine
+    ) -> Double {
+        guard let kind = item.suggestedProjectKind,
+              let state = kind.productState else { return 1 }
+        let productKind = MarketProductKind.resolve(
+            productState: state,
+            isRareClassic: VehicleCatalog.entry(id: item.modelID)?.isRareClassic == true
+        )
+        let key = MarketSegmentKey(
+            district: game.plot(id: store.plotID)?.district ?? .suburb,
+            category: item.category,
+            purpose: state.purpose ?? store.marketPolicy.targetPurpose,
+            productKind: productKind
+        )
+        return game.activeTrendMultiplier(for: key)
+    }
+
+    private static func adaptiveProjectKind(for purpose: CustomerPurpose) -> WorkshopProjectKind? {
+        switch purpose {
+        case .performance: .streetTuning
+        case .welfare: .wheelchairConversion
+        case .mobileBusiness: .kitchenCarConversion
+        case .camper: .camperConversion
+        case .work, .corporate: .workConversion
+        case .outdoor: .outdoorConversion
+        case .general, .family: nil
+        }
     }
 
     private static func hireBestEmployee(
@@ -635,13 +851,13 @@ final class LongTermSimulationRunner {
         let age = game.averageInventoryWeeks(storeID: storeID)
         if age > 12 {
             store.salesPolicy = .volume
-            store.priceIndex = 0.94
+            store.priceIndex = strategy == .adaptive ? 0.98 : 0.94
         } else if age > 8 {
             store.salesPolicy = .balanced
-            store.priceIndex = 0.99
+            store.priceIndex = strategy == .adaptive ? 1.03 : 0.99
         } else {
-            store.salesPolicy = strategy == .survival ? .profit : .balanced
-            store.priceIndex = strategy == .growth ? 0.99 : 1.03
+            store.salesPolicy = strategy == .growth ? .balanced : .profit
+            store.priceIndex = strategy == .growth ? 0.99 : (strategy == .adaptive ? 1.10 : 1.03)
         }
 
         switch strategy {
@@ -651,7 +867,7 @@ final class LongTermSimulationRunner {
             let profitableWeeks = game.reports.prefix(12).filter { $0.operatingProfit > 0 }.count
             store.advertising = min(320, 120 + profitableWeeks * 15)
         case .adaptive:
-            store.advertising = rollingProfit(game: game, weeks: 8) >= 0 ? 120 : 80
+            store.advertising = rollingProfit(game: game, weeks: 8) >= 0 ? 70 : 40
         }
         game.updateStore(store)
     }
@@ -692,7 +908,11 @@ final class LongTermSimulationRunner {
             _ = game.createProcurementInstruction(
                 storeID: storeID,
                 totalBudget: budget,
-                financialRule: .minimumGrossProfit(max(20, category.purchaseCost / 8)),
+                financialRule: .minimumGrossProfit(
+                    strategy == .adaptive
+                        ? max(30, category.purchaseCost / 7)
+                        : max(20, category.purchaseCost / 8)
+                ),
                 category: category,
                 modelID: nil,
                 faultOnly: faultOnly
@@ -702,19 +922,23 @@ final class LongTermSimulationRunner {
     }
 
     private static func attemptReposition(game: GameEngine, state: inout RunState) {
-        guard game.turn >= 24 else { return }
+        let newSpecialtyKinds: Set<MarketProductKind> = [.sportTuned, .welfare, .mobileShop]
+        guard game.turn >= 192,
+              game.careerStatistics.totalOperatingProfit > 2_000,
+              rollingProfit(game: game, weeks: 12) > 0 else { return }
         for store in game.stores where store.isOperational {
-            let lastTurn = state.lastRepositionTurnByStore[store.id] ?? -24
-            guard game.turn - lastTurn >= 24,
+            guard state.lastRepositionTurnByStore[store.id] == nil,
                   let district = game.plot(id: store.plotID)?.district else { continue }
 
             let reserve = reserveAmount(game: game, strategy: .adaptive)
+            guard game.cash >= reserve + 7_000 else { continue }
             let candidates = game.segmentOpportunityReports(storeID: store.id, district: district)
                 .filter {
-                    $0.key.productKind != .collector
+                    newSpecialtyKinds.contains($0.key.productKind)
                         && ![SegmentMarketStatus.crowded, .shrinking].contains($0.status)
                         && $0.unmetDemand.upperBound > 0
                         && $0.requiredWorkingCapital.upperBound <= max(0, game.cash - reserve)
+                        && (!$0.key.productKind.isNiche || game.activeTrendMultiplier(for: $0.key) >= 1.25)
                 }
             guard let best = candidates.first else { continue }
             let currentScore = candidates
@@ -726,7 +950,8 @@ final class LongTermSimulationRunner {
                 .max() ?? 0.05
             let recentProfit = rollingProfit(game: game, weeks: 8)
             let multiplier = recentProfit < 0 ? 1.10 : 1.30
-            guard best.opportunityScore >= max(0.05, currentScore) * multiplier else { continue }
+            guard best.opportunityScore >= 40,
+                  best.opportunityScore >= max(0.05, currentScore) * multiplier else { continue }
 
             let requiredFacility = facility(for: best.key.productKind)
             if let requiredFacility,
@@ -767,6 +992,9 @@ final class LongTermSimulationRunner {
         adaptivePolicy: StoreMarketPolicy?
     ) {
         guard game.turn >= 24 else { return }
+        if strategy == .adaptive {
+            return
+        }
         let recent = Array(game.reports.prefix(12))
         guard recent.count >= 8,
               recent.reduce(0, { $0 + $1.operatingProfit }) > 0,
@@ -907,6 +1135,7 @@ final class LongTermSimulationRunner {
         game: GameEngine,
         ledger: Ledger,
         state: RunState,
+        purchaseMetrics: PurchaseMetrics,
         reachedCheckpoint: Bool
     ) -> SimulationYearSnapshot {
         let inventory = game.stores.flatMap(\.inventory)
@@ -941,6 +1170,13 @@ final class LongTermSimulationRunner {
             inventoryCount: inventoryCount,
             inventoryValue: inventoryValue,
             averageInventoryWeeks: game.averageInventoryWeeks(),
+            priorityPurchaseShare: purchaseMetrics.storePurchaseCount == 0 ? 0
+                : Double(purchaseMetrics.priorityStorePurchaseCount) / Double(purchaseMetrics.storePurchaseCount),
+            referralPurchaseShare: purchaseMetrics.storePurchaseCount == 0 ? 0
+                : Double(purchaseMetrics.referralStorePurchaseCount) / Double(purchaseMetrics.storePurchaseCount),
+            campaignSalesPerStoreWeek: state.campaignStoreWeeks == 0 ? 0
+                : Double(state.campaignSales) / Double(state.campaignStoreWeeks),
+            specialtyGrossProfit: specialtyGrossProfit(game: game),
             storeCount: game.stores.count,
             operationalStoreCount: game.stores.filter(\.isOperational).count,
             storeTypes: storeTypes,
@@ -965,6 +1201,21 @@ final class LongTermSimulationRunner {
         values += WorkshopProjectKind.allCases.map { ($0.name, game.companyExpertise.project($0)) }
         values += ProcurementSource.allCases.map { ($0.name, game.companyExpertise.source($0)) }
         return values.max(by: { $0.1 < $1.1 }) ?? ("なし", 0)
+    }
+
+    private static func specialtyGrossProfit(game: GameEngine) -> [String: Int] {
+        let specialtyKinds: Set<MarketProductKind> = [
+            .sportTuned, .welfare, .mobileShop, .camper, .collector
+        ]
+        var result: [String: Int] = [:]
+        for store in game.stores {
+            for (key, records) in store.segmentRecords where specialtyKinds.contains(key.productKind) {
+                result[key.productKind.name, default: 0] += records.reduce(0) {
+                    $0 + $1.playerRevenue - $1.playerCost
+                }
+            }
+        }
+        return result
     }
 
     private static func makeSummaries(
@@ -995,6 +1246,7 @@ final class LongTermSimulationRunner {
                     return SimulationCheckpointSummary(
                         years: checkpoint / 48,
                         runs: matching.count,
+                        survivingRuns: snapshots.count,
                         survivalRate: Double(snapshots.count) / Double(matching.count),
                         medianSales: percentile(snapshots.map(\.cumulativeSales), 0.5),
                         medianOperatingProfit: percentile(snapshots.map(\.cumulativeOperatingProfit), 0.5),
@@ -1032,8 +1284,8 @@ final class LongTermSimulationRunner {
         return Double(reached.count) / Double(turns.count)
     }
 
-    private static func percentile(_ values: [Int], _ percentile: Double) -> Int {
-        guard !values.isEmpty else { return 0 }
+    private static func percentile(_ values: [Int], _ percentile: Double) -> Int? {
+        guard !values.isEmpty else { return nil }
         let sorted = values.sorted()
         let index = Int((Double(sorted.count - 1) * percentile).rounded())
         return sorted[min(sorted.count - 1, max(0, index))]
@@ -1051,7 +1303,7 @@ final class LongTermSimulationRunner {
     private static func facility(for productKind: MarketProductKind) -> StoreFacility? {
         switch productKind {
         case .repaired, .refurbished: .serviceWorkshop
-        case .camper, .workCargo, .outdoor: .customWorkshop
+        case .camper, .workCargo, .outdoor, .sportTuned, .welfare, .mobileShop: .customWorkshop
         case .standard, .collector: nil
         }
     }
@@ -1061,7 +1313,7 @@ final class LongTermSimulationRunner {
     ) -> Set<VehicleConditionBand> {
         switch productKind {
         case .repaired, .refurbished: [.normal, .rough, .faulty]
-        case .camper, .workCargo, .outdoor: [.normal, .rough]
+        case .camper, .workCargo, .outdoor, .sportTuned, .welfare, .mobileShop: [.normal, .rough]
         case .standard, .collector: [.normal]
         }
     }

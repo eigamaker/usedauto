@@ -133,7 +133,10 @@ private struct InventoryRow: View {
     }
 
     private var customizationKinds: [WorkshopProjectKind] {
-        [.camperConversion, .refurbishment, .outdoorConversion, .workConversion]
+        [.streetTuning, .driftTuning, .circuitTuning,
+         .liftSeatConversion, .wheelchairConversion,
+         .mobileSalesConversion, .kitchenCarConversion,
+         .camperConversion, .refurbishment, .outdoorConversion, .workConversion]
     }
 
     private var ageTint: Color {
@@ -150,6 +153,13 @@ struct InventoryCustomizationSheet: View {
     @State private var resultMessage: String?
 
     private let kinds: [WorkshopProjectKind] = [
+        .streetTuning,
+        .driftTuning,
+        .circuitTuning,
+        .liftSeatConversion,
+        .wheelchairConversion,
+        .mobileSalesConversion,
+        .kitchenCarConversion,
         .camperConversion,
         .refurbishment,
         .outdoorConversion,
@@ -219,6 +229,8 @@ struct InventoryCustomizationSheet: View {
                                                 Text(preview.fulfillmentMode.name).font(.caption.bold())
                                                 Spacer()
                                                 Text("原価 \(preview.cost.currency)").font(.caption.bold().monospacedDigit())
+                                                Text("外注基準 \(preview.outsourceBaselineCost.currency) → \(preview.finalCostRate)%")
+                                                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                                             }
                                             HStack {
                                                 MetricView(title: "納期", value: "\(preview.estimatedWeeks)週")
@@ -327,8 +339,14 @@ private struct StoreOperatingCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.name).font(.headline).foregroundStyle(GameTheme.ink)
                     let businessLabel = game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store)
-                    Text(store.hasManager ? "\(businessLabel)・\(store.marketPolicy.targetPurpose.name)狙い・店長あり" : "\(businessLabel)・オーナー直営")
-                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 5) {
+                        Text("\(businessLabel)・\(store.marketPolicy.targetPurpose.name)狙い")
+                        if store.hasManager {
+                            Image(systemName: "person.crop.circle.badge.checkmark")
+                                .accessibilityLabel("店長配置済み")
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right").foregroundStyle(.secondary)
@@ -477,7 +495,10 @@ struct StoreSettingsView: View {
                             Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...500, step: 20).tint(GameTheme.orange)
                             HStack {
                                 MetricView(title: "週次工数", value: "\(store.wrappedValue.weeklyWorkshopLabor)")
-                                MetricView(title: "ベイ", value: "\(store.wrappedValue.workshopBays)")
+                                MetricView(
+                                    title: "ベイ",
+                                    value: "整備\(store.wrappedValue.serviceBays)／カスタム\(store.wrappedValue.customizationBays)"
+                                )
                                 MetricView(title: "進行中", value: "\(store.wrappedValue.inventory.filter { $0.isInWorkshop }.count)台")
                             }
                         }

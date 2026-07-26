@@ -84,6 +84,14 @@ mkdir -p "$OUTPUT_DIR"
 RESULT_BUNDLE="$OUTPUT_DIR/TestResults.xcresult"
 ATTACHMENTS_DIR="$OUTPUT_DIR/attachments"
 LOG_FILE="$OUTPUT_DIR/xcodebuild.log"
+DERIVED_DATA_ARGS=()
+if [[ -n "${SIM_DERIVED_DATA_PATH:-}" ]]; then
+    if [[ "$SIM_DERIVED_DATA_PATH" = /* ]]; then
+        DERIVED_DATA_ARGS=(-derivedDataPath "$SIM_DERIVED_DATA_PATH")
+    else
+        DERIVED_DATA_ARGS=(-derivedDataPath "$PROJECT_DIR/$SIM_DERIVED_DATA_PATH")
+    fi
+fi
 
 echo "Long-term simulation"
 echo "  seeds: $SEEDS"
@@ -117,6 +125,7 @@ trap cleanup_environment EXIT
         -only-testing:UsedCarCityTests/LongTermSimulationTests/testGenerateLongTermSimulationReport \
         -parallel-testing-enabled NO \
         -test-timeouts-enabled NO \
+        "${DERIVED_DATA_ARGS[@]}" \
         -resultBundlePath "$RESULT_BUNDLE" \
         CODE_SIGNING_ALLOWED=NO
 ) 2>&1 | tee "$LOG_FILE"

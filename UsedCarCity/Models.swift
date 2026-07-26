@@ -66,7 +66,7 @@ enum TutorialStep: String, Codable, CaseIterable, Identifiable {
 }
 
 enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
-    case kei, compact, minivan, suv, imported, pickup, commercial
+    case kei, compact, minivan, suv, sports, imported, pickup, commercial
     var id: String { rawValue }
 
     var name: String {
@@ -75,6 +75,7 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .compact: "コンパクト"
         case .minivan: "ミニバン"
         case .suv: "SUV"
+        case .sports: "スポーツカー"
         case .imported: "輸入車"
         case .pickup: "ピックアップトラック"
         case .commercial: "商用車"
@@ -86,6 +87,7 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .commercial: "truck.box.fill"
         case .imported: "globe.europe.africa.fill"
         case .pickup: "truck.pickup.side.fill"
+        case .sports: "flag.checkered"
         default: "car.side.fill"
         }
     }
@@ -96,6 +98,7 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .compact: 105
         case .minivan: 180
         case .suv: 330
+        case .sports: 285
         case .imported: 720
         case .pickup: 235
         case .commercial: 145
@@ -172,17 +175,36 @@ struct VehicleCatalogEntry: Identifiable, Codable, Hashable {
 
     var customerDemandIndex: Double { popularity * marqueAppeal }
 
+    /// 1970年以前のオリジナル価値を重視するヴィンテージ市場。
     var classicProductionYears: ClosedRange<Int>? {
         switch id {
-        case "aoba-sprint70": 1972...1979
-        case "yamato-falconrs": 1970...1977
-        case "hokuto-trailclassic": 1981...1989
-        case "rossa-stellagt": 1974...1986
+        case "aoba-sprint70": 1963...1970
+        case "yamato-falconrs": 1965...1970
+        case "hokuto-trailclassic": 1960...1969
+        case "rossa-stellagt": 1962...1970
         default: nil
         }
     }
 
     var isRareClassic: Bool { classicProductionYears != nil }
+
+    /// 1980〜2000年代の、改造ベースとして価値が高いスポーツ車。
+    var neoClassicSportYears: ClosedRange<Int>? {
+        switch id {
+        case "aoba-razor-s13": 1988...1993
+        case "aoba-razor-s15": 1999...2002
+        case "yamato-aero-gt": 1986...1991
+        case "yamato-aero-z": 1991...2000
+        case "seika-comet-r": 1985...1992
+        case "hokuto-ridge-rs": 1993...2001
+        default: nil
+        }
+    }
+
+    var isNeoClassicSport: Bool { neoClassicSportYears != nil }
+    var isSportTuningBase: Bool {
+        category == .sports || isNeoClassicSport
+    }
 
     /// 1.0以上はカスタム市場で特に人気のあるベース車。
     var customAppeal: Double {
@@ -193,6 +215,13 @@ struct VehicleCatalogEntry: Identifiable, Codable, Hashable {
         case "seika-terra", "seika-terrae": 1.02
         case "hokuto-trail", "hokuto-trailx", "hokuto-trailpro": 1.36
         case "yamato-porter", "yamato-porter2", "yamato-porter3": 0.96
+        case "aoba-razor-s13": 1.62
+        case "aoba-razor-s15": 1.68
+        case "yamato-aero-gt": 1.58
+        case "yamato-aero-z": 1.55
+        case "seika-comet-r": 1.44
+        case "hokuto-ridge-rs": 1.48
+        case "aoba-razor-r", "yamato-aero-n", "seika-comet-rs", "hokuto-ridge-s": 1.38
         case "aoba-sprint70": 1.34
         case "yamato-falconrs": 1.48
         case "hokuto-trailclassic": 1.52
@@ -238,25 +267,39 @@ enum VehicleCatalog {
         VehicleCatalogEntry(id: "koyo-worka", maker: "コーヨー", modelName: "WORKA", category: .commercial, baseWholesalePrice: 154, referenceRetailPrice: 216, qualityBaseline: 0.80, popularity: 0.98, launchTurn: 0, powertrain: .diesel),
         VehicleCatalogEntry(id: "yamato-porter2", maker: "ヤマト", modelName: "PORTER II", category: .commercial, baseWholesalePrice: 168, referenceRetailPrice: 238, qualityBaseline: 0.86, popularity: 1.12, launchTurn: 28),
 
+        // Neo-classic performance cars: plentiful enough to trade, valuable
+        // mainly as tuning bases rather than originality-first collectibles.
+        VehicleCatalogEntry(id: "aoba-razor-s13", maker: "アオバ", modelName: "RAZOR S13", category: .sports, baseWholesalePrice: 245, referenceRetailPrice: 430, qualityBaseline: 0.58, popularity: 1.18, launchTurn: 0),
+        VehicleCatalogEntry(id: "aoba-razor-s15", maker: "アオバ", modelName: "RAZOR S15", category: .sports, baseWholesalePrice: 370, referenceRetailPrice: 620, qualityBaseline: 0.66, popularity: 1.24, launchTurn: 0),
+        VehicleCatalogEntry(id: "yamato-aero-gt", maker: "ヤマト", modelName: "AERO GT", category: .sports, baseWholesalePrice: 310, referenceRetailPrice: 540, qualityBaseline: 0.55, popularity: 1.12, launchTurn: 0),
+        VehicleCatalogEntry(id: "yamato-aero-z", maker: "ヤマト", modelName: "AERO Z", category: .sports, baseWholesalePrice: 420, referenceRetailPrice: 690, qualityBaseline: 0.62, popularity: 1.16, launchTurn: 0),
+        VehicleCatalogEntry(id: "seika-comet-r", maker: "セイカ", modelName: "COMET R", category: .sports, baseWholesalePrice: 205, referenceRetailPrice: 350, qualityBaseline: 0.60, popularity: 1.10, launchTurn: 0),
+        VehicleCatalogEntry(id: "hokuto-ridge-rs", maker: "ホクト", modelName: "RIDGE RS", category: .sports, baseWholesalePrice: 355, referenceRetailPrice: 590, qualityBaseline: 0.64, popularity: 1.14, launchTurn: 0),
+
         // Very rare collector cars. Their prices represent the collector market,
         // not the price when they were new, and they only enter normal play rarely.
         VehicleCatalogEntry(id: "aoba-sprint70", maker: "アオバ", modelName: "SPRINT 70", category: .compact, baseWholesalePrice: 410, referenceRetailPrice: 680, qualityBaseline: 0.55, popularity: 0.58, launchTurn: 0),
+        VehicleCatalogEntry(id: "yamato-falconrs", maker: "ヤマト", modelName: "FALCON RS", category: .sports, baseWholesalePrice: 720, referenceRetailPrice: 1_180, qualityBaseline: 0.50, popularity: 0.62, launchTurn: 0),
         VehicleCatalogEntry(id: "hokuto-trailclassic", maker: "ホクト", modelName: "TRAIL CLASSIC", category: .pickup, baseWholesalePrice: 530, referenceRetailPrice: 860, qualityBaseline: 0.57, popularity: 0.66, launchTurn: 0),
         VehicleCatalogEntry(id: "rossa-stellagt", maker: "ロッサ", modelName: "STELLA GT", category: .imported, baseWholesalePrice: 920, referenceRetailPrice: 1_480, qualityBaseline: 0.49, popularity: 0.60, launchTurn: 0),
 
         // The catalog continues to refresh throughout the ten-year game.
         VehicleCatalogEntry(id: "aoba-pico3", maker: "アオバ", modelName: "PICO III", category: .kei, baseWholesalePrice: 96, referenceRetailPrice: 139, qualityBaseline: 0.88, popularity: 1.16, launchTurn: 52),
+        VehicleCatalogEntry(id: "aoba-razor-r", maker: "アオバ", modelName: "RAZOR R", category: .sports, baseWholesalePrice: 405, referenceRetailPrice: 620, qualityBaseline: 0.90, popularity: 1.18, launchTurn: 36),
         VehicleCatalogEntry(id: "koyo-linog", maker: "コーヨー", modelName: "LINO G", category: .compact, baseWholesalePrice: 132, referenceRetailPrice: 188, qualityBaseline: 0.89, popularity: 1.15, launchTurn: 78),
         VehicleCatalogEntry(id: "hinode-familia3", maker: "ヒノデ", modelName: "FAMILIA III", category: .minivan, baseWholesalePrice: 224, referenceRetailPrice: 326, qualityBaseline: 0.90, popularity: 1.17, launchTurn: 104),
         VehicleCatalogEntry(id: "hokuto-ridgez", maker: "ホクト", modelName: "RIDGE Z", category: .suv, baseWholesalePrice: 420, referenceRetailPrice: 610, qualityBaseline: 0.91, popularity: 1.19, launchTurn: 130),
+        VehicleCatalogEntry(id: "yamato-aero-n", maker: "ヤマト", modelName: "AERO N", category: .sports, baseWholesalePrice: 520, referenceRetailPrice: 790, qualityBaseline: 0.92, popularity: 1.20, launchTurn: 144),
         VehicleCatalogEntry(id: "nord-velar2", maker: "ノルド", modelName: "VELAR II", category: .imported, baseWholesalePrice: 820, referenceRetailPrice: 1_220, qualityBaseline: 0.93, popularity: 1.16, launchTurn: 182),
         VehicleCatalogEntry(id: "yamato-ranger2", maker: "ヤマト", modelName: "RANGER II", category: .pickup, baseWholesalePrice: 294, referenceRetailPrice: 426, qualityBaseline: 0.90, popularity: 1.15, launchTurn: 208),
         VehicleCatalogEntry(id: "koyo-worka2", maker: "コーヨー", modelName: "WORKA II", category: .commercial, baseWholesalePrice: 184, referenceRetailPrice: 262, qualityBaseline: 0.89, popularity: 1.14, launchTurn: 234),
         VehicleCatalogEntry(id: "aoba-picoev", maker: "アオバ", modelName: "PICO EV", category: .kei, baseWholesalePrice: 112, referenceRetailPrice: 164, qualityBaseline: 0.91, popularity: 1.18, launchTurn: 260, powertrain: .electric, usedMarketDelayWeeks: 16),
+        VehicleCatalogEntry(id: "seika-comet-rs", maker: "セイカ", modelName: "COMET RS", category: .sports, baseWholesalePrice: 590, referenceRetailPrice: 890, qualityBaseline: 0.93, popularity: 1.21, launchTurn: 264, powertrain: .hybrid),
         VehicleCatalogEntry(id: "seika-comet2", maker: "セイカ", modelName: "COMET II", category: .compact, baseWholesalePrice: 146, referenceRetailPrice: 208, qualityBaseline: 0.91, popularity: 1.16, launchTurn: 286),
         VehicleCatalogEntry(id: "hinode-familiaev", maker: "ヒノデ", modelName: "FAMILIA EV", category: .minivan, baseWholesalePrice: 252, referenceRetailPrice: 368, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 312, powertrain: .electric, usedMarketDelayWeeks: 16),
         VehicleCatalogEntry(id: "seika-terrae", maker: "セイカ", modelName: "TERRA E", category: .suv, baseWholesalePrice: 440, referenceRetailPrice: 640, qualityBaseline: 0.93, popularity: 1.18, launchTurn: 338, powertrain: .electric, usedMarketDelayWeeks: 16),
         VehicleCatalogEntry(id: "rossa-luce2", maker: "ロッサ", modelName: "LUCE II", category: .imported, baseWholesalePrice: 960, referenceRetailPrice: 1_440, qualityBaseline: 0.94, popularity: 1.17, launchTurn: 390),
+        VehicleCatalogEntry(id: "hokuto-ridge-s", maker: "ホクト", modelName: "RIDGE S", category: .sports, baseWholesalePrice: 680, referenceRetailPrice: 1_040, qualityBaseline: 0.94, popularity: 1.22, launchTurn: 384, powertrain: .electric, usedMarketDelayWeeks: 16),
         VehicleCatalogEntry(id: "hokuto-trailpro", maker: "ホクト", modelName: "TRAIL PRO", category: .pickup, baseWholesalePrice: 326, referenceRetailPrice: 472, qualityBaseline: 0.92, popularity: 1.16, launchTurn: 416),
         VehicleCatalogEntry(id: "yamato-porter3", maker: "ヤマト", modelName: "PORTER III", category: .commercial, baseWholesalePrice: 204, referenceRetailPrice: 292, qualityBaseline: 0.91, popularity: 1.15, launchTurn: 442)
     ]
@@ -536,12 +579,6 @@ enum PurchaseNegotiationOutcome {
     case unavailable
 }
 
-enum PurchaseInspectionResult: Equatable {
-    case unavailable
-    case noIssueDetected
-    case issueFound(VehicleIssueKind)
-}
-
 struct NationalCity: Identifiable, Hashable {
     let id: String
     let name: String
@@ -610,7 +647,7 @@ struct IntercityShipment: Identifiable, Codable, Hashable {
 }
 
 enum CustomerPurpose: String, Codable, CaseIterable, Identifiable, Hashable {
-    case general, family, outdoor, camper, work, corporate
+    case general, family, outdoor, camper, work, corporate, performance, welfare, mobileBusiness
     var id: String { rawValue }
     var name: String {
         switch self {
@@ -620,6 +657,9 @@ enum CustomerPurpose: String, Codable, CaseIterable, Identifiable, Hashable {
         case .camper: "キャンピング"
         case .work: "職人・配送"
         case .corporate: "法人"
+        case .performance: "スポーツ走行"
+        case .welfare: "福祉・送迎"
+        case .mobileBusiness: "移動販売・開業"
         }
     }
 }
@@ -680,12 +720,12 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
     }
     var summary: String {
         switch self {
-        case .quickAppraisal: "地域の買取客を増やし、査定精度を補助"
-        case .kidsSpace: "家族が落ち着いて比較でき、ファミリー商談を後押し"
-        case .corporateDesk: "法人客と営業車・リース満了車の一括取引を開拓"
-        case .importLounge: "富裕層の紹介と高額輸入車の商談を後押し"
-        case .serviceWorkshop: "2ベイで故障修理と完全再生を行う"
-        case .customWorkshop: "カスタムとキャンピングカー改造を可能にする"
+        case .quickAppraisal: "店舗買取・下取り客 +24%／査定確度 +5／週の買取受付 +2"
+        case .kidsSpace: "ファミリー客 +18%／成約率 +8pt"
+        case .corporateDesk: "法人・仕事客 +22%／成約率 +7pt／対象の売却客 +42%"
+        case .importLounge: "輸入車の売買客 +18%／成約率 +7pt"
+        case .serviceWorkshop: "整備ベイ +2。基本整備・修理・完全再生の設備費を圧縮"
+        case .customWorkshop: "カスタムベイ +2。キャンパー・仕事・アウトドア架装の設備費を圧縮"
         }
     }
     var installationCost: Int {
@@ -714,12 +754,9 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
         case .quickAppraisal, .importLounge: 1
         }
     }
-    var workshopBays: Int {
-        switch self {
-        case .serviceWorkshop, .customWorkshop: 2
-        default: 0
-        }
-    }
+    var serviceBays: Int { self == .serviceWorkshop ? 2 : 0 }
+    var customizationBays: Int { self == .customWorkshop ? 2 : 0 }
+    var workshopBays: Int { serviceBays + customizationBays }
 }
 
 enum StoreType: String, Codable, CaseIterable, Identifiable {
@@ -772,7 +809,8 @@ enum StoreType: String, Codable, CaseIterable, Identifiable {
         case .roadside: 3
         }
     }
-    var baseWorkshopBays: Int { self == .service ? 2 : 0 }
+    var baseServiceBays: Int { self == .service ? 2 : 0 }
+    var baseWorkshopBays: Int { baseServiceBays }
 
     var footprintName: String { "\(requiredGridCells)セル" }
 }
@@ -1109,6 +1147,13 @@ enum VehicleProductState: String, Codable, Hashable {
     case camper
     case workCargo
     case outdoor
+    case sportStreet
+    case sportDrift
+    case sportCircuit
+    case welfareLiftSeat
+    case welfareWheelchair
+    case mobileSales
+    case kitchenCar
 
     static var restored: Self { .refurbished }
     static var custom: Self { .outdoor }
@@ -1122,6 +1167,13 @@ enum VehicleProductState: String, Codable, Hashable {
         case .camper: "キャンピング仕様"
         case .workCargo: "職人・配送仕様"
         case .outdoor: "アウトドア仕様"
+        case .sportStreet: "ストリートチューン"
+        case .sportDrift: "ドリフト仕様"
+        case .sportCircuit: "サーキット仕様"
+        case .welfareLiftSeat: "リフトアップシート車"
+        case .welfareWheelchair: "車いす仕様車"
+        case .mobileSales: "移動販売バン"
+        case .kitchenCar: "キッチンカー"
         }
     }
 
@@ -1130,6 +1182,9 @@ enum VehicleProductState: String, Codable, Hashable {
         case .camper: .camper
         case .workCargo: .work
         case .outdoor: .outdoor
+        case .sportStreet, .sportDrift, .sportCircuit: .performance
+        case .welfareLiftSeat, .welfareWheelchair: .welfare
+        case .mobileSales, .kitchenCar: .mobileBusiness
         default: nil
         }
     }
@@ -1143,6 +1198,9 @@ enum MarketProductKind: String, Codable, CaseIterable, Identifiable, Hashable {
     case workCargo
     case outdoor
     case collector
+    case sportTuned
+    case welfare
+    case mobileShop
 
     var id: String { rawValue }
 
@@ -1154,7 +1212,10 @@ enum MarketProductKind: String, Codable, CaseIterable, Identifiable, Hashable {
         case .camper: "キャンピング"
         case .workCargo: "職人・配送"
         case .outdoor: "アウトドア"
-        case .collector: "旧車・コレクター"
+        case .collector: "ヴィンテージ・コレクター"
+        case .sportTuned: "スポーツチューニング"
+        case .welfare: "福祉車両"
+        case .mobileShop: "移動販売車"
         }
     }
 
@@ -1165,6 +1226,9 @@ enum MarketProductKind: String, Codable, CaseIterable, Identifiable, Hashable {
         case .camper: .camper
         case .workCargo: .work
         case .outdoor: .outdoor
+        case .sportTuned: .performance
+        case .welfare: .welfare
+        case .mobileShop: .mobileBusiness
         case .standard, .repaired, .refurbished, .collector: .general
         }
     }
@@ -1178,6 +1242,9 @@ enum MarketProductKind: String, Codable, CaseIterable, Identifiable, Hashable {
         case .camper: .camper
         case .workCargo: .workCargo
         case .outdoor: .outdoor
+        case .sportStreet, .sportDrift, .sportCircuit: .sportTuned
+        case .welfareLiftSeat, .welfareWheelchair: .welfare
+        case .mobileSales, .kitchenCar: .mobileShop
         }
     }
 }
@@ -1239,6 +1306,9 @@ enum SegmentTrendKind: String, Codable, CaseIterable, Identifiable, Hashable {
     case campingBoom
     case luxuryBoom
     case collectorBoom
+    case motorsportBoom
+    case welfareDemand
+    case mobileBusinessBoom
 
     var id: String { rawValue }
 
@@ -1250,6 +1320,9 @@ enum SegmentTrendKind: String, Codable, CaseIterable, Identifiable, Hashable {
         case .campingBoom: "キャンピングブーム"
         case .luxuryBoom: "高級輸入車需要"
         case .collectorBoom: "旧車・コレクターブーム"
+        case .motorsportBoom: "モータースポーツブーム"
+        case .welfareDemand: "福祉・送迎需要"
+        case .mobileBusinessBoom: "開業・移動販売ブーム"
         }
     }
 
@@ -1261,6 +1334,9 @@ enum SegmentTrendKind: String, Codable, CaseIterable, Identifiable, Hashable {
         case .campingBoom: .camper
         case .luxuryBoom: .refurbished
         case .collectorBoom: .collector
+        case .motorsportBoom: .sportTuned
+        case .welfareDemand: .welfare
+        case .mobileBusinessBoom: .mobileShop
         }
     }
 }
@@ -1412,16 +1488,20 @@ enum OutsourcePartnerKind: String, Codable, CaseIterable, Identifiable, Hashable
     func supports(_ kind: WorkshopProjectKind) -> Bool {
         switch self {
         case .generalRepair: [.basicService, .repair].contains(kind)
-        case .fabrication: [.workConversion, .outdoorConversion].contains(kind)
-        case .specialist: [.refurbishment, .camperConversion].contains(kind)
+        case .fabrication:
+            [.workConversion, .outdoorConversion, .liftSeatConversion, .wheelchairConversion,
+             .mobileSalesConversion, .kitchenCarConversion].contains(kind)
+        case .specialist:
+            [.refurbishment, .camperConversion, .streetTuning, .driftTuning, .circuitTuning].contains(kind)
         }
     }
 
     static func partner(for kind: WorkshopProjectKind) -> Self {
         switch kind {
         case .basicService, .repair: .generalRepair
-        case .workConversion, .outdoorConversion: .fabrication
-        case .refurbishment, .camperConversion: .specialist
+        case .workConversion, .outdoorConversion, .liftSeatConversion, .wheelchairConversion,
+             .mobileSalesConversion, .kitchenCarConversion: .fabrication
+        case .refurbishment, .camperConversion, .streetTuning, .driftTuning, .circuitTuning: .specialist
         }
     }
 }
@@ -1433,6 +1513,13 @@ enum WorkshopProjectKind: String, Codable, Hashable, CaseIterable, Identifiable 
     case camperConversion
     case workConversion
     case outdoorConversion
+    case streetTuning
+    case driftTuning
+    case circuitTuning
+    case liftSeatConversion
+    case wheelchairConversion
+    case mobileSalesConversion
+    case kitchenCarConversion
 
     static var restoration: Self { .refurbishment }
     static var customization: Self { .outdoorConversion }
@@ -1446,6 +1533,13 @@ enum WorkshopProjectKind: String, Codable, Hashable, CaseIterable, Identifiable 
         case .camperConversion: "キャンピングカー改造"
         case .workConversion: "職人・配送仕様"
         case .outdoorConversion: "アウトドア仕様"
+        case .streetTuning: "ストリートチューン"
+        case .driftTuning: "ドリフト仕様"
+        case .circuitTuning: "サーキット仕様"
+        case .liftSeatConversion: "リフトアップシート改造"
+        case .wheelchairConversion: "車いす仕様改造"
+        case .mobileSalesConversion: "移動販売バン架装"
+        case .kitchenCarConversion: "キッチンカー架装"
         }
     }
     var icon: String {
@@ -1456,6 +1550,47 @@ enum WorkshopProjectKind: String, Codable, Hashable, CaseIterable, Identifiable 
         case .camperConversion: "tent.fill"
         case .workConversion: "shippingbox.fill"
         case .outdoorConversion: "mountain.2.fill"
+        case .streetTuning: "gauge.with.dots.needle.67percent"
+        case .driftTuning: "arrow.trianglehead.2.clockwise.rotate.90"
+        case .circuitTuning: "flag.checkered"
+        case .liftSeatConversion: "figure.roll"
+        case .wheelchairConversion: "figure.roll.runningpace"
+        case .mobileSalesConversion: "storefront.fill"
+        case .kitchenCarConversion: "fork.knife"
+        }
+    }
+    var usesCustomizationBay: Bool {
+        switch self {
+        case .camperConversion, .workConversion, .outdoorConversion,
+             .streetTuning, .driftTuning, .circuitTuning,
+             .liftSeatConversion, .wheelchairConversion,
+             .mobileSalesConversion, .kitchenCarConversion: true
+        case .basicService, .repair, .refurbishment: false
+        }
+    }
+
+    var completionInspectionWeeks: Int {
+        switch self {
+        case .streetTuning, .driftTuning, .circuitTuning: 1
+        default: 0
+        }
+    }
+
+    var productState: VehicleProductState? {
+        switch self {
+        case .basicService: .serviced
+        case .repair: .repaired
+        case .refurbishment: .refurbished
+        case .camperConversion: .camper
+        case .workConversion: .workCargo
+        case .outdoorConversion: .outdoor
+        case .streetTuning: .sportStreet
+        case .driftTuning: .sportDrift
+        case .circuitTuning: .sportCircuit
+        case .liftSeatConversion: .welfareLiftSeat
+        case .wheelchairConversion: .welfareWheelchair
+        case .mobileSalesConversion: .mobileSales
+        case .kitchenCarConversion: .kitchenCar
         }
     }
 }
@@ -1505,14 +1640,49 @@ struct VehicleWorkshopProject: Codable, Hashable {
     let outsourced: Bool
     let outsourcePartner: OutsourcePartnerKind?
     var outsourcedWeeksRemaining: Int
+    var inspectionWeeksRemaining: Int
 
-    var totalWeeks: Int { max(1, requiredWork) }
-    var remainingWeeks: Int { outsourced ? outsourcedWeeksRemaining : max(0, remainingWork) }
+    init(
+        kind: WorkshopProjectKind,
+        requiredWork: Int,
+        remainingWork: Int,
+        cost: Int,
+        qualityGain: Int,
+        startedTurn: Int,
+        priority: Int,
+        outsourced: Bool,
+        outsourcePartner: OutsourcePartnerKind?,
+        outsourcedWeeksRemaining: Int,
+        inspectionWeeksRemaining: Int? = nil
+    ) {
+        self.kind = kind
+        self.requiredWork = requiredWork
+        self.remainingWork = remainingWork
+        self.cost = cost
+        self.qualityGain = qualityGain
+        self.startedTurn = startedTurn
+        self.priority = priority
+        self.outsourced = outsourced
+        self.outsourcePartner = outsourcePartner
+        self.outsourcedWeeksRemaining = outsourcedWeeksRemaining
+        self.inspectionWeeksRemaining = inspectionWeeksRemaining ?? kind.completionInspectionWeeks
+    }
+
+    var totalWeeks: Int { max(1, requiredWork + kind.completionInspectionWeeks) }
+    var remainingWeeks: Int {
+        outsourced
+            ? outsourcedWeeksRemaining
+            : max(0, remainingWork) + max(0, inspectionWeeksRemaining)
+    }
 }
 
 struct WorkshopProjectPreview: Hashable {
     let kind: WorkshopProjectKind
     let cost: Int
+    let outsourceBaselineCost: Int
+    let staffDiscount: Int
+    let facilityDiscount: Int
+    let finalCostRate: Int
     let requiredWork: Int
     let estimatedWeeks: Int
     let qualityGain: Int
@@ -1523,6 +1693,95 @@ struct WorkshopProjectPreview: Hashable {
     let outsourcePartner: OutsourcePartnerKind?
     let qualityCap: Int
     var weeks: Int { estimatedWeeks }
+}
+
+enum CustomizationOrderStatus: String, Codable, Hashable {
+    case pending
+    case active
+}
+
+struct CustomerCustomizationOrder: Identifiable, Codable, Hashable {
+    let id: UUID
+    let storeID: UUID
+    let modelID: String
+    let category: VehicleCategory
+    let kind: WorkshopProjectKind
+    let quotedRevenue: Int
+    let materialCost: Int
+    let requiredWork: Int
+    var remainingWork: Int
+    var inspectionWeeksRemaining: Int
+    let generatedTurn: Int
+    let expiresTurn: Int
+    var startedTurn: Int?
+    var priority: Int
+    var status: CustomizationOrderStatus
+
+    init(
+        id: UUID,
+        storeID: UUID,
+        modelID: String,
+        category: VehicleCategory,
+        kind: WorkshopProjectKind,
+        quotedRevenue: Int,
+        materialCost: Int,
+        requiredWork: Int,
+        remainingWork: Int,
+        inspectionWeeksRemaining: Int? = nil,
+        generatedTurn: Int,
+        expiresTurn: Int,
+        startedTurn: Int?,
+        priority: Int,
+        status: CustomizationOrderStatus
+    ) {
+        self.id = id
+        self.storeID = storeID
+        self.modelID = modelID
+        self.category = category
+        self.kind = kind
+        self.quotedRevenue = quotedRevenue
+        self.materialCost = materialCost
+        self.requiredWork = requiredWork
+        self.remainingWork = remainingWork
+        self.inspectionWeeksRemaining = inspectionWeeksRemaining ?? kind.completionInspectionWeeks
+        self.generatedTurn = generatedTurn
+        self.expiresTurn = expiresTurn
+        self.startedTurn = startedTurn
+        self.priority = priority
+        self.status = status
+    }
+
+    var vehicleName: String { VehicleCatalog.entry(id: modelID)?.fullName ?? modelID }
+    var expectedGrossProfit: Int { quotedRevenue - materialCost }
+}
+
+enum InventorySaleTier: Int, Codable, CaseIterable, Identifiable, Hashable {
+    case ten = 10
+    case fifteen = 15
+    case twenty = 20
+
+    var id: Int { rawValue }
+    var name: String { "\(rawValue)%OFF" }
+    var discountRate: Double { Double(rawValue) / 100 }
+    var trafficMultiplier: Double {
+        switch self { case .ten: 1.60; case .fifteen: 2.00; case .twenty: 2.40 }
+    }
+    var closeBonus: Double {
+        switch self { case .ten: 0.08; case .fifteen: 0.12; case .twenty: 0.16 }
+    }
+    func advertisingCost(capacity: Int) -> Int {
+        switch self {
+        case .ten: max(120, capacity * 8)
+        case .fifteen: max(180, capacity * 12)
+        case .twenty: max(260, capacity * 16)
+        }
+    }
+}
+
+struct InventorySaleCampaign: Codable, Hashable {
+    let tier: InventorySaleTier
+    let startedTurn: Int
+    var remainingWeeks: Int
 }
 
 enum VehicleIssueKind: String, Codable, Hashable {
@@ -1740,6 +1999,26 @@ enum ProcurementSource: String, Codable, Hashable, CaseIterable, Identifiable {
         case .online: "オンライン"
         }
     }
+    var isConditionVerified: Bool {
+        switch self {
+        case .auction, .dealerTrade, .corporateLot: true
+        case .storePurchase, .tradeIn, .online: false
+        }
+    }
+}
+
+/// Player-facing inspection information. The true condition stays on the
+/// source vehicle and is not exposed by an unverified assessment.
+struct VehicleAssessment: Codable, Hashable {
+    let source: ProcurementSource
+    let isVerified: Bool
+    let confidence: Int
+    let conditionRange: ClosedRange<Int>
+    let repairCostRange: ClosedRange<Int>
+    let detectedFault: MechanicalFaultSeverity?
+
+    var estimatedCondition: Int { (conditionRange.lowerBound + conditionRange.upperBound) / 2 }
+    var estimatedRepairCost: Int { (repairCostRange.lowerBound + repairCostRange.upperBound) / 2 }
 }
 
 struct InboundShipment: Identifiable, Codable, Hashable {
@@ -1755,6 +2034,7 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     let mileage: Int?
     let condition: VehicleConditionProfile?
     let fault: MechanicalFaultSeverity
+    let faultRevealed: Bool
     let instructionID: UUID?
     let acquiredTurn: Int
     var monthsRemaining: Int
@@ -1772,6 +2052,7 @@ struct InboundShipment: Identifiable, Codable, Hashable {
         mileage: Int?,
         condition: VehicleConditionProfile? = nil,
         fault: MechanicalFaultSeverity = .none,
+        faultRevealed: Bool = true,
         instructionID: UUID? = nil,
         acquiredTurn: Int,
         monthsRemaining: Int
@@ -1788,6 +2069,7 @@ struct InboundShipment: Identifiable, Codable, Hashable {
         self.mileage = mileage
         self.condition = condition
         self.fault = fault
+        self.faultRevealed = faultRevealed
         self.instructionID = instructionID
         self.acquiredTurn = acquiredTurn
         self.monthsRemaining = monthsRemaining
@@ -1893,6 +2175,7 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
     var category: VehicleCategory?
     var modelID: String?
     var faultOnly: Bool
+    var allowedSources: Set<ProcurementSource>
     var acquiredCount: Int
     let createdTurn: Int
     var lastResult: String
@@ -1909,6 +2192,7 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
         category: VehicleCategory? = nil,
         modelID: String? = nil,
         faultOnly: Bool = false,
+        allowedSources: Set<ProcurementSource> = Set(ProcurementSource.allCases),
         acquiredCount: Int = 0,
         createdTurn: Int,
         lastResult: String = "探索待ち"
@@ -1924,6 +2208,7 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
         self.category = modelID.flatMap { VehicleCatalog.entry(id: $0)?.category } ?? category
         self.modelID = modelID
         self.faultOnly = faultOnly
+        self.allowedSources = allowedSources.isEmpty ? Set(ProcurementSource.allCases) : allowedSources
         self.acquiredCount = acquiredCount
         self.createdTurn = createdTurn
         self.lastResult = lastResult
@@ -2140,6 +2425,7 @@ struct StoreManager: Codable, Hashable {
         (staffingAbility + salesAbility + procurementAbility + researchAbility + serviceAbility) / 5
     }
     var marketingAbility: Int { researchAbility }
+    var appraisalServiceAbility: Int { serviceAbility }
 
     init(name: String, staffingAbility: Int, salesAbility: Int, procurementAbility: Int, researchAbility: Int, serviceAbility: Int, monthlySalary: Int) {
         self.name = name
@@ -2162,7 +2448,7 @@ enum EmployeeTrainingFocus: String, Codable, CaseIterable, Identifiable {
     case research
     case service
 
-    static var appraisal: Self { .procurement }
+    static var appraisal: Self { .service }
     static var marketing: Self { .research }
     static var marketResearch: Self { .research }
 
@@ -2170,9 +2456,9 @@ enum EmployeeTrainingFocus: String, Codable, CaseIterable, Identifiable {
     var name: String {
         switch self {
         case .sales: "販売"
-        case .procurement: "仕入・査定"
+        case .procurement: "仕入"
         case .research: "調査"
-        case .service: "整備"
+        case .service: "査定・整備"
         }
     }
 }
@@ -2191,9 +2477,9 @@ enum EmployeeAssignment: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .unassigned: "未配置"
         case .sales: "販売"
-        case .procurement: "買取・査定"
-        case .research: "調査・集客"
-        case .service: "整備"
+        case .procurement: "仕入"
+        case .research: "調査"
+        case .service: "査定・整備"
         }
     }
     var icon: String {
@@ -2359,7 +2645,7 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
     ) {
         self.init(
             id: id, name: name, salesSkill: salesSkill,
-            procurementSkill: procurementSkill ?? appraisalSkill,
+            procurementSkill: procurementSkill ?? (salesSkill + appraisalSkill) / 2,
             researchSkill: marketResearchSkill ?? marketingSkill ?? (salesSkill + appraisalSkill) / 2,
             serviceSkill: serviceSkill ?? appraisalSkill,
             monthlySalary: monthlySalary, commissionRate: commissionRate, assignment: assignment,
@@ -2391,9 +2677,9 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
             id: id,
             name: name,
             salesSkill: salesSkill,
-            procurementSkill: (appraisalSkill + procurementSkill) / 2,
+            procurementSkill: procurementSkill,
             researchSkill: (marketingSkill + marketResearchSkill) / 2,
-            serviceSkill: serviceSkill,
+            serviceSkill: (appraisalSkill + serviceSkill) / 2,
             monthlySalary: Int((Double(marketSalary) * compensation.salaryFactor).rounded()),
             commissionRate: compensation.commissionRate,
             assignment: assignment,
@@ -2416,13 +2702,17 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
     var recentTotalCompensation: Int { monthlySalary + recentCommissions.reduce(0, +) }
     var salesComposite: Double { Double(salesSkill) * 0.8 + Double(researchSkill) * 0.2 }
     var procurementComposite: Double { Double(procurementSkill) * 0.8 + Double(salesSkill) * 0.2 }
-    var appraisalComposite: Double { Double(procurementSkill) * 0.8 + Double(researchSkill) * 0.2 }
+    var appraisalComposite: Double { Double(serviceSkill) }
     var marketingComposite: Double { Double(researchSkill) * 0.8 + Double(salesSkill) * 0.2 }
     var researchComposite: Double { Double(researchSkill) }
     var serviceComposite: Double { Double(serviceSkill) }
+    var appraisalServiceSkill: Int {
+        get { serviceSkill }
+        set { serviceSkill = newValue }
+    }
     var appraisalSkill: Int {
-        get { procurementSkill }
-        set { procurementSkill = newValue }
+        get { serviceSkill }
+        set { serviceSkill = newValue }
     }
     var marketingSkill: Int {
         get { researchSkill }
@@ -2433,8 +2723,8 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         set { researchSkill = newValue }
     }
     var appraisalExperience: Int {
-        get { procurementExperience }
-        set { procurementExperience = newValue }
+        get { serviceExperience }
+        set { serviceExperience = newValue }
     }
     var marketingExperience: Int {
         get { researchExperience }
@@ -2530,6 +2820,7 @@ struct Store: Identifiable, Codable, Hashable {
     var delegateStaff: Bool
     var delegatePricing: Bool
     var delegateMarketing: Bool
+    var delegateProcurement: Bool
     var delegateService: Bool
     var autoSales: Bool
     var autoProcurement: Bool
@@ -2550,6 +2841,8 @@ struct Store: Identifiable, Codable, Hashable {
     var pendingManualSales: Int
     var pendingManualRevenue: Int
     var pendingManualCOGS: Int
+    var pendingCustomizationRevenue: Int
+    var pendingCustomizationCOGS: Int
     var pendingManualNegotiations: Int
     var pendingPurchaseNegotiations: Int
     var weeklyBuyerArrivals: Int
@@ -2558,6 +2851,8 @@ struct Store: Identifiable, Codable, Hashable {
     var customerReviews: [CustomerReview]
     var segmentRecords: [MarketSegmentKey: [SegmentWeekRecord]] = [:]
     var marketRepositioningWeeks: Int = 0
+    var inventorySaleCampaign: InventorySaleCampaign?
+    var inventorySaleCooldownWeeks: Int = 0
 
     init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, marketPolicy: StoreMarketPolicy = StoreMarketPolicy(), facilities: Set<StoreFacility> = [], inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
         id = UUID()
@@ -2579,6 +2874,7 @@ struct Store: Identifiable, Codable, Hashable {
         delegateStaff = false
         delegatePricing = false
         delegateMarketing = false
+        delegateProcurement = false
         delegateService = false
         autoSales = false
         autoProcurement = false
@@ -2599,12 +2895,16 @@ struct Store: Identifiable, Codable, Hashable {
         pendingManualSales = 0
         pendingManualRevenue = 0
         pendingManualCOGS = 0
+        pendingCustomizationRevenue = 0
+        pendingCustomizationCOGS = 0
         pendingManualNegotiations = 0
         pendingPurchaseNegotiations = 0
         weeklyBuyerArrivals = 0
         weeklySellerArrivals = 0
         loyalCustomers = 0
         customerReviews = []
+        inventorySaleCampaign = nil
+        inventorySaleCooldownWeeks = 0
     }
 
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
@@ -2612,7 +2912,18 @@ struct Store: Identifiable, Codable, Hashable {
     var employeeMonthlyPayroll: Int { employees.reduce(0) { $0 + $1.monthlySalary } }
     var facilityMonthlyCost: Int { facilities.reduce(0) { $0 + $1.monthlyCost } }
     var facilityInvestment: Int { facilities.reduce(0) { $0 + $1.installationCost } }
-    var workshopBays: Int { type.baseWorkshopBays + facilities.reduce(0) { $0 + $1.workshopBays } }
+    var serviceBays: Int { type.baseServiceBays + facilities.reduce(0) { $0 + $1.serviceBays } }
+    var customizationBays: Int { facilities.reduce(0) { $0 + $1.customizationBays } }
+    var workshopBays: Int { serviceBays + customizationBays }
+    func bays(for kind: WorkshopProjectKind) -> Int {
+        switch kind {
+        case .basicService, .repair, .refurbishment: serviceBays
+        case .camperConversion, .workConversion, .outdoorConversion,
+             .streetTuning, .driftTuning, .circuitTuning,
+             .liftSeatConversion, .wheelchairConversion,
+             .mobileSalesConversion, .kitchenCarConversion: customizationBays
+        }
+    }
     var weeklyWorkshopLabor: Int {
         employees.filter { $0.assignment == .service }.reduce(0) {
             $0 + min(4, max(1, Int((Double($1.serviceSkill) / 25).rounded())))
@@ -2681,7 +2992,7 @@ struct Store: Identifiable, Codable, Hashable {
         let purchase = reviewScore(for: .purchaseOffer)
         let service = reviewScore(for: .service)
         if let purchase, purchase >= 85, lastProfit < 0 {
-            return "高額買取で買取客の評判は高い一方、利益を圧迫しています。査定精度と買取上限を見直しましょう"
+            return "高額買取で買取客の評判は高い一方、利益を圧迫しています。査定・整備体制と買取上限を見直しましょう"
         }
         if let salesPrice, salesPrice < 60 {
             return "販売価格への低評価が客足を下げています。価格指数・値引き方針・付加価値のバランスを見直しましょう"
@@ -3133,6 +3444,8 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let appraisedPrice: Int
     let repairCost: Int
     let expectedSalePrice: Int
+    let asIsExpectedSalePrice: Int
+    let asIsRepairCost: Int
     let expectedDays: Int
     let demand: Double
     var appraisalAccuracy: Int
@@ -3143,8 +3456,10 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let fault: MechanicalFaultSeverity
     var faultRevealed: Bool
     let competitorOffer: CompetitorOfferBenchmark?
+    let origin: PurchaseCaseOrigin
+    let suggestedProjectKind: WorkshopProjectKind?
 
-    init(id: UUID, storeID: UUID, modelID: String, category: VehicleCategory, lotCount: Int, modelYear: Int, mileage: Int, exterior: Int, interior: Int, mechanical: Int, askingPrice: Int, appraisedPrice: Int, repairCost: Int, expectedSalePrice: Int, expectedDays: Int, demand: Double, appraisalAccuracy: Int, negotiationAttempts: Int, hiddenIssue: VehicleIssueKind?, issueRevealed: Bool, condition: VehicleConditionProfile? = nil, fault: MechanicalFaultSeverity = .none, faultRevealed: Bool = true, competitorOffer: CompetitorOfferBenchmark? = nil) {
+    init(id: UUID, storeID: UUID, modelID: String, category: VehicleCategory, lotCount: Int, modelYear: Int, mileage: Int, exterior: Int, interior: Int, mechanical: Int, askingPrice: Int, appraisedPrice: Int, repairCost: Int, expectedSalePrice: Int, asIsExpectedSalePrice: Int? = nil, asIsRepairCost: Int? = nil, expectedDays: Int, demand: Double, appraisalAccuracy: Int, negotiationAttempts: Int, hiddenIssue: VehicleIssueKind?, issueRevealed: Bool, condition: VehicleConditionProfile? = nil, fault: MechanicalFaultSeverity = .none, faultRevealed: Bool = true, competitorOffer: CompetitorOfferBenchmark? = nil, origin: PurchaseCaseOrigin = .walkIn, suggestedProjectKind: WorkshopProjectKind? = nil) {
         self.id = id
         self.storeID = storeID
         self.modelID = modelID
@@ -3159,6 +3474,8 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
         self.appraisedPrice = appraisedPrice
         self.repairCost = repairCost
         self.expectedSalePrice = expectedSalePrice
+        self.asIsExpectedSalePrice = asIsExpectedSalePrice ?? expectedSalePrice
+        self.asIsRepairCost = asIsRepairCost ?? repairCost
         self.expectedDays = expectedDays
         self.demand = demand
         self.appraisalAccuracy = appraisalAccuracy
@@ -3169,6 +3486,8 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
         self.fault = fault
         self.faultRevealed = faultRevealed
         self.competitorOffer = competitorOffer
+        self.origin = origin
+        self.suggestedProjectKind = suggestedProjectKind
     }
 
     var revealedIssue: VehicleIssueKind? { issueRevealed ? hiddenIssue : nil }
@@ -3177,12 +3496,25 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
         return Int(Double(expectedSalePrice) * revealedIssue.disclosedValueFactor)
     }
     var expectedGrossProfit: Int { (expectedSaleAfterAppraisal - askingPrice - repairCost) * lotCount }
+    var asIsExpectedGrossProfit: Int { (asIsExpectedSalePrice - askingPrice - asIsRepairCost) * lotCount }
     var conditionScore: Int { (exterior + interior + mechanical) / 3 }
     var repairQualityGain: Int { conditionScore < 75 ? 4 : 3 }
     var qualityAfterRepairScore: Int { min(94, conditionScore + repairQualityGain) }
     var negotiations: Int { negotiationAttempts }
     var vehicleName: String {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
+}
+
+enum PurchaseCaseOrigin: String, Codable, Hashable {
+    case walkIn
+    case specialtyReferral
+
+    var name: String {
+        switch self {
+        case .walkIn: "通常の店頭買取"
+        case .specialtyReferral: "専門店指名買取"
+        }
     }
 }
 

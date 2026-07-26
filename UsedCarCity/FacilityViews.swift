@@ -300,6 +300,9 @@ private struct BrandDashboardCard: View {
         case .outdoor: "mountain.2.fill"
         case .collector: "clock.arrow.circlepath"
         case .workCargo: "shippingbox.fill"
+        case .sportTuned: "flag.checkered"
+        case .welfare: "figure.roll"
+        case .mobileShop: "storefront.fill"
         case .refurbished, .repaired: "wrench.and.screwdriver.fill"
         case .standard: "car.side.fill"
         }
@@ -345,7 +348,7 @@ private struct StoreNetworkContent: View {
                             Text("在庫\(store.inventoryCount)/\(store.type.capacity)台・入庫予定\(game.incomingCount(for: store.id))台").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateMarketing, store.delegateService].filter { $0 }.count
+                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateMarketing, store.delegateProcurement, store.delegateService].filter { $0 }.count
                         CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/5委任", color: delegated == 5 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
                     }
                     if game.stores.count > 1 {
@@ -681,11 +684,65 @@ private struct WorkshopContent: View {
             }
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 6) {
+                    let customerOrders = game.customizationOrders(for: store.id)
+                    let activeCustomerOrders = customerOrders.filter { $0.status == .active }.count
                     let inHouseProjects = store.inventory.filter { $0.workshopProject?.outsourced == false }.count
+                        + activeCustomerOrders
                     HStack {
                         Text(store.name).font(.subheadline.bold())
                         Spacer()
-                        Text("週\(store.weeklyWorkshopLabor)工数・ベイ\(inHouseProjects)/\(store.workshopBays)").font(.caption.bold())
+                        Text("週\(store.weeklyWorkshopLabor)工数・稼働\(inHouseProjects)／整備\(store.serviceBays)・カスタム\(store.customizationBays)ベイ").font(.caption.bold())
+                    }
+                    ForEach(customerOrders) { order in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Label("持ち込み：\(order.vehicleName)", systemImage: order.kind.icon)
+                                    .font(.caption.bold())
+                                Spacer()
+                                CapsuleLabel(
+                                    text: order.status == .active ? "作業中" : "受注待ち",
+                                    color: order.status == .active ? .purple : GameTheme.orange,
+                                    icon: order.status == .active ? "wrench.and.screwdriver.fill" : "person.crop.circle.badge.plus"
+                                )
+                            }
+                            Text("\(order.kind.name)・売上\(order.quotedRevenue.currency)・材料\(order.materialCost.currency)・粗利\(order.expectedGrossProfit.currency)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if order.status == .active {
+                                HStack {
+                                    ProgressView(
+                                        value: Double(order.requiredWork - order.remainingWork),
+                                        total: Double(order.requiredWork)
+                                    )
+                                    .tint(.purple)
+                                    Text("残り\(order.remainingWork)工数").font(.caption2.bold())
+                                    Button("優先") {
+                                        game.setCustomizationOrderPriority(order.id, priority: min(3, order.priority + 1))
+                                    }
+                                    .font(.caption2.bold())
+                                    .buttonStyle(.bordered)
+                                }
+                            } else {
+                                HStack {
+                                    Button("受注する") {
+                                        message = game.acceptCustomizationOrder(order.id)
+                                            ? "\(order.kind.name)を受注し、材料を手配しました。"
+                                            : "材料費、担当者、カスタムベイの空きを確認してください。"
+                                    }
+                                    .font(.caption2.bold())
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(.purple)
+                                    Button("見送る", role: .destructive) {
+                                        game.declineCustomizationOrder(order.id)
+                                    }
+                                    .font(.caption2.bold())
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .background(Color.purple.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 9))
                     }
                     ForEach(store.inventory.filter { $0.count > 0 }.prefix(6)) { batch in
                         VStack(alignment: .leading, spacing: 6) {
@@ -742,6 +799,7 @@ private struct WorkshopContent: View {
                                             Button(
                                                 "\(preview.kind.name)・\(preview.fulfillmentMode.name)"
                                                     + "｜原価\(preview.cost.currency)・\(preview.estimatedWeeks)週"
+                                                    + "・外注基準比\(preview.finalCostRate)%"
                                                     + "・品質上限\(preview.qualityCap)・売価目安\(preview.projectedSalePrice.currency)"
                                             ) {
                                                 message = game.startWorkshopProject(

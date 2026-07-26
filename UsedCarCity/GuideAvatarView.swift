@@ -546,6 +546,9 @@ extension BuyerLead {
         case .camper: .camperCustomer
         case .work: .craftsmanCustomer
         case .corporate: .corporateCustomer
+        case .performance: .affluentCustomer
+        case .welfare: .familyCustomer
+        case .mobileBusiness: .craftsmanCustomer
         case .general:
             budget >= 500 || minimumQuality >= 0.88 ? .affluentCustomer : .valueCustomer
         }
@@ -560,6 +563,7 @@ extension PurchaseCase {
         switch category {
         case .commercial, .pickup: return .craftsmanCustomer
         case .imported: return .affluentCustomer
+        case .sports: return .affluentCustomer
         case .suv: return .outdoorCustomer
         default: return .seller
         }
