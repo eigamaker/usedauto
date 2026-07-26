@@ -29,7 +29,7 @@ struct StoreCommandCenterView: View {
                                 PurchaseCasesPanel(storeID: store.id)
                                 ManualSalesPanel(store: store)
                                 StoreInventoryPanel(store: store)
-                                StoreOverviewPanel(store: store, plot: plot)
+                                StoreOverviewPanel(store: store)
                             }
                         case .team: ManagerPanel(store: store, update: update)
                         case .market: MarketPanel(store: store, plot: plot, campaign: runCampaign)
@@ -91,32 +91,12 @@ private struct WeeklyOpportunityPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "今週の客足と手動枠", subtitle: "オーナーの手動7件と、担当社員の自動枠は別々に処理されます")
+            SectionTitle(title: "今週の営業")
             HStack {
                 MetricView(title: "販売客", value: "\(store.buyerArrivalsThisWeek)人", detail: "未対応 \(waitingBuyers)人")
                 MetricView(title: "買取客", value: "\(store.sellerArrivalsThisWeek)人", detail: "未対応 \(waitingSellers)人")
-                MetricView(title: "手動枠", value: "\(store.usedOpportunitiesThisWeek)/\(capacity)", detail: "残り \(remaining)回", tint: remaining > 0 ? GameTheme.teal : GameTheme.orange)
+                MetricView(title: "営業枠", value: "\(store.usedOpportunitiesThisWeek)/\(capacity)", detail: "残り \(remaining)回", tint: remaining > 0 ? GameTheme.teal : GameTheme.orange)
             }
-            ProgressView(value: Double(store.usedOpportunitiesThisWeek), total: Double(max(1, capacity)))
-                .tint(remaining > 0 ? GameTheme.teal : GameTheme.orange)
-            if store.buyerArrivalsThisWeek + store.sellerArrivalsThisWeek == 0 {
-                Label("今週は来店がありません。営業枠が余っていても商談はできません。", systemImage: "person.crop.circle.badge.questionmark")
-                    .font(.caption).foregroundStyle(GameTheme.orange)
-            }
-            VStack(spacing: 7) {
-                ForEach(game.customerTrafficFactors(for: store)) { factor in
-                    HStack {
-                        Image(systemName: factor.effect >= 0 ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill")
-                            .foregroundStyle(factor.effect >= 0 ? GameTheme.teal : GameTheme.orange)
-                        Text(factor.title).font(.caption)
-                        Spacer()
-                        Text(String(format: "%+.1f", factor.effect))
-                            .font(.caption.bold().monospacedDigit())
-                    }
-                }
-            }
-            Text("広告は地域全体の購入者を増やすのではなく、競合より自店が選ばれる確率を高めます。")
-                .font(.caption2).foregroundStyle(.secondary)
         }
         .gameCard()
     }
@@ -205,16 +185,14 @@ private struct PurchaseCasesPanel: View {
     let storeID: UUID
     @State private var message: String?
     private var cases: [PurchaseCase] { game.purchaseCases.filter { $0.storeID == storeID } }
-    private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
-    private var isAutomated: Bool { store?.autoProcurement == true }
+    private var isAutomated: Bool {
+        game.stores.first(where: { $0.id == storeID })?.autoProcurement == true
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                SectionTitle(
-                    title: "今週の買取客",
-                    subtitle: isAutomated ? "先に手動対応でき、残った案件を買取担当社員が週間処理します" : "店舗買取は来店数が限られる一方、成約率が高く、手数料・輸送待ちはありません"
-                )
+                SectionTitle(title: "今週の買取客")
                 if !cases.isEmpty { Text("\(cases.count)件").font(.caption.bold()).foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5).background(GameTheme.orange).clipShape(Capsule()) }
             }
             if cases.isEmpty {
@@ -223,7 +201,11 @@ private struct PurchaseCasesPanel: View {
                 ForEach(cases) { item in
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Image(systemName: item.category.icon).font(.title3).foregroundStyle(GameTheme.teal).frame(width: 40, height: 40).background(GameTheme.teal.opacity(0.1)).clipShape(Circle())
+                            CharacterAvatarView(
+                                role: item.characterAvatarRole,
+                                seed: item.characterAvatarSeed,
+                                size: 46
+                            )
                             VStack(alignment: .leading, spacing: 2) { Text(item.vehicleName).font(.subheadline.bold()); Text("\(item.category.name)・\(String(item.modelYear))年式・走行 \(item.mileage.formatted())km・状態 \(item.conditionScore)").font(.caption).foregroundStyle(.secondary) }
                             let grossProfit = game.purchaseExpectedGrossProfit(for: item)
                             Spacer(); VStack(alignment: .trailing) { Text("希望 \(item.askingPrice.currency)").font(.caption.bold()); Text("粗利予測 \(grossProfit.currency)").font(.caption2).foregroundStyle(grossProfit >= 0 ? GameTheme.teal : GameTheme.danger) }
@@ -369,11 +351,11 @@ private struct ManualSalesPanel: View {
                 ForEach(leads) { lead in
                     VStack(alignment: .leading, spacing: 9) {
                         HStack(spacing: 11) {
-                            Image(systemName: lead.preference.icon)
-                            .foregroundStyle(GameTheme.teal)
-                            .frame(width: 34, height: 34)
-                            .background(GameTheme.teal.opacity(0.1))
-                            .clipShape(Circle())
+                            CharacterAvatarView(
+                                role: lead.characterAvatarRole,
+                                seed: lead.characterAvatarSeed,
+                                size: 48
+                            )
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(lead.preference.customerDescription).font(.subheadline.bold())
                                 Text("用途 \(lead.purpose.name)・予算 \(lead.budget.currency)・\(lead.vehicleRequirementDescription)")
@@ -501,7 +483,17 @@ private struct VehicleProposalSheet: View {
             ScrollView {
                 VStack(spacing: 13) {
                     VStack(alignment: .leading, spacing: 8) {
-                        SectionTitle(title: "提案する在庫車を選ぶ", subtitle: "車を選んだ後に値引き条件と提示価格が表示されます")
+                        HStack(spacing: 12) {
+                            CharacterAvatarView(
+                                role: lead.characterAvatarRole,
+                                seed: lead.characterAvatarSeed,
+                                size: 56
+                            )
+                            SectionTitle(
+                                title: lead.preference.customerDescription,
+                                subtitle: "\(lead.purpose.name)・提案する在庫車を選ぶ"
+                            )
+                        }
                         HStack {
                             MetricView(title: "希望条件", value: lead.preference.name, tint: GameTheme.teal)
                             MetricView(title: "予算", value: lead.budget.currency)
@@ -836,7 +828,18 @@ private struct StoreSceneHeader: View {
                 StoreScene(store: store)
                     .frame(height: 258)
                 HStack(spacing: 9) {
-                    Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(GameTheme.mint)
+                    if let manager = store.manager {
+                        CharacterAvatarView(
+                            role: .manager,
+                            seed: manager.characterAvatarSeed,
+                            size: 36
+                        )
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(GameTheme.mint)
+                            .frame(width: 36, height: 36)
+                    }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(store.hasManager ? "店長 \(managerName)" : "オーナー直営").font(.caption.bold()).foregroundStyle(.white.opacity(0.7))
                         Text(greeting).font(.subheadline.bold()).foregroundStyle(.white)
@@ -1453,72 +1456,53 @@ private extension StoreType {
 
 private struct StoreOverviewPanel: View {
     let store: Store
-    let plot: LandPlot
 
     var body: some View {
-        VStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    SectionTitle(title: "お客様レビュー", subtitle: "実際に来店した販売客・買取客のみ")
-                    Spacer()
-                    Text(store.reviewRatingText).font(.system(size: 32, weight: .black, design: .rounded)).foregroundStyle(GameTheme.orange)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionTitle(title: "お客様レビュー")
+                Spacer()
+                Text(store.reviewRatingText).font(.system(size: 32, weight: .black, design: .rounded)).foregroundStyle(GameTheme.orange)
+            }
+            HStack(spacing: 4) {
+                ForEach(1...5, id: \.self) { star in
+                    Image(systemName: Double(star) <= (store.reviewRating ?? 0) ? "star.fill" : "star")
+                        .foregroundStyle(store.reviewCount == 0 ? .secondary : GameTheme.orange)
                 }
-                HStack(spacing: 4) {
-                    ForEach(1...5, id: \.self) { star in
-                        Image(systemName: Double(star) <= (store.reviewRating ?? 0) ? "star.fill" : "star")
-                            .foregroundStyle(store.reviewCount == 0 ? .secondary : GameTheme.orange)
-                    }
-                    Text(store.reviewCount == 0 ? "レビューはまだありません" : "\(store.reviewCount)件の来店客評価")
-                        .font(.caption).foregroundStyle(.secondary).padding(.leading, 5)
-                }
-                HStack {
-                    ReviewMetric(name: "販売価格", value: store.reviewScore(for: .salesPrice))
-                    ReviewMetric(name: "車両・商品", value: store.reviewScore(for: .vehicle))
-                    ReviewMetric(name: "買取価格", value: store.reviewScore(for: .purchaseOffer))
-                    ReviewMetric(name: "接客", value: store.reviewScore(for: .service))
-                }
-                Label(store.reviewManagementAdvice, systemImage: "signpost.right.and.left.fill")
-                    .font(.caption.bold())
-                    .foregroundStyle(GameTheme.navy)
-                if !store.customerReviews.isEmpty {
-                    Divider()
-                    ForEach(Array(store.customerReviews.prefix(3))) { review in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(review.channel.name)
-                                .font(.caption2.bold())
-                                .foregroundStyle(review.channel == .buyer ? .blue : GameTheme.teal)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background((review.channel == .buyer ? Color.blue : GameTheme.teal).opacity(0.10))
-                                .clipShape(Capsule())
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(review.comment).font(.caption)
-                                Text("評価 \(String(format: "%.1f", Double(review.overallScore) / 20))・\(review.createdTurn + 1)週目")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Spacer()
+                Text(store.reviewCount == 0 ? "レビューはまだありません" : "\(store.reviewCount)件の来店客評価")
+                    .font(.caption).foregroundStyle(.secondary).padding(.leading, 5)
+            }
+            HStack {
+                ReviewMetric(name: "販売価格", value: store.reviewScore(for: .salesPrice))
+                ReviewMetric(name: "車両・商品", value: store.reviewScore(for: .vehicle))
+                ReviewMetric(name: "買取価格", value: store.reviewScore(for: .purchaseOffer))
+                ReviewMetric(name: "接客", value: store.reviewScore(for: .service))
+            }
+            Label(store.reviewManagementAdvice, systemImage: "signpost.right.and.left.fill")
+                .font(.caption.bold())
+                .foregroundStyle(GameTheme.navy)
+            if !store.customerReviews.isEmpty {
+                Divider()
+                ForEach(Array(store.customerReviews.prefix(3))) { review in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(review.channel.name)
+                            .font(.caption2.bold())
+                            .foregroundStyle(review.channel == .buyer ? .blue : GameTheme.teal)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background((review.channel == .buyer ? Color.blue : GameTheme.teal).opacity(0.10))
+                            .clipShape(Capsule())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(review.comment).font(.caption)
+                            Text("評価 \(String(format: "%.1f", Double(review.overallScore) / 20))・\(review.createdTurn + 1)週目")
+                                .font(.caption2).foregroundStyle(.secondary)
                         }
+                        Spacer()
                     }
                 }
             }
-            .gameCard()
-            VStack(alignment: .leading, spacing: 10) {
-                SectionTitle(title: "今週の経営要因", subtitle: "販売台数が動いた理由")
-                if store.causes.isEmpty {
-                    Text("1週間進めると分析結果が表示されます").font(.subheadline).foregroundStyle(.secondary)
-                } else {
-                    ForEach(store.causes) { cause in
-                        HStack {
-                            Image(systemName: cause.effect >= 0 ? "arrow.up.right.circle.fill" : "arrow.down.right.circle.fill").foregroundStyle(cause.effect >= 0 ? GameTheme.teal : GameTheme.orange)
-                            Text(cause.title).font(.subheadline)
-                            Spacer()
-                            Text(String(format: "%+.1f台", cause.effect)).font(.caption.bold().monospacedDigit())
-                        }
-                    }
-                }
-            }
-            .gameCard()
         }
+        .gameCard()
     }
 }
 
@@ -1594,7 +1578,7 @@ private struct ManagerPanel: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
-                Label("オーナーの手動枠とは別に、販売・仕入担当は1人週7件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
+                Label("オーナーの営業枠とは別に、販売・仕入担当は1人週7件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .gameCard()
@@ -1606,7 +1590,7 @@ private struct ManagerPanel: View {
                 HStack {
                     MetricView(title: "在籍", value: "\(store.staff)名")
                     MetricView(title: "月額給与", value: store.employeeMonthlyPayroll.currency)
-                    MetricView(title: "手動枠", value: "週\(game.weeklyOpportunityCapacity(storeID: store.id))回", detail: "オーナー")
+                    MetricView(title: "営業枠", value: "週\(game.weeklyOpportunityCapacity(storeID: store.id))回", detail: "オーナー")
                     MetricView(title: "自動枠", value: "週\(store.employees.filter { [.sales, .procurement].contains($0.assignment) }.count * 7)回", detail: "担当社員")
                 }
                 Text("社員は割り当てた担当だけを自動処理します。店長がいなくても稼働し、店長は配置と方針の調整だけを行います。")
@@ -1620,6 +1604,11 @@ private struct ManagerPanel: View {
                     ForEach(store.employees) { employee in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
+                                CharacterAvatarView(
+                                    role: employee.characterAvatarRole,
+                                    seed: employee.characterAvatarSeed,
+                                    size: 46
+                                )
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(employee.name).font(.subheadline.bold())
                                     Text("\(employee.rankName)・\(employee.compensationType.name)・月給\(employee.monthlySalary.currency)\(employee.commissionRate > 0 ? "＋成約粗利\(employee.commissionRate)%" : "")")
@@ -1680,6 +1669,11 @@ private struct ManagerPanel: View {
                 } else {
                     ForEach(employeeCandidates) { employee in
                         HStack(spacing: 10) {
+                            CharacterAvatarView(
+                                role: employee.characterAvatarRole,
+                                seed: employee.characterAvatarSeed,
+                                size: 48
+                            )
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(employee.name).font(.subheadline.bold())
                                 Text("販売\(employee.salesSkill) 仕入\(employee.procurementSkill) 調査\(employee.researchSkill) 整備\(employee.serviceSkill)")
@@ -1705,10 +1699,11 @@ private struct ManagerPanel: View {
                         .foregroundStyle(.secondary)
                     if let candidate {
                         HStack(spacing: 16) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 18).fill(LinearGradient(colors: [GameTheme.navy, GameTheme.teal], startPoint: .top, endPoint: .bottom))
-                                Image(systemName: "person.crop.circle.badge.plus").font(.system(size: 62)).foregroundStyle(GameTheme.mint)
-                            }.frame(width: 100, height: 126)
+                            CharacterAvatarView(
+                                role: .manager,
+                                seed: candidate.characterAvatarSeed,
+                                size: 100
+                            )
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(candidate.name).font(.title3.bold())
                                 Text("総合能力 \(candidate.overallAbility)・給与 \(candidate.monthlySalary.currency)/月")
@@ -1736,10 +1731,11 @@ private struct ManagerPanel: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SectionTitle(title: "店長", subtitle: "能力に応じて委任業務の判断精度と対応速度が変わります")
                     HStack(spacing: 16) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 18).fill(LinearGradient(colors: [GameTheme.navy, GameTheme.teal], startPoint: .top, endPoint: .bottom))
-                            Image(systemName: "person.crop.circle.fill").font(.system(size: 72)).foregroundStyle(GameTheme.mint)
-                        }.frame(width: 112, height: 136)
+                        CharacterAvatarView(
+                            role: .manager,
+                            seed: manager.characterAvatarSeed,
+                            size: 104
+                        )
                         VStack(alignment: .leading, spacing: 9) {
                             Text(manager.name).font(.title3.bold())
                             Text("総合能力 \(manager.overallAbility)・給与 \(manager.monthlySalary.currency)/月")

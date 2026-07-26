@@ -487,7 +487,7 @@ struct StoreSettingsView: View {
                             HStack {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
-                                MetricView(title: "手動枠", value: "週7回")
+                                MetricView(title: "営業枠", value: "週7回")
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
                             Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は1人週7件まで、登録した指示を4経路で処理します。")

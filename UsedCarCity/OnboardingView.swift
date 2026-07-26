@@ -73,18 +73,6 @@ struct OnboardingView: View {
                 .background(.white.opacity(0.07))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                VStack(spacing: 7) {
-                    Text("安く仕入れ、値引きを判断し、1台ずつ商談")
-                        .font(.caption.bold())
-                        .foregroundStyle(.white.opacity(0.8))
-                    Text("社員は担当業務を自動実行し、店長は配置と方針を最適化します")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
-                    Text("1ターン＝1週間")
-                        .font(.caption2.bold())
-                        .foregroundStyle(GameTheme.mint.opacity(0.86))
-                        .padding(.top, 3)
-                }
                 Spacer()
             }
             .padding(24)

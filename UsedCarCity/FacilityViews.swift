@@ -788,18 +788,26 @@ private struct RecruitingContent: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "店員採用", subtitle: "販売・仕入・調査・整備の4能力と個別給与を比較")
             ForEach(game.stores) { store in
-                HStack {
+                let candidate = game.employeeCandidates(for: store.id).first
+                HStack(spacing: 10) {
+                    if let candidate {
+                        CharacterAvatarView(
+                            role: candidate.characterAvatarRole,
+                            seed: candidate.characterAvatarSeed,
+                            size: 44
+                        )
+                    }
                     VStack(alignment: .leading) {
                         Text(store.name).font(.subheadline.bold())
                         Text("店員 \(store.staff)名・給与 \(store.employeeMonthlyPayroll.currency)/月")
                             .font(.caption).foregroundStyle(.secondary)
-                        if let candidate = game.employeeCandidates(for: store.id).first {
+                        if let candidate {
                             Text("候補 \(candidate.name)｜販売\(candidate.salesSkill)・仕入\(candidate.procurementSkill)・\(candidate.monthlySalary.currency)/月")
                                 .font(.caption2).foregroundStyle(GameTheme.teal)
                         }
                     }
                     Spacer()
-                    if let candidate = game.employeeCandidates(for: store.id).first {
+                    if let candidate {
                         Button("\(candidate.name)を採用") { _ = game.hireEmployee(candidate.id, for: store.id) }
                             .buttonStyle(.borderedProminent).tint(.purple)
                             .disabled(store.staff >= game.maxEmployeesPerStore)

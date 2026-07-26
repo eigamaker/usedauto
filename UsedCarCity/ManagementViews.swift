@@ -274,8 +274,11 @@ private struct CompetitiveBattleCard: View {
                 }
                 ForEach(game.rivalTalentOffers) { offer in
                     HStack(spacing: 10) {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .foregroundStyle(.purple).frame(width: 28)
+                        CharacterAvatarView(
+                            role: offer.employee.characterAvatarRole,
+                            seed: offer.employee.characterAvatarSeed,
+                            size: 42
+                        )
                         VStack(alignment: .leading, spacing: 2) {
                             Text(offer.employee.name).font(.subheadline.bold())
                             Text("\(game.competitorName(for: offer.competitorID))・販売\(offer.employee.salesSkill) / 仕入\(offer.employee.procurementSkill)")
