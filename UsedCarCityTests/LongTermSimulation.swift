@@ -40,6 +40,76 @@ enum SimulationStrategy: String, Codable, CaseIterable {
     }
 }
 
+enum SimulationBusinessType: String, Codable, CaseIterable {
+    case general
+    case sports
+    case camper
+    case imported
+    case outdoor
+    case commercial
+    case welfare
+    case mobileBusiness
+
+    var displayName: String {
+        switch self {
+        case .general: "一般店舗"
+        case .sports: "スポーツカー専門"
+        case .camper: "キャンピングカー専門"
+        case .imported: "輸入車専門"
+        case .outdoor: "アウトドア車専門"
+        case .commercial: "商用車・法人専門"
+        case .welfare: "福祉車両専門"
+        case .mobileBusiness: "移動販売車専門"
+        }
+    }
+
+    var storeType: StoreType {
+        switch self {
+        case .imported: .premium
+        case .commercial, .welfare, .mobileBusiness: .service
+        case .general, .sports, .camper, .outdoor: .standard
+        }
+    }
+
+    var categories: Set<VehicleCategory>? {
+        switch self {
+        case .general: nil
+        case .sports: [.sports]
+        case .camper: [.minivan]
+        case .imported: [.imported]
+        case .outdoor: [.suv, .pickup]
+        case .commercial: [.commercial, .pickup]
+        case .welfare: [.minivan, .compact]
+        case .mobileBusiness: [.commercial, .kei]
+        }
+    }
+
+    var purpose: CustomerPurpose? {
+        switch self {
+        case .general, .imported: nil
+        case .sports: .performance
+        case .camper: .camper
+        case .outdoor: .outdoor
+        case .commercial: .corporate
+        case .welfare: .welfare
+        case .mobileBusiness: .mobileBusiness
+        }
+    }
+
+    var facilities: Set<StoreFacility> {
+        switch self {
+        case .general: []
+        case .imported: [.importLounge]
+        case .commercial: [.corporateDesk, .customWorkshop]
+        case .sports, .camper, .outdoor, .welfare, .mobileBusiness: [.customWorkshop]
+        }
+    }
+
+    var acceptedConditions: Set<VehicleConditionBand> {
+        self == .general || self == .imported ? [.normal] : [.normal, .rough]
+    }
+}
+
 struct SimulationConfiguration: Codable, Equatable {
     var seeds: [Int]
     var strategies: [SimulationStrategy]
@@ -111,6 +181,7 @@ struct SimulationYearSnapshot: Codable, Equatable {
 struct SimulationRunResult: Codable, Equatable {
     var seed: Int
     var strategy: SimulationStrategy
+    var businessType: SimulationBusinessType?
     var requestedWeeks: Int
     var completedWeeks: Int
     var endingReason: String
@@ -401,7 +472,12 @@ final class LongTermSimulationRunner {
         )
     }
 
-    static func run(seed: Int, strategy: SimulationStrategy, horizonWeeks: Int) -> SimulationRunResult {
+    static func run(
+        seed: Int,
+        strategy: SimulationStrategy,
+        horizonWeeks: Int,
+        businessType: SimulationBusinessType? = nil
+    ) -> SimulationRunResult {
         let game = GameEngine(persistenceEnabled: false)
         var ledger = Ledger()
         var state = RunState()
@@ -421,10 +497,11 @@ final class LongTermSimulationRunner {
         }
 
         game.startNewGame(simulationSeed: seed)
-        guard bootstrap(game: game, strategy: strategy, state: &state) else {
+        guard bootstrap(game: game, strategy: strategy, businessType: businessType, state: &state) else {
             return SimulationRunResult(
                 seed: seed,
                 strategy: strategy,
+                businessType: businessType,
                 requestedWeeks: horizonWeeks,
                 completedWeeks: game.turn,
                 endingReason: "創業失敗",
@@ -447,7 +524,12 @@ final class LongTermSimulationRunner {
             state.maximumDebt = max(state.maximumDebt, game.debt)
             handleEmergency(game: game, strategy: strategy, state: &state)
             if game.turn.isMultiple(of: 4) {
-                makeMonthlyDecisions(game: game, strategy: strategy, state: &state)
+                makeMonthlyDecisions(
+                    game: game,
+                    strategy: strategy,
+                    businessType: businessType,
+                    state: &state
+                )
             }
             let campaignStoreIDs = Set(game.stores.filter {
                 $0.inventorySaleCampaign != nil
@@ -510,6 +592,7 @@ final class LongTermSimulationRunner {
         return SimulationRunResult(
             seed: seed,
             strategy: strategy,
+            businessType: businessType,
             requestedWeeks: targetWeeks,
             completedWeeks: game.turn,
             endingReason: endingReason,
@@ -528,15 +611,19 @@ final class LongTermSimulationRunner {
     private static func bootstrap(
         game: GameEngine,
         strategy: SimulationStrategy,
+        businessType: SimulationBusinessType?,
         state: inout RunState
     ) -> Bool {
         let candidates = ([game.recommendedFoundingPlot].compactMap { $0 } + game.foundingCandidatePlots)
+        let foundingStoreType = businessType?.storeType ?? .standard
         guard let plot = candidates.first(where: {
-            game.footprintPlots(startingAt: $0, type: .standard, mode: .lease).count
-                == StoreType.standard.requiredGridCells
+            game.footprintPlots(startingAt: $0, type: foundingStoreType, mode: .lease).count
+                == foundingStoreType.requiredGridCells
         }) else { return false }
 
-        let categories = Array(
+        let categories = businessType?.categories.map {
+            $0.sorted { $0.rawValue < $1.rawValue }
+        } ?? Array(
             (game.recommendedCategories(for: plot.district).filter { $0 != .sports }
                 + game.recommendedCategories(for: plot.district))
                 .reduce(into: [VehicleCategory]()) { result, category in
@@ -546,14 +633,16 @@ final class LongTermSimulationRunner {
         )
         let policy = StoreMarketPolicy(
             priorityCategories: Set(categories),
-            targetPurpose: foundingPurpose(for: plot.district)
+            targetPurpose: businessType?.purpose ?? foundingPurpose(for: plot.district),
+            acceptedConditions: businessType?.acceptedConditions ?? [.normal]
         )
-        let footprint = game.footprintPlots(startingAt: plot, type: .standard, mode: .lease)
+        let facilities = businessType?.facilities ?? []
+        let footprint = game.footprintPlots(startingAt: plot, type: foundingStoreType, mode: .lease)
         let buildCost = game.totalBuildCost(
             for: footprint,
-            type: .standard,
+            type: foundingStoreType,
             mode: .lease,
-            facilities: []
+            facilities: facilities
         )
         let availableBorrowing = max(0, game.borrowingLimit - game.debt)
         let desiredLoan = roundedUpToThousand(max(0, buildCost + 2_000 - game.cash))
@@ -563,10 +652,10 @@ final class LongTermSimulationRunner {
         game.selectFoundingPlot(plot.id)
         guard game.buildStore(
             on: plot,
-            type: .standard,
+            type: foundingStoreType,
             mode: .lease,
             marketPolicy: policy,
-            facilities: [],
+            facilities: facilities,
             loanAmount: loan
         ), let storeID = game.stores.first?.id else { return false }
 
@@ -585,7 +674,7 @@ final class LongTermSimulationRunner {
             strategy: strategy,
             storeName: game.stores.first?.name,
             action: "創業",
-            reason: "推奨区画・標準店・通常融資枠で開業",
+            reason: "\(businessType?.displayName ?? "一般店舗")として\(foundingStoreType.name)を開業",
             profitBefore: nil,
             profitAfter: nil
         ))
@@ -595,6 +684,7 @@ final class LongTermSimulationRunner {
     private static func makeMonthlyDecisions(
         game: GameEngine,
         strategy: SimulationStrategy,
+        businessType: SimulationBusinessType?,
         state: inout RunState
     ) {
         for store in game.stores where store.isOperational {
@@ -609,7 +699,9 @@ final class LongTermSimulationRunner {
         case .growth:
             attemptGrowth(game: game, strategy: strategy, state: &state, adaptivePolicy: nil)
         case .adaptive:
-            attemptReposition(game: game, state: &state)
+            if businessType == nil {
+                attemptReposition(game: game, state: &state)
+            }
             let policy = game.stores.first?.marketPolicy
             attemptGrowth(game: game, strategy: strategy, state: &state, adaptivePolicy: policy)
         }

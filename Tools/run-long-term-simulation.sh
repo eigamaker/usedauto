@@ -4,12 +4,12 @@ set -euo pipefail
 
 SEEDS="1...30"
 YEARS="10"
-STRATEGIES="survival,growth,adaptive"
+BUSINESS_TYPES="general,sports,camper,imported,outdoor,commercial,welfare,mobileBusiness"
 DESTINATION="${SIM_DESTINATION:-}"
 OUTPUT_DIR=""
 
 usage() {
-    echo "Usage: $0 [--seeds 1...30|1,2,3] [--years 1...10] [--strategies survival,growth,adaptive] [--destination DEST] [--output DIR]"
+    echo "Usage: $0 [--seeds 1...30|1,2,3] [--years 1...10] [--business-types general,sports,camper,imported,outdoor,commercial,welfare,mobileBusiness] [--destination DEST] [--output DIR]"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -22,8 +22,8 @@ while [[ $# -gt 0 ]]; do
             YEARS="$2"
             shift 2
             ;;
-        --strategies)
-            STRATEGIES="$2"
+        --business-types)
+            BUSINESS_TYPES="$2"
             shift 2
             ;;
         --destination)
@@ -93,10 +93,10 @@ if [[ -n "${SIM_DERIVED_DATA_PATH:-}" ]]; then
     fi
 fi
 
-echo "Long-term simulation"
+echo "Dedicated business-type simulation"
 echo "  seeds: $SEEDS"
 echo "  years: $YEARS"
-echo "  strategies: $STRATEGIES"
+echo "  business types: $BUSINESS_TYPES"
 echo "  output: $OUTPUT_DIR"
 
 xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
@@ -104,14 +104,14 @@ xcrun simctl bootstatus "$DEVICE_ID" -b >/dev/null
 xcrun simctl spawn "$DEVICE_ID" launchctl setenv RUN_LONG_TERM_SIMULATION 1
 xcrun simctl spawn "$DEVICE_ID" launchctl setenv SIMULATION_SEEDS "$SEEDS"
 xcrun simctl spawn "$DEVICE_ID" launchctl setenv SIMULATION_YEARS "$YEARS"
-xcrun simctl spawn "$DEVICE_ID" launchctl setenv SIMULATION_STRATEGIES "$STRATEGIES"
+xcrun simctl spawn "$DEVICE_ID" launchctl setenv SIMULATION_BUSINESS_TYPES "$BUSINESS_TYPES"
 xcrun simctl spawn "$DEVICE_ID" launchctl setenv SWIFT_DETERMINISTIC_HASHING 1
 
 cleanup_environment() {
     xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv RUN_LONG_TERM_SIMULATION >/dev/null 2>&1 || true
     xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv SIMULATION_SEEDS >/dev/null 2>&1 || true
     xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv SIMULATION_YEARS >/dev/null 2>&1 || true
-    xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv SIMULATION_STRATEGIES >/dev/null 2>&1 || true
+    xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv SIMULATION_BUSINESS_TYPES >/dev/null 2>&1 || true
     xcrun simctl spawn "$DEVICE_ID" launchctl unsetenv SWIFT_DETERMINISTIC_HASHING >/dev/null 2>&1 || true
 }
 trap cleanup_environment EXIT
@@ -122,7 +122,7 @@ trap cleanup_environment EXIT
         -project UsedCarCity.xcodeproj \
         -scheme UsedCarCity \
         -destination "$DESTINATION" \
-        -only-testing:UsedCarCityTests/LongTermSimulationTests/testGenerateLongTermSimulationReport \
+        -only-testing:UsedCarCityTests/LongTermSimulationTests/testGenerateTenYearBusinessTypeReport \
         -parallel-testing-enabled NO \
         -test-timeouts-enabled NO \
         "${DERIVED_DATA_ARGS[@]}" \
@@ -134,7 +134,7 @@ xcrun xcresulttool export attachments \
     --path "$RESULT_BUNDLE" \
     --output-path "$ATTACHMENTS_DIR"
 
-for expected in report.json report.md yearly.csv; do
+for expected in business-type-report.json business-type-report.md; do
     extension="${expected##*.}"
     source_file="$(find "$ATTACHMENTS_DIR" -type f -name "*.$extension" ! -name manifest.json -print -quit)"
     if [[ -z "$source_file" ]]; then
@@ -146,6 +146,5 @@ for expected in report.json report.md yearly.csv; do
 done
 
 echo "Reports generated:"
-echo "  $OUTPUT_DIR/report.md"
-echo "  $OUTPUT_DIR/yearly.csv"
-echo "  $OUTPUT_DIR/report.json"
+echo "  $OUTPUT_DIR/business-type-report.md"
+echo "  $OUTPUT_DIR/business-type-report.json"

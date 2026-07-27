@@ -80,6 +80,45 @@ final class LongTermSimulationTests: XCTestCase {
         XCTAssertTrue(report.runs.allSatisfy(\.invariantViolations.isEmpty))
     }
 
+    func testGenerateTenYearBusinessTypeReport() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RUN_LONG_TERM_SIMULATION"] == "1" else {
+            throw XCTSkip("Tools/run-long-term-simulation.sh から明示実行する業態別分析テストです")
+        }
+
+        let seeds = parseSeeds(environment["SIMULATION_SEEDS"]) ?? SimulationConfiguration.analysis.seeds
+        let businessTypes = parseBusinessTypes(environment["SIMULATION_BUSINESS_TYPES"])
+            ?? SimulationBusinessType.allCases
+        let years = min(10, max(1, Int(environment["SIMULATION_YEARS"] ?? "") ?? 10))
+        let runs = businessTypes.flatMap { businessType in
+            seeds.map {
+                LongTermSimulationRunner.run(
+                    seed: $0,
+                    strategy: .adaptive,
+                    horizonWeeks: years * 48,
+                    businessType: businessType
+                )
+            }
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        addAttachment(
+            data: try encoder.encode(runs),
+            name: "business-type-report.json",
+            uniformType: "public.json"
+        )
+        addAttachment(
+            data: Data(businessTypeMarkdown(runs: runs, years: years).utf8),
+            name: "business-type-report.md",
+            uniformType: "net.daringfireball.markdown"
+        )
+
+        XCTAssertEqual(runs.count, seeds.count * businessTypes.count)
+        XCTAssertTrue(runs.allSatisfy(\.invariantViolations.isEmpty))
+        XCTAssertTrue(runs.allSatisfy { $0.businessType != nil })
+    }
+
     private func addAttachment(data: Data, name: String, uniformType: String) {
         let attachment = XCTAttachment(data: data, uniformTypeIdentifier: uniformType)
         attachment.name = name
@@ -104,5 +143,71 @@ final class LongTermSimulationTests: XCTestCase {
             SimulationStrategy(rawValue: $0.trimmingCharacters(in: .whitespaces))
         }
         return values.isEmpty ? nil : values
+    }
+
+    private func parseBusinessTypes(_ raw: String?) -> [SimulationBusinessType]? {
+        guard let raw, !raw.isEmpty, raw != "all" else { return nil }
+        let values = raw.split(separator: ",").compactMap {
+            SimulationBusinessType(rawValue: $0.trimmingCharacters(in: .whitespaces))
+        }
+        return values.isEmpty ? nil : values
+    }
+
+    private func businessTypeMarkdown(runs: [SimulationRunResult], years: Int) -> String {
+        var lines = [
+            "# 業態別・専業運営シミュレーション",
+            "",
+            "- 期間: \(years)年",
+            "- 運営方針: 創業時から業態を固定し、対象車種・顧客目的・専用設備・加工を業態に最適化",
+            "- 一般店舗: 専門設備を持たない総合運営。結果は資本余力への依存を前提に解釈",
+            "",
+            "| 業態 | 完走数 | 生存率 | 累計販売中央値 | 累計営業利益中央値 | 企業価値中央値 | 最低現金中央値 | 最大借入中央値 |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|"
+        ]
+        for businessType in SimulationBusinessType.allCases {
+            let matching = runs.filter { $0.businessType == businessType }
+            guard !matching.isEmpty else { continue }
+            let survivors = matching.filter { $0.completedWeeks >= years * 48 }
+            let snapshots = survivors.compactMap(\.yearlySnapshots.last)
+            lines.append(
+                "| \(businessType.displayName) | \(survivors.count)/\(matching.count) | "
+                    + "\(percent(Double(survivors.count) / Double(matching.count))) | "
+                    + "\(median(snapshots.map(\.cumulativeSales))) | "
+                    + "\(median(snapshots.map(\.cumulativeOperatingProfit))) | "
+                    + "\(median(snapshots.map(\.companyValue))) | "
+                    + "\(median(matching.map(\.minimumCash))) | \(median(matching.map(\.maximumDebt))) |"
+            )
+        }
+        lines += [
+            "",
+            "## Run別結果",
+            "",
+            "| 業態 | Seed | 終了週 | 終了理由 | 累計販売 | 累計営業利益 | 企業価値 | 専門別粗利 |",
+            "|---|---:|---:|---|---:|---:|---:|---|"
+        ]
+        for run in runs {
+            let snapshot = run.yearlySnapshots.last
+            let specialty = snapshot?.specialtyGrossProfit
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key):\($0.value)" }
+                .joined(separator: " / ")
+            lines.append(
+                "| \(run.businessType?.displayName ?? "—") | \(run.seed) | \(run.completedWeeks) | "
+                    + "\(run.endingReason) | \(snapshot?.cumulativeSales ?? 0) | "
+                    + "\(snapshot?.cumulativeOperatingProfit ?? 0) | \(snapshot?.companyValue ?? 0) | "
+                    + "\((specialty?.isEmpty == false) ? specialty! : "—") |"
+            )
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func median(_ values: [Int]) -> String {
+        guard !values.isEmpty else { return "—" }
+        let sorted = values.sorted()
+        return String(sorted[(sorted.count - 1) / 2])
+    }
+
+    private func percent(_ value: Double) -> String {
+        String(format: "%.1f%%", value * 100)
     }
 }
