@@ -214,7 +214,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v42"
+    private static let saveKey = "UsedCarCity.save.v43"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -4165,15 +4165,6 @@ final class GameEngine: ObservableObject {
         startWorkshopProject(storeID: storeID, inventoryID: inventoryID, kind: .basicService)
     }
 
-    func remainingOutsourceCapacity(for partner: OutsourcePartnerKind) -> Int {
-        let used = stores.flatMap(\.inventory).filter {
-            $0.workshopProject?.outsourced == true
-                && $0.workshopProject?.outsourcePartner == partner
-                && $0.workshopProject?.startedTurn == turn
-        }.count
-        return max(0, partner.weeklyCapacity - used)
-    }
-
     func workshopProjectPreview(
         storeID: UUID,
         inventoryID: UUID,
@@ -4197,17 +4188,14 @@ final class GameEngine: ObservableObject {
         let hasCompatibleBay = compatibleBays > 0
         let canDoInHouse = compatibleBays > activeInHouse && !serviceEmployees.isEmpty
         let partner = OutsourcePartnerKind.partner(for: kind)
-        let canOutsource = remainingOutsourceCapacity(for: partner) > 0
         let fulfillment: WorkFulfillmentMode
         switch requestedMode {
         case .automatic:
-            guard canDoInHouse || canOutsource else { return nil }
             fulfillment = canDoInHouse ? .inHouse : .outsourced
         case .inHouse:
             guard canDoInHouse else { return nil }
             fulfillment = .inHouse
         case .outsourced:
-            guard canOutsource else { return nil }
             fulfillment = .outsourced
         }
         let outsourced = fulfillment == .outsourced
@@ -4236,7 +4224,7 @@ final class GameEngine: ObservableObject {
         }
         let currentQuality = Int((batch.quality * 100).rounded())
         let baseCost: Int
-        let requiredWork: Int
+        var requiredWork: Int
         let requestedGain: Int
         let targetState: VehicleProductState
         switch kind {
@@ -4270,9 +4258,10 @@ final class GameEngine: ObservableObject {
         case .kitchenCarConversion:
             baseCost = max(170, Int(Double(model.referenceRetailPrice) * 0.60)); requiredWork = 10; requestedGain = 3; targetState = .kitchenCar
         }
+        requiredWork = min(requiredWork, kind.maximumWorkWeeks)
         let outsourceBaselineCost = Int((Double(baseCost) * partner.costMultiplier).rounded())
-        let staffDiscount = serviceEmployees.isEmpty ? 0 : 30
-        let facilityDiscount = hasCompatibleBay ? 30 : 0
+        let staffDiscount = outsourced || serviceEmployees.isEmpty ? 0 : 30
+        let facilityDiscount = outsourced || !hasCompatibleBay ? 0 : 30
         let finalCostRate = max(40, 100 - staffDiscount - facilityDiscount)
         let cost = max(1, Int((Double(outsourceBaselineCost) * Double(finalCostRate) / 100).rounded()))
         let bestSkill = serviceEmployees.map(\.serviceSkill).max() ?? 35
@@ -4313,9 +4302,12 @@ final class GameEngine: ObservableObject {
         let effectiveExpertise = min(100, store.expertise.project(kind) + companyExpertise.project(kind) * 0.25)
         let expertiseEfficiency = 1 + min(0.20, effectiveExpertise / 500)
         let effectiveLabor = max(1, Int((Double(labor) * expertiseEfficiency).rounded()))
-        let estimatedWeeks = outsourced
-            ? requiredWork + partner.extraWeeks + kind.completionInspectionWeeks
-            : Int(ceil(Double(requiredWork) / Double(effectiveLabor))) + kind.completionInspectionWeeks
+        let estimatedWeeks = min(
+            kind.maximumCompletionWeeks,
+            outsourced
+                ? requiredWork + partner.extraWeeks + kind.completionInspectionWeeks
+                : Int(ceil(Double(requiredWork) / Double(effectiveLabor))) + kind.completionInspectionWeeks
+        )
         return WorkshopProjectPreview(
             kind: kind,
             cost: cost,
@@ -6854,23 +6846,29 @@ final class GameEngine: ObservableObject {
         category: VehicleCategory,
         modelYear: Int,
         mileage: Int,
-        condition: VehicleConditionProfile,
-        fault: MechanicalFaultSeverity
+        condition: VehicleConditionProfile
     ) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID) else { return 0 }
-        let repairGain = fault == .none ? 0 : min(14, max(3, fault.requiredWork + 3))
-        let repairedQuality = Double(min(94, condition.score + repairGain)) / 100
+        // 最低粗利は「仕入れ後にそのまま店頭へ出した場合」の価格を基準にする。
+        // 修理後の品質や誤差を含む市場予測を使うと、高額車ほど上振れ額が大きくなり、
+        // 実際の店頭価格を超える入札上限を許してしまう。
         let retail = vehicleRetailValue(
             modelID: modelID,
             category: category,
             modelYear: modelYear,
             mileage: mileage,
-            quality: repairedQuality,
+            quality: condition.quality,
             in: plot.district
         )
-        let range = marketForecastRange(value: retail, storeID: storeID)
-        return (range.lowerBound + range.upperBound) / 2
+        return max(
+            25,
+            Int(
+                Double(retail)
+                    * store.priceIndex
+                    * competitivePriceFactor(in: plot.district)
+            )
+        )
     }
 
     private func maximumInstructionOffer(
@@ -6921,9 +6919,9 @@ final class GameEngine: ObservableObject {
             let assessment = purchaseAssessment(for: item)
             let assessedFault = assessment.detectedFault ?? .none
             let assessedCondition = VehicleConditionProfile(
-                exterior: assessment.estimatedCondition,
-                interior: assessment.estimatedCondition,
-                mechanical: assessment.estimatedCondition
+                exterior: assessment.conditionRange.lowerBound,
+                interior: assessment.conditionRange.lowerBound,
+                mechanical: assessment.conditionRange.lowerBound
             )
             guard item.lotCount <= freeCapacity,
                   instructionMatches(instruction, category: item.category, modelID: item.modelID, fault: assessedFault) else { continue }
@@ -6935,8 +6933,7 @@ final class GameEngine: ObservableObject {
                 category: item.category,
                 modelYear: item.modelYear,
                 mileage: item.mileage,
-                condition: assessedCondition,
-                fault: assessedFault
+                condition: assessedCondition
             )
             let repairCost = assessment.repairCostRange.upperBound
             let maximumOffer = maximumInstructionOffer(
@@ -6994,8 +6991,7 @@ final class GameEngine: ObservableObject {
                     category: category,
                     modelYear: profile?.modelYear ?? year - 4,
                     mileage: profile?.mileage ?? 55_000,
-                    condition: condition,
-                    fault: .none
+                    condition: condition
                 )
                 let maxOffer = maximumInstructionOffer(
                     instruction: instruction,
@@ -7028,8 +7024,7 @@ final class GameEngine: ObservableObject {
                 category: listing.category,
                 modelYear: listing.modelYear,
                 mileage: listing.mileage,
-                condition: listing.condition,
-                fault: listing.fault
+                condition: listing.condition
             )
             let repair = estimatedSourcingRepairCost(
                 category: listing.category,
@@ -7062,9 +7057,9 @@ final class GameEngine: ObservableObject {
             let assessment = onlineAssessment(for: listing, storeID: storeID)
             let assessedFault = assessment.detectedFault ?? .none
             let assessedCondition = VehicleConditionProfile(
-                exterior: assessment.estimatedCondition,
-                interior: assessment.estimatedCondition,
-                mechanical: assessment.estimatedCondition
+                exterior: assessment.conditionRange.lowerBound,
+                interior: assessment.conditionRange.lowerBound,
+                mechanical: assessment.conditionRange.lowerBound
             )
             guard instructionMatches(instruction, category: listing.category, modelID: listing.modelID, fault: assessedFault) else { continue }
             let seed = listing.modelYear * 17 + listing.mileage / 500 + categoryIndex(listing.category) * 61
@@ -7076,8 +7071,7 @@ final class GameEngine: ObservableObject {
                 category: listing.category,
                 modelYear: listing.modelYear,
                 mileage: listing.mileage,
-                condition: assessedCondition,
-                fault: assessedFault
+                condition: assessedCondition
             )
             let repair = assessment.repairCostRange.upperBound
             let maxPrice = maximumInstructionOffer(
@@ -7130,8 +7124,7 @@ final class GameEngine: ObservableObject {
                 category: item.category,
                 modelYear: item.modelYear,
                 mileage: item.mileage,
-                condition: item.condition,
-                fault: item.fault
+                condition: item.condition
             )
             let predictedRetail = item.revealedIssue.map {
                 Int(Double(basePredictedRetail) * $0.disclosedValueFactor)
@@ -7457,13 +7450,7 @@ final class GameEngine: ObservableObject {
             guard Int((batch.quality * 100).rounded()) < threshold else { return nil }
             return batch.productState == .stock ? .basicService : .refurbishment
         }
-        let outsourceStarts = OutsourcePartnerKind.allCases.reduce(0) {
-            $0 + remainingOutsourceCapacity(for: $1)
-        }
-        let maximumStarts = max(
-            1,
-            stores[storeIndex].workshopBays + outsourceStarts
-        )
+        let maximumStarts = max(1, stores[storeIndex].inventory.count)
         for _ in 0..<maximumStarts {
             let candidates = stores[storeIndex].inventory.filter { batch in
                 batch.count > 0
@@ -8959,7 +8946,7 @@ final class GameEngine: ObservableObject {
             materialCost + 35,
             Int(Double(materialCost) * (1.35 + readiness * 0.50) * trend)
         )
-        return (materialCost, rateAndWork.1, revenue)
+        return (materialCost, min(rateAndWork.1, kind.maximumWorkWeeks), revenue)
     }
 
     private func generateCustomerCustomizationOrders() {

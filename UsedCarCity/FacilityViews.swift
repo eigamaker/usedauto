@@ -673,12 +673,12 @@ private struct WorkshopContent: View {
     @State private var message: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "整備・商品化キュー", subtitle: "内製と外注を原価・納期・品質上限で比較。外注は全店舗で週次枠を共有します")
+            SectionTitle(title: "整備・商品化キュー", subtitle: "内製と外注を原価・納期・品質上限で比較。外注はベイ・週次件数の制限なし")
             HStack {
                 ForEach(OutsourcePartnerKind.allCases) { partner in
                     MetricView(
                         title: partner.name,
-                        value: "残\(game.remainingOutsourceCapacity(for: partner))/\(partner.weeklyCapacity)"
+                        value: "件数無制限"
                     )
                 }
             }

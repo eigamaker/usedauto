@@ -1576,6 +1576,14 @@ enum WorkshopProjectKind: String, Codable, Hashable, CaseIterable, Identifiable 
         }
     }
 
+    var maximumCompletionWeeks: Int {
+        usesCustomizationBay ? 4 : 1
+    }
+
+    var maximumWorkWeeks: Int {
+        max(1, maximumCompletionWeeks - completionInspectionWeeks)
+    }
+
     var productState: VehicleProductState? {
         switch self {
         case .basicService: .serviced
