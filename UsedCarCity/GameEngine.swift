@@ -214,7 +214,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v43"
+    private static let saveKey = "UsedCarCity.save.v44"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -467,7 +467,8 @@ final class GameEngine: ObservableObject {
         category: VehicleCategory,
         purpose: CustomerPurpose,
         district: DistrictKind,
-        productKind: MarketProductKind = .standard
+        productKind: MarketProductKind = .standard,
+        desiredGrade: SpecialtyProductGrade? = nil
     ) -> CompetitorOfferBenchmark? {
         competitors.compactMap { competitor -> CompetitorOfferBenchmark? in
             let candidates = competitor.branches
@@ -477,6 +478,7 @@ final class GameEngine: ObservableObject {
                     $0.category == category
                         && $0.count > 0
                         && marketProductMatches(actual: $0.marketProductKind, desired: productKind)
+                        && gradeMatches(actual: $0.productGrade, desired: desiredGrade)
                 }
             guard let bucket = candidates.min(by: {
                 Double($0.averageCost) * $0.averageQuality < Double($1.averageCost) * $1.averageQuality
@@ -484,9 +486,30 @@ final class GameEngine: ObservableObject {
                 plot(id: $0.plotID)?.district == district && $0.inventory.contains(where: { $0.id == bucket.id })
             }) else { return nil }
             let purposeFactor = bucket.purpose == purpose ? 1.08 : 1.0
-            let price = max(25, Int(Double(bucket.averageCost) * (1.22 + competitor.strength * 0.10) * branch.priceIndex * purposeFactor))
-            return CompetitorOfferBenchmark(competitorID: competitor.id, price: price, quality: bucket.averageQuality, category: category, purpose: bucket.purpose, productKind: bucket.marketProductKind)
+            let key = MarketSegmentKey(district: district, category: category, purpose: purpose, productKind: productKind)
+            let price = max(25, Int(Double(bucket.averageCost)
+                * (1.22 + competitor.strength * 0.10)
+                * branch.priceIndex
+                * purposeFactor
+                * segmentWillingnessFactor(
+                    for: key,
+                    productState: bucket.productState,
+                    grade: bucket.productGrade
+                )))
+            let cappedPrice = bucket.marketProductKind.supportsGrades
+                ? min(price, competitorSpecialtyPriceCap(for: bucket))
+                : price
+            return CompetitorOfferBenchmark(competitorID: competitor.id, price: cappedPrice, quality: bucket.averageQuality, category: category, purpose: bucket.purpose, productKind: bucket.marketProductKind, productGrade: bucket.productGrade)
         }.min(by: { $0.price < $1.price })
+    }
+
+    private func competitorSpecialtyPriceCap(for bucket: CompetitorInventoryBucket) -> Int {
+        let approximateReferenceRetail = Double(bucket.category.purchaseCost) * 1.40
+        return Int(approximateReferenceRetail * specialtyPriceCeiling(
+            for: bucket.marketProductKind,
+            productState: bucket.productState,
+            grade: bucket.productGrade
+        ))
     }
 
     func bestCompetitorPurchaseOffer(category: VehicleCategory, condition: VehicleConditionProfile, fault: MechanicalFaultSeverity, district: DistrictKind) -> CompetitorOfferBenchmark? {
@@ -1026,23 +1049,58 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    func activeTrendPhaseStrength(for key: MarketSegmentKey, at evaluatedTurn: Int? = nil) -> Double {
+        let targetTurn = evaluatedTurn ?? turn
+        return segmentTrends.reduce(0.0) { result, trend in
+            trend.affects(key) ? max(result, trend.phaseStrength(at: targetTurn)) : result
+        }
+    }
+
+    func specialtyGradeDemandShares(for key: MarketSegmentKey) -> [SpecialtyProductGrade: Double] {
+        guard key.productKind.supportsGrades else { return [:] }
+        let strength = activeTrendPhaseStrength(for: key)
+        return [
+            .low: 0.65 + (0.15 - 0.65) * strength,
+            .middle: 0.30 + (0.35 - 0.30) * strength,
+            .high: 0.05 + (0.50 - 0.05) * strength
+        ]
+    }
+
+    private func requestedSpecialtyGrade(for key: MarketSegmentKey, seed: Int) -> SpecialtyProductGrade? {
+        guard key.productKind.supportsGrades else { return nil }
+        let shares = specialtyGradeDemandShares(for: key)
+        let lowShare = shares[.low] ?? 0.65
+        let middleShare = shares[.middle] ?? 0.30
+        let roll = transactionRoll(seed: seed)
+        if roll < lowShare { return .low }
+        if roll < lowShare + middleShare { return .middle }
+        return .high
+    }
+
+    private func gradeMatches(actual: SpecialtyProductGrade?, desired: SpecialtyProductGrade?) -> Bool {
+        guard let desired else { return true }
+        return (actual ?? .low) >= desired
+    }
+
     private func specialtyPriceCeiling(
         for productKind: MarketProductKind,
-        productState: VehicleProductState? = nil
+        productState: VehicleProductState? = nil,
+        grade: SpecialtyProductGrade? = nil
     ) -> Double {
-        if let productState {
-            switch productState {
-            case .sportStreet: return 1.45
-            case .sportDrift: return 1.75
-            case .sportCircuit: return 2.00
-            case .welfareLiftSeat: return 1.30
-            case .welfareWheelchair: return 1.60
-            case .mobileSales: return 1.45
-            case .kitchenCar: return 1.90
-            default: break
-            }
+        let stateBase: Double? = switch productState {
+        case .sportStreet: 1.45
+        case .sportDrift: 1.75
+        case .sportCircuit: 2.00
+        case .welfareLiftSeat: 1.30
+        case .welfareWheelchair: 1.60
+        case .mobileSales: 1.45
+        case .kitchenCar: 1.90
+        default: nil
         }
-        return switch productKind {
+        if let stateBase {
+            return stateBase * (grade ?? .low).priceCeilingMultiplier
+        }
+        let base: Double = switch productKind {
         case .standard: 1.10
         case .repaired: 1.30
         case .refurbished: 1.75
@@ -1054,6 +1112,7 @@ final class GameEngine: ObservableObject {
         case .welfare: 1.60
         case .mobileShop: 1.90
         }
+        return base * (productKind.supportsGrades ? (grade ?? .low).priceCeilingMultiplier : 1)
     }
 
     func specialtyReadiness(for store: Store, productKind: MarketProductKind) -> Double {
@@ -1082,12 +1141,12 @@ final class GameEngine: ObservableObject {
     private func segmentWillingnessFactor(
         for key: MarketSegmentKey,
         store: Store? = nil,
-        productState: VehicleProductState? = nil
+        productState: VehicleProductState? = nil,
+        grade: SpecialtyProductGrade? = nil
     ) -> Double {
-        let trendLift = max(0, activeTrendMultiplier(for: key) - 1)
-        let normalizedTrend = min(1, trendLift / 2.2)
+        let normalizedTrend = activeTrendPhaseStrength(for: key)
         let readiness = store.map { specialtyReadiness(for: $0, productKind: key.productKind) } ?? 0.65
-        let ceiling = specialtyPriceCeiling(for: key.productKind, productState: productState)
+        let ceiling = specialtyPriceCeiling(for: key.productKind, productState: productState, grade: grade)
         return 1 + (ceiling - 1) * normalizedTrend * readiness
     }
 
@@ -2679,9 +2738,17 @@ final class GameEngine: ObservableObject {
 
     func trendSignal(for productKind: MarketProductKind, storeID: UUID) -> TrendSignal? {
         guard productKind.isNiche else { return nil }
+        guard let store = stores.first(where: { $0.id == storeID }),
+              let storeDistrict = plot(id: store.plotID)?.district else { return nil }
+        let relevantCategories = Set(nicheCategories(for: productKind))
+        func appliesToStore(_ trend: SegmentTrend) -> Bool {
+            trend.kind.productKind == productKind
+                && trend.districts.contains(storeDistrict)
+                && !trend.categories.isDisjoint(with: relevantCategories)
+        }
         let horizon = segmentResearchHorizon(for: storeID)
         let matchingActive = segmentTrends.first {
-            $0.kind.productKind == productKind && $0.startTurn <= turn && $0.endTurn > turn
+            appliesToStore($0) && $0.startTurn <= turn && $0.endTurn > turn
         }
         if let matchingActive {
             return TrendSignal(
@@ -2694,7 +2761,7 @@ final class GameEngine: ObservableObject {
         }
         guard horizon > 0 else { return nil }
         if let upcoming = segmentTrends.first(where: {
-            $0.kind.productKind == productKind && $0.startTurn > turn && $0.startTurn <= turn + horizon
+            appliesToStore($0) && $0.startTurn > turn && $0.startTurn <= turn + horizon
         }) {
             let score = marketResearchScore(for: storeID)
             let confidence: ClosedRange<Int> = score >= 85 ? 80...95 : score >= 70 ? 70...90 : 55...75
@@ -3273,14 +3340,17 @@ final class GameEngine: ObservableObject {
         let order = customerCustomizationOrders[orderIndex]
         let activeInventoryBays = stores[storeIndex].inventory.filter {
             $0.workshopProject?.outsourced == false
-                && $0.workshopProject?.kind.usesCustomizationBay == true
+                && $0.workshopProject?.kind.usesCustomizationBay == order.kind.usesCustomizationBay
         }.count
         let activeOrderBays = customerCustomizationOrders.filter {
-            $0.storeID == order.storeID && $0.status == .active
+            $0.storeID == order.storeID
+                && $0.status == .active
+                && $0.kind.usesCustomizationBay == order.kind.usesCustomizationBay
         }.count
-        guard stores[storeIndex].facilities.contains(.customWorkshop),
+        let requiredFacility: StoreFacility = order.kind.usesCustomizationBay ? .customWorkshop : .serviceWorkshop
+        guard stores[storeIndex].facilities.contains(requiredFacility),
               stores[storeIndex].employees.contains(where: { $0.assignment == .service }),
-              activeInventoryBays + activeOrderBays < stores[storeIndex].customizationBays,
+              activeInventoryBays + activeOrderBays < stores[storeIndex].bays(for: order.kind),
               cash >= order.materialCost else { return false }
         cash -= order.materialCost
         finance.operatingCF -= order.materialCost
@@ -3376,15 +3446,17 @@ final class GameEngine: ObservableObject {
         )
         let campaignDiscount = store.inventorySaleCampaign?.tier.discountRate ?? 0
         let rawOffer = Int(Double(quote.price) * purposeValue
-            * segmentWillingnessFactor(for: desiredSegment, store: store, productState: batch.productState)
+            * segmentWillingnessFactor(for: desiredSegment, store: store, productState: batch.productState, grade: batch.productGrade)
             * (1 - campaignDiscount) * (1 - strategy.discountRate))
         let offer: Int
         if let model = VehicleCatalog.entry(id: batch.modelID),
-           [.sportStreet, .sportDrift, .sportCircuit,
-            .welfareLiftSeat, .welfareWheelchair,
-            .mobileSales, .kitchenCar].contains(batch.productState) {
+           marketProductKind(for: batch).supportsGrades {
             let cap = Double(model.referenceRetailPrice)
-                * specialtyPriceCeiling(for: marketProductKind(for: batch), productState: batch.productState)
+                * specialtyPriceCeiling(
+                    for: marketProductKind(for: batch),
+                    productState: batch.productState,
+                    grade: batch.productGrade
+                )
                 * (1 - campaignDiscount) * (1 - strategy.discountRate)
             offer = min(rawOffer, Int(cap))
         } else {
@@ -3487,7 +3559,7 @@ final class GameEngine: ObservableObject {
         )
         fairPrice = Int(Double(fairPrice)
             * productPurposeValueFactor(for: batch, purpose: lead.purpose)
-            * segmentWillingnessFactor(for: fairKey, store: stores[storeIndex], productState: batch.productState))
+            * segmentWillingnessFactor(for: fairKey, store: stores[storeIndex], productState: batch.productState, grade: batch.productGrade))
         if let issue = batch.disclosedIssue {
             fairPrice = Int((Double(fairPrice) * issue.disclosedValueFactor).rounded())
         }
@@ -3753,7 +3825,9 @@ final class GameEngine: ObservableObject {
 
     func buyerPreferenceMatchEffect(lead: BuyerLead, batch: InventoryBatch, offerPrice: Int) -> Double {
         let model = VehicleCatalog.entry(id: batch.modelID)
-        let productEffect = marketProductMatches(actual: marketProductKind(for: batch), desired: lead.desiredProductKind)
+        let productAndGradeMatch = marketProductMatches(actual: marketProductKind(for: batch), desired: lead.desiredProductKind)
+            && gradeMatches(actual: batch.productGrade, desired: lead.desiredGrade)
+        let productEffect = productAndGradeMatch
             ? (lead.desiredProductKind.isNiche ? 0.12 : 0)
             : (lead.desiredProductKind.isNiche ? -0.42 : -0.08)
         let preferenceEffect: Double = switch lead.preference {
@@ -3785,6 +3859,7 @@ final class GameEngine: ObservableObject {
     func inventoryMatchesBuyer(_ batch: InventoryBatch, lead: BuyerLead, storeID: UUID) -> Bool {
         guard batch.count > 0, !batch.isInWorkshop, !batch.isReserved,
               marketProductMatches(actual: marketProductKind(for: batch), desired: lead.desiredProductKind),
+              gradeMatches(actual: batch.productGrade, desired: lead.desiredGrade),
               batch.quality >= lead.minimumQuality,
               batch.modelYear >= lead.minimumModelYear,
               batch.mileage <= lead.maximumMileage,
@@ -3801,7 +3876,11 @@ final class GameEngine: ObservableObject {
 
     private func preferredBuyerLead(storeID: UUID, batch: InventoryBatch) -> BuyerLead? {
         buyerLeads
-            .filter { $0.storeID == storeID }
+            .filter {
+                $0.storeID == storeID
+                    && marketProductMatches(actual: marketProductKind(for: batch), desired: $0.desiredProductKind)
+                    && gradeMatches(actual: batch.productGrade, desired: $0.desiredGrade)
+            }
             .max { lhs, rhs in
                 let lhsPrice = manualSaleQuote(storeID: storeID, inventoryID: batch.id)?.price ?? Int.max
                 let rhsPrice = lhsPrice
@@ -3878,7 +3957,7 @@ final class GameEngine: ObservableObject {
         if stores[source].inventory[batchIndex].count == 0 {
             stores[source].inventory.remove(at: batchIndex)
         }
-        stores[destination].inventory.append(InventoryBatch(modelID: unit.modelID, category: unit.category, count: 1, averageCost: unit.averageCost, quality: unit.quality, modelYear: unit.modelYear, mileage: unit.mileage, acquiredTurn: unit.acquiredTurn, productState: unit.productState, vehicleIssue: unit.vehicleIssue))
+        stores[destination].inventory.append(InventoryBatch(modelID: unit.modelID, category: unit.category, count: 1, averageCost: unit.averageCost, quality: unit.quality, modelYear: unit.modelYear, mileage: unit.mileage, acquiredTurn: unit.acquiredTurn, productState: unit.productState, productGrade: unit.productGrade, valueAddedInvestment: unit.valueAddedInvestment, vehicleIssue: unit.vehicleIssue))
         save()
         return true
     }
@@ -4169,12 +4248,25 @@ final class GameEngine: ObservableObject {
         storeID: UUID,
         inventoryID: UUID,
         kind: WorkshopProjectKind,
+        grade requestedGrade: SpecialtyProductGrade? = nil,
         fulfillment requestedMode: WorkFulfillmentMode = .automatic
     ) -> WorkshopProjectPreview? {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID),
               let batch = store.inventory.first(where: { $0.id == inventoryID && $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }),
               let model = VehicleCatalog.entry(id: batch.modelID) else { return nil }
+        let proposedState = kind.productState ?? batch.productState
+        let proposedProductKind = MarketProductKind.resolve(
+            productState: proposedState,
+            isRareClassic: model.isRareClassic
+        )
+        let isGradeProject = proposedProductKind.supportsGrades
+            && ![WorkshopProjectKind.basicService, .repair].contains(kind)
+            && (kind != .refurbishment || model.isRareClassic)
+        let resolvedGrade = isGradeProject ? (requestedGrade ?? .low) : nil
+        let isGradeUpgrade = resolvedGrade.map {
+            batch.productState == proposedState && (batch.productGrade ?? .low) < $0
+        } ?? false
         let serviceEmployees = store.employees.filter { $0.assignment == .service }
         let activeInventoryProjects = store.inventory.filter {
             $0.workshopProject?.outsourced == false
@@ -4215,15 +4307,15 @@ final class GameEngine: ObservableObject {
         case .repair:
             break
         case .refurbishment:
-            guard [.stock, .serviced, .repaired].contains(batch.productState) else { return nil }
+            guard [.stock, .serviced, .repaired].contains(batch.productState) || isGradeUpgrade else { return nil }
         case .camperConversion, .workConversion, .outdoorConversion,
              .streetTuning, .driftTuning, .circuitTuning,
              .liftSeatConversion, .wheelchairConversion,
              .mobileSalesConversion, .kitchenCarConversion:
-            guard [.stock, .serviced, .repaired, .refurbished].contains(batch.productState) else { return nil }
+            guard [.stock, .serviced, .repaired, .refurbished].contains(batch.productState) || isGradeUpgrade else { return nil }
         }
         let currentQuality = Int((batch.quality * 100).rounded())
-        let baseCost: Int
+        var baseCost: Int
         var requiredWork: Int
         let requestedGain: Int
         let targetState: VehicleProductState
@@ -4258,7 +4350,24 @@ final class GameEngine: ObservableObject {
         case .kitchenCarConversion:
             baseCost = max(170, Int(Double(model.referenceRetailPrice) * 0.60)); requiredWork = 10; requestedGain = 3; targetState = .kitchenCar
         }
+        if let resolvedGrade {
+            if isGradeUpgrade {
+                let currentRank = (batch.productGrade ?? .low).rank
+                requiredWork = max(1, resolvedGrade.rank - currentRank)
+            } else if kind.usesCustomizationBay {
+                let completionTarget = resolvedGrade.rank + 2
+                requiredWork = max(1, completionTarget - kind.completionInspectionWeeks)
+            }
+        }
         requiredWork = min(requiredWork, kind.maximumWorkWeeks)
+        let gradeCostMultiplier: Double
+        if let resolvedGrade {
+            let currentMultiplier = isGradeUpgrade ? (batch.productGrade ?? .low).costMultiplier : 0
+            gradeCostMultiplier = max(0, resolvedGrade.costMultiplier - currentMultiplier)
+        } else {
+            gradeCostMultiplier = 1
+        }
+        baseCost = max(1, Int((Double(baseCost) * gradeCostMultiplier).rounded()))
         let outsourceBaselineCost = Int((Double(baseCost) * partner.costMultiplier).rounded())
         let staffDiscount = outsourced || serviceEmployees.isEmpty ? 0 : 30
         let facilityDiscount = outsourced || !hasCompatibleBay ? 0 : 30
@@ -4273,6 +4382,7 @@ final class GameEngine: ObservableObject {
         projected.averageCost += cost
         projected.valueAddedInvestment += cost
         projected.productState = targetState
+        projected.productGrade = resolvedGrade
         projected.workshopProject = nil
         let marketValue = vehicleRetailValue(
             modelID: projected.modelID,
@@ -4285,18 +4395,33 @@ final class GameEngine: ObservableObject {
         let disclosedIssueFactor = projected.disclosedIssue?.disclosedValueFactor ?? 1.0
         let projectedPurpose = targetState.purpose ?? store.marketPolicy.targetPurpose
         let purposeValue = productPurposeValueFactor(for: projected, purpose: projectedPurpose)
-        let uncappedProjectedPrice = max(25, Int(Double(marketValue) * store.priceIndex * inventoryAgingValueFactor(for: projected) * specialtyMarketFactor(for: projected, in: plot.district) * purposeValue * disclosedIssueFactor))
-        let specialtyPriceCap: Int? = switch targetState {
-        case .camper: Int(Double(model.referenceRetailPrice) * 2.0)
-        case .sportStreet: Int(Double(model.referenceRetailPrice) * 1.45)
-        case .sportDrift: Int(Double(model.referenceRetailPrice) * 1.75)
-        case .sportCircuit: Int(Double(model.referenceRetailPrice) * 2.0)
-        case .welfareLiftSeat: Int(Double(model.referenceRetailPrice) * 1.30)
-        case .welfareWheelchair: Int(Double(model.referenceRetailPrice) * 1.60)
-        case .mobileSales: Int(Double(model.referenceRetailPrice) * 1.45)
-        case .kitchenCar: Int(Double(model.referenceRetailPrice) * 1.90)
-        default: nil
-        }
+        let projectedKey = MarketSegmentKey(
+            district: plot.district,
+            category: projected.category,
+            purpose: projectedPurpose,
+            productKind: proposedProductKind
+        )
+        let uncappedProjectedPrice = max(25, Int(
+            Double(marketValue)
+                * store.priceIndex
+                * inventoryAgingValueFactor(for: projected)
+                * specialtyMarketFactor(for: projected, in: plot.district)
+                * purposeValue
+                * segmentWillingnessFactor(
+                    for: projectedKey,
+                    store: store,
+                    productState: targetState,
+                    grade: resolvedGrade
+                )
+                * disclosedIssueFactor
+        ))
+        let specialtyPriceCap = resolvedGrade != nil
+            ? Int(Double(model.referenceRetailPrice) * specialtyPriceCeiling(
+                for: proposedProductKind,
+                productState: targetState,
+                grade: resolvedGrade
+            ))
+            : nil
         let projectedPrice = specialtyPriceCap.map { min(uncappedProjectedPrice, $0) } ?? uncappedProjectedPrice
         let labor = max(1, store.weeklyWorkshopLabor)
         let effectiveExpertise = min(100, store.expertise.project(kind) + companyExpertise.project(kind) * 0.25)
@@ -4310,6 +4435,7 @@ final class GameEngine: ObservableObject {
         )
         return WorkshopProjectPreview(
             kind: kind,
+            grade: resolvedGrade,
             cost: cost,
             outsourceBaselineCost: outsourceBaselineCost,
             staffDiscount: staffDiscount,
@@ -4332,11 +4458,12 @@ final class GameEngine: ObservableObject {
         storeID: UUID,
         inventoryID: UUID,
         kind: WorkshopProjectKind,
+        grade: SpecialtyProductGrade? = nil,
         fulfillment: WorkFulfillmentMode = .automatic
     ) -> Bool {
         guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               let batchIndex = stores[storeIndex].inventory.firstIndex(where: { $0.id == inventoryID && $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }),
-              let preview = workshopProjectPreview(storeID: storeID, inventoryID: inventoryID, kind: kind, fulfillment: fulfillment),
+              let preview = workshopProjectPreview(storeID: storeID, inventoryID: inventoryID, kind: kind, grade: grade, fulfillment: fulfillment),
               cash >= preview.cost else { return false }
         let activeInventoryProjects = stores[storeIndex].inventory.filter {
             $0.workshopProject?.outsourced == false
@@ -4361,6 +4488,7 @@ final class GameEngine: ObservableObject {
                 mileage: original.mileage,
                 acquiredTurn: original.acquiredTurn,
                 productState: original.productState,
+                productGrade: original.productGrade,
                 valueAddedInvestment: original.valueAddedInvestment,
                 vehicleIssue: original.vehicleIssue,
                 condition: original.condition,
@@ -4374,6 +4502,7 @@ final class GameEngine: ObservableObject {
         stores[storeIndex].inventory[batchIndex].valueAddedInvestment += preview.cost
         stores[storeIndex].inventory[batchIndex].workshopProject = VehicleWorkshopProject(
             kind: kind,
+            targetGrade: preview.grade,
             requiredWork: preview.requiredWork,
             remainingWork: preview.requiredWork,
             cost: preview.cost,
@@ -4888,8 +5017,14 @@ final class GameEngine: ObservableObject {
             100,
             max(0, Int((expertise * 0.35 + salesPoints + reputationPoints + advertisingPoints + reviewPoints).rounded()))
         )
+        let storeDistrict = plot(id: store.plotID)?.district
+        let relevantCategories = Set(nicheCategories(for: productKind))
         let currentTrend = segmentTrends
-            .filter { $0.kind.productKind == productKind }
+            .filter {
+                $0.kind.productKind == productKind
+                    && (storeDistrict.map($0.districts.contains) ?? false)
+                    && !$0.categories.isDisjoint(with: relevantCategories)
+            }
             .map { $0.multiplier(at: turn) }
             .max() ?? 1
         let trendBonus = max(0, currentTrend - 1)
@@ -5191,17 +5326,46 @@ final class GameEngine: ObservableObject {
     }
 
     private func updateSegmentTrends(at resolvingTurn: Int, notes: inout [String]) {
+        let ending = segmentTrends.filter { $0.endTurn == resolvingTurn }
+        for trend in ending {
+            notes.append("市場トレンド終了：\(trend.kind.name)")
+        }
         segmentTrends.removeAll { $0.endTurn <= resolvingTurn }
-        guard resolvingTurn >= 4,
-              resolvingTurn.isMultiple(of: 4),
-              segmentTrends.filter({ $0.endTurn > resolvingTurn }).count < 2 else { return }
-        let roll = transactionRoll(seed: simulationSeed &+ resolvingTurn &* 7_919)
-        guard roll < 0.22 else { return }
+        if segmentTrends.isEmpty {
+            appendSegmentTrend(startTurn: 8)
+        }
+        for trend in segmentTrends where trend.startTurn == resolvingTurn {
+            notes.append("市場トレンド開始：\(trend.kind.name)")
+        }
+        guard !segmentTrends.contains(where: { $0.startTurn > resolvingTurn }),
+              let latestStart = segmentTrends.map(\.startTurn).max(),
+              latestStart <= resolvingTurn else { return }
+        let interval = 6 + Int(
+            transactionRoll(seed: simulationSeed &+ latestStart &* 7_919) * 5
+        )
+        var nextStart = latestStart + interval
+        let overlapping = segmentTrends.filter {
+            $0.startTurn <= nextStart && $0.endTurn > nextStart
+        }
+        if overlapping.count >= 4, let earliestEnd = overlapping.map(\.endTurn).min() {
+            nextStart = max(nextStart, earliestEnd)
+        }
+        appendSegmentTrend(startTurn: nextStart)
+    }
+
+    private func appendSegmentTrend(startTurn: Int) {
+        let unavailableKinds = Set(segmentTrends.filter {
+            $0.startTurn <= startTurn && $0.endTurn > startTurn
+        }.map(\.kind))
         let kinds = SegmentTrendKind.allCases
-        let selection = min(kinds.count - 1, Int(transactionRoll(seed: simulationSeed &+ resolvingTurn &* 8_111 + 31) * Double(kinds.count)))
+            .filter { !unavailableKinds.contains($0) }
+        guard !kinds.isEmpty else { return }
+        let selection = min(
+            kinds.count - 1,
+            Int(transactionRoll(seed: simulationSeed &+ startTurn &* 8_111 + 31) * Double(kinds.count))
+        )
         let kind = kinds[selection]
         let configuration = trendConfiguration(for: kind)
-        let peakWeeks = 6 + Int(transactionRoll(seed: simulationSeed &+ resolvingTurn &* 8_191 + 47) * 7)
         let peakRange: ClosedRange<Double> = switch kind {
         case .valueRebuild: 2.0...2.8
         case .logistics, .outdoorBoom: 2.4...3.4
@@ -5212,17 +5376,18 @@ final class GameEngine: ObservableObject {
         case .mobileBusinessBoom: 2.2...3.2
         }
         let peakMultiplier = peakRange.lowerBound
-            + transactionRoll(seed: simulationSeed &+ resolvingTurn &* 8_261 + 59)
+            + transactionRoll(seed: simulationSeed &+ startTurn &* 8_261 + 59)
             * (peakRange.upperBound - peakRange.lowerBound)
         segmentTrends.append(SegmentTrend(
             kind: kind,
             districts: configuration.districts,
             categories: configuration.categories,
-            startTurn: resolvingTurn + 4,
-            peakWeeks: peakWeeks,
+            startTurn: startTurn,
+            rampWeeks: 6,
+            peakWeeks: 12,
+            decayWeeks: 6,
             peakMultiplier: peakMultiplier
         ))
-        notes.append("市場の兆候：\(kind.name)につながる動きが観測されました")
     }
 
     private func refreshMarketTrendTargetsIfNeeded() {
@@ -5707,11 +5872,31 @@ final class GameEngine: ObservableObject {
             : 1
         let baseCost = Int(Double(key.category.purchaseCost) * delayedProcurementPremium)
         let conversionBase = Double(baseCost) * competitorConversionCostRate(for: key.productKind)
-        let conversionCost = Int(conversionBase * (outsourced ? partner.costMultiplier : 1))
+        let requestedGrade = requestedSpecialtyGrade(
+            for: key,
+            seed: turn * 61_157 + competitorIndex * 307 + branchIndex * 43
+        )
+        let selectedGrade: SpecialtyProductGrade?
+        if let requestedGrade {
+            selectedGrade = SpecialtyProductGrade.allCases
+                .filter { $0 <= requestedGrade }
+                .sorted(by: >)
+                .first(where: { grade in
+                    let conversionCost = Int(conversionBase * grade.costMultiplier * (outsourced ? partner.costMultiplier : 1))
+                    return competitors[competitorIndex].cash >= baseCost + conversionCost
+                })
+        } else {
+            selectedGrade = nil
+        }
+        let conversionCost = Int(
+            conversionBase
+                * (selectedGrade?.costMultiplier ?? 1)
+                * (outsourced ? partner.costMultiplier : 1)
+        )
         let totalUnitCost = baseCost + conversionCost
         guard competitors[competitorIndex].cash >= totalUnitCost else { return }
 
-        let baseWeeks: Int = switch key.productKind {
+        var baseWeeks: Int = switch key.productKind {
         case .standard: 1
         case .repaired: 2
         case .refurbished, .collector: 6
@@ -5722,6 +5907,9 @@ final class GameEngine: ObservableObject {
         case .welfare: 8
         case .mobileShop: 10
         }
+        if let selectedGrade {
+            baseWeeks = key.productKind == .collector ? 1 : selectedGrade.rank + 2
+        }
         competitors[competitorIndex].cash -= totalUnitCost
         competitors[competitorIndex].branches[branchIndex].productizationQueue.append(
             CompetitorProductizationOrder(
@@ -5729,12 +5917,15 @@ final class GameEngine: ObservableObject {
                 purpose: key.purpose,
                 productState: competitorProductState(for: key.productKind),
                 marketProductKind: key.productKind,
+                productGrade: selectedGrade,
                 count: 1,
                 unitCost: totalUnitCost,
                 quality: outsourced ? (key.productKind == .collector ? 0.86 : 0.90) : (key.productKind == .collector ? 0.90 : 0.94),
                 outsourced: outsourced,
                 outsourcePartner: outsourced ? partner : nil,
-                weeksRemaining: max(1, baseWeeks + (outsourced ? partner.extraWeeks : 0))
+                weeksRemaining: key.productKind.supportsGrades
+                    ? min(key.productKind == .collector ? 1 : 4, max(1, baseWeeks + (outsourced ? partner.extraWeeks : 0)))
+                    : max(1, baseWeeks + (outsourced ? partner.extraWeeks : 0))
             )
         )
     }
@@ -5764,7 +5955,8 @@ final class GameEngine: ObservableObject {
                     unitCost: order.unitCost,
                     quality: order.quality,
                     productState: order.productState,
-                    marketProductKind: order.marketProductKind
+                    marketProductKind: order.marketProductKind,
+                    productGrade: order.productGrade
                 )
                 if order.marketProductKind.isNiche {
                     notes.append("\(competitors[competitorIndex].name)の\(order.marketProductKind.name)商品が完成しました")
@@ -6273,6 +6465,7 @@ final class GameEngine: ObservableObject {
                 if let completedState = project.kind.productState {
                     stores[storeIndex].inventory[batchIndex].productState = completedState
                 }
+                stores[storeIndex].inventory[batchIndex].productGrade = project.targetGrade
                 if project.kind == .repair {
                     stores[storeIndex].inventory[batchIndex].fault = .none
                     stores[storeIndex].inventory[batchIndex].faultRevealed = true
@@ -6295,7 +6488,9 @@ final class GameEngine: ObservableObject {
                     awardEmployeeExperience(employeeID: technicianID, storeIndex: storeIndex, focus: .service, successful: true)
                     updateEmployeePerformance(employeeID: technicianID, storeIndex: storeIndex) { $0.servicesCompleted += 1 }
                 }
-                notes.append("\(stores[storeIndex].name)：\(stores[storeIndex].inventory[batchIndex].vehicleName)の\(project.kind.name)が完成（品質\(after)）")
+                let completedProductKind = marketProductKind(for: stores[storeIndex].inventory[batchIndex])
+                let gradeText = project.targetGrade.map { "・\($0.name(for: completedProductKind))" } ?? ""
+                notes.append("\(stores[storeIndex].name)：\(stores[storeIndex].inventory[batchIndex].vehicleName)の\(project.kind.name)\(gradeText)が完成（品質\(after)）")
             }
 
             let storeID = stores[storeIndex].id
@@ -6339,7 +6534,11 @@ final class GameEngine: ObservableObject {
                     points: 2
                 )
                 completedOrderIDs.insert(order.id)
-                notes.append("\(stores[storeIndex].name)：持ち込み\(order.vehicleName)の\(order.kind.name)が完成（売上\(order.quotedRevenue.currency)）")
+                let orderProductKind = MarketProductKind.resolve(
+                    productState: order.kind.productState ?? .stock,
+                    isRareClassic: VehicleCatalog.entry(id: order.modelID)?.isRareClassic == true
+                )
+                notes.append("\(stores[storeIndex].name)：持ち込み\(order.vehicleName)の\(order.kind.name)・\(order.grade.name(for: orderProductKind))が完成（売上\(order.quotedRevenue.currency)）")
             }
             if !completedOrderIDs.isEmpty {
                 customerCustomizationOrders.removeAll { completedOrderIDs.contains($0.id) }
@@ -7460,15 +7659,32 @@ final class GameEngine: ObservableObject {
             }.sorted { $0.quality < $1.quality }
             let viable = candidates.compactMap { batch -> (InventoryBatch, WorkshopProjectPreview)? in
                 guard let kind = projectKind(for: batch) else { return nil }
-                guard let preview = workshopProjectPreview(
-                    storeID: storeID,
-                    inventoryID: batch.id,
-                    kind: kind
-                ) else { return nil }
-                if preview.outsourced {
+                let productKind = MarketProductKind.resolve(
+                    productState: kind.productState ?? batch.productState,
+                    isRareClassic: batch.isRareClassic
+                )
+                let isGradeProject = productKind.supportsGrades
+                    && ![WorkshopProjectKind.basicService, .repair].contains(kind)
+                    && (kind != .refurbishment || batch.isRareClassic)
+                let grades: [SpecialtyProductGrade?] = isGradeProject
+                    ? SpecialtyProductGrade.allCases.map(Optional.some)
+                    : [nil]
+                let previews = grades.compactMap { grade in
+                    workshopProjectPreview(
+                        storeID: storeID,
+                        inventoryID: batch.id,
+                        kind: kind,
+                        grade: grade
+                    )
+                }.filter { preview in
+                    guard productKind.supportsGrades || preview.outsourced else { return true }
                     let totalCost = batch.averageCost + preview.cost
-                    guard preview.projectedSalePrice >= Int(Double(totalCost) * 1.05) else { return nil }
+                    return preview.projectedSalePrice >= Int(Double(totalCost) * 1.05)
                 }
+                guard let preview = previews.max(by: {
+                    ($0.projectedSalePrice - batch.averageCost - $0.cost)
+                        < ($1.projectedSalePrice - batch.averageCost - $1.cost)
+                }) else { return nil }
                 return (batch, preview)
             }
             guard let selected = viable.first else { break }
@@ -7476,6 +7692,7 @@ final class GameEngine: ObservableObject {
                 storeID: storeID,
                 inventoryID: selected.0.id,
                 kind: selected.1.kind,
+                grade: selected.1.grade,
                 fulfillment: selected.1.fulfillmentMode
             ) else { break }
         }
@@ -8141,7 +8358,8 @@ final class GameEngine: ObservableObject {
         unitCost: Int,
         quality: Double,
         productState: VehicleProductState,
-        marketProductKind: MarketProductKind? = nil
+        marketProductKind: MarketProductKind? = nil,
+        productGrade: SpecialtyProductGrade? = nil
     ) {
         guard competitors.indices.contains(competitorIndex), competitors[competitorIndex].branches.indices.contains(branchIndex), count > 0 else { return }
         let resolvedProductKind = marketProductKind ?? MarketProductKind.resolve(productState: productState, isRareClassic: false)
@@ -8150,6 +8368,7 @@ final class GameEngine: ObservableObject {
                 && $0.purpose == purpose
                 && $0.productState == productState
                 && $0.marketProductKind == resolvedProductKind
+                && $0.productGrade == productGrade
         }) {
             let old = competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex]
             let newCount = old.count + count
@@ -8164,7 +8383,8 @@ final class GameEngine: ObservableObject {
                 averageCost: unitCost,
                 averageQuality: quality,
                 productState: productState,
-                marketProductKind: resolvedProductKind
+                marketProductKind: resolvedProductKind,
+                productGrade: productGrade
             ))
         }
     }
@@ -8651,6 +8871,7 @@ final class GameEngine: ObservableObject {
         seed: Int
     ) {
         let key = MarketSegmentKey(district: district, category: category, purpose: purpose, productKind: productKind)
+        let desiredGrade = requestedSpecialtyGrade(for: key, seed: seed + 263)
         registerSegmentDemand(key)
         let preference: BuyerVehiclePreference = .category(category)
         guard let storeID = assignedStore(
@@ -8658,10 +8879,11 @@ final class GameEngine: ObservableObject {
             buyerPreference: preference,
             buyerPurpose: purpose,
             buyerProductKind: productKind,
+            buyerGrade: desiredGrade,
             sellerCategory: nil,
             seed: seed
         ) else {
-            if !competitorHandlesBuyer(category: category, purpose: purpose, productKind: productKind, district: district, seed: seed) {
+            if !competitorHandlesBuyer(category: category, purpose: purpose, productKind: productKind, desiredGrade: desiredGrade, district: district, seed: seed) {
                 registerSegmentUnmet(key)
             }
             return
@@ -8671,6 +8893,7 @@ final class GameEngine: ObservableObject {
             preference: preference,
             purpose: purpose,
             productKind: productKind,
+            grade: desiredGrade,
             seed: seed
         ))
         if let storeIndex = stores.firstIndex(where: { $0.id == storeID }) {
@@ -8912,6 +9135,7 @@ final class GameEngine: ObservableObject {
 
     private func customizationOrderTerms(
         kind: WorkshopProjectKind,
+        grade: SpecialtyProductGrade,
         model: VehicleCatalogEntry,
         store: Store,
         district: DistrictKind
@@ -8931,7 +9155,7 @@ final class GameEngine: ObservableObject {
         case .basicService: (0.06, 1)
         case .repair: (0.18, 3)
         }
-        let materialCost = max(20, Int(Double(model.referenceRetailPrice) * rateAndWork.0))
+        let materialCost = max(20, Int(Double(model.referenceRetailPrice) * rateAndWork.0 * grade.costMultiplier))
         let state = kind.productState ?? .stock
         let productKind = MarketProductKind.resolve(productState: state, isRareClassic: model.isRareClassic)
         let key = MarketSegmentKey(
@@ -8941,21 +9165,23 @@ final class GameEngine: ObservableObject {
             productKind: productKind
         )
         let readiness = specialtyReadiness(for: store, productKind: productKind)
-        let trend = segmentWillingnessFactor(for: key, store: store, productState: state)
+        let trend = segmentWillingnessFactor(for: key, store: store, productState: state, grade: grade)
         let revenue = max(
             materialCost + 35,
             Int(Double(materialCost) * (1.35 + readiness * 0.50) * trend)
         )
-        return (materialCost, min(rateAndWork.1, kind.maximumWorkWeeks), revenue)
+        let completionTarget = kind.usesCustomizationBay ? grade.rank + 2 : 1
+        let work = min(kind.maximumWorkWeeks, max(1, completionTarget - kind.completionInspectionWeeks))
+        return (materialCost, work, revenue)
     }
 
     private func generateCustomerCustomizationOrders() {
         for store in stores where store.isOperational
-            && store.facilities.contains(.customWorkshop)
             && store.employees.contains(where: { $0.assignment == .service }) {
             guard let plot = plot(id: store.plotID),
-                  let productKind = specialtyReferralProduct(for: store),
-                  productKind != .collector else { continue }
+                  let productKind = specialtyReferralProduct(for: store) else { continue }
+            let requiredFacility: StoreFacility = productKind == .collector ? .serviceWorkshop : .customWorkshop
+            guard store.facilities.contains(requiredFacility) else { continue }
             let readiness = specialtyReadiness(for: store, productKind: productKind)
             guard readiness >= 0.50 else { continue }
             let pool = referralModelPool(for: productKind, store: store)
@@ -8983,13 +9209,21 @@ final class GameEngine: ObservableObject {
                 let seed = turn * 23_123 + store.plotID * 431 + offset * 97 + simulationSeed
                 let model = pool[abs(seed) % pool.count]
                 let kind = referralProjectKind(for: productKind, seed: seed)
-                let terms = customizationOrderTerms(kind: kind, model: model, store: store, district: plot.district)
+                let gradeKey = MarketSegmentKey(
+                    district: plot.district,
+                    category: model.category,
+                    purpose: productKind.customerPurpose,
+                    productKind: productKind
+                )
+                let grade = requestedSpecialtyGrade(for: gradeKey, seed: seed + 809) ?? .low
+                let terms = customizationOrderTerms(kind: kind, grade: grade, model: model, store: store, district: plot.district)
                 customerCustomizationOrders.append(CustomerCustomizationOrder(
                     id: UUID(),
                     storeID: store.id,
                     modelID: model.id,
                     category: model.category,
                     kind: kind,
+                    grade: grade,
                     quotedRevenue: terms.revenue,
                     materialCost: terms.cost,
                     requiredWork: terms.work,
@@ -9009,6 +9243,7 @@ final class GameEngine: ObservableObject {
         buyerPreference: BuyerVehiclePreference?,
         buyerPurpose: CustomerPurpose?,
         buyerProductKind: MarketProductKind?,
+        buyerGrade: SpecialtyProductGrade? = nil,
         sellerCategory: VehicleCategory?,
         seed: Int
     ) -> UUID? {
@@ -9035,7 +9270,8 @@ final class GameEngine: ObservableObject {
                 let matchingInventory = store.inventory.reduce(0) { total, batch in
                     guard batch.count > 0, !batch.isInWorkshop, !batch.isReserved,
                           desiredCategory == nil || batch.category == desiredCategory,
-                          buyerProductKind == nil || marketProductMatches(actual: marketProductKind(for: batch), desired: buyerProductKind!) else {
+                          buyerProductKind == nil || marketProductMatches(actual: marketProductKind(for: batch), desired: buyerProductKind!),
+                          gradeMatches(actual: batch.productGrade, desired: buyerGrade) else {
                         return total
                     }
                     return total + batch.count
@@ -9101,6 +9337,7 @@ final class GameEngine: ObservableObject {
         category: VehicleCategory,
         purpose: CustomerPurpose,
         productKind: MarketProductKind,
+        desiredGrade: SpecialtyProductGrade?,
         district: DistrictKind,
         seed: Int
     ) -> Bool {
@@ -9112,6 +9349,7 @@ final class GameEngine: ObservableObject {
                           $0.category == category
                               && $0.count > 0
                               && marketProductMatches(actual: $0.marketProductKind, desired: productKind)
+                              && gradeMatches(actual: $0.productGrade, desired: desiredGrade)
                       }) else { return nil }
                 let bucket = branch.inventory[bucketIndex]
                 let purposeFit = bucket.purpose == purpose ? 1.18 : 0.88
@@ -9127,7 +9365,14 @@ final class GameEngine: ObservableObject {
         let bucket = competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex]
         let purposeFactor = bucket.purpose == purpose ? 1.08 : 0.96
         let key = MarketSegmentKey(district: district, category: category, purpose: purpose, productKind: productKind)
-        let price = max(25, Int(Double(bucket.averageCost) * (1.22 + competitors[competitorIndex].strength * 0.10) * competitors[competitorIndex].branches[branchIndex].priceIndex * purposeFactor * segmentWillingnessFactor(for: key)))
+        let uncappedPrice = max(25, Int(Double(bucket.averageCost)
+            * (1.22 + competitors[competitorIndex].strength * 0.10)
+            * competitors[competitorIndex].branches[branchIndex].priceIndex
+            * purposeFactor
+            * segmentWillingnessFactor(for: key, productState: bucket.productState, grade: bucket.productGrade)))
+        let price = bucket.marketProductKind.supportsGrades
+            ? min(uncappedPrice, competitorSpecialtyPriceCap(for: bucket))
+            : uncappedPrice
         competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].count -= 1
         competitors[competitorIndex].cash += price
         competitors[competitorIndex].branches[branchIndex].currentRevenue += price
@@ -9172,6 +9417,7 @@ final class GameEngine: ObservableObject {
                 $0.category == offer.category
                     && $0.count > 0
                     && marketProductMatches(actual: $0.marketProductKind, desired: lead.desiredProductKind)
+                    && gradeMatches(actual: $0.productGrade, desired: lead.desiredGrade)
             }) else { continue }
             let cost = competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].averageCost
             competitors[competitorIndex].branches[branchIndex].inventory[bucketIndex].count -= 1
@@ -9250,6 +9496,7 @@ final class GameEngine: ObservableObject {
         preference: BuyerVehiclePreference,
         purpose requestedPurpose: CustomerPurpose? = nil,
         productKind: MarketProductKind = .standard,
+        grade requestedGrade: SpecialtyProductGrade? = nil,
         seed: Int
     ) -> BuyerLead {
         let storePlot = stores.first(where: { $0.id == storeID }).flatMap { plot(id: $0.plotID) }
@@ -9308,6 +9555,15 @@ final class GameEngine: ObservableObject {
             : nil
         let desiredCategory = resolvedPreference.category
         let purpose = requestedPurpose ?? defaultCustomerPurpose(for: desiredCategory, seed: seed + 257)
+        let gradeKey = MarketSegmentKey(
+            district: localDistrict,
+            category: desiredCategory ?? .compact,
+            purpose: purpose,
+            productKind: productKind
+        )
+        let desiredGrade = productKind.supportsGrades
+            ? (requestedGrade ?? requestedSpecialtyGrade(for: gradeKey, seed: seed + 263) ?? .low)
+            : nil
         let nicheBudgetFactor: Double = switch productKind {
         case .standard: 1
         case .repaired: 1.04
@@ -9324,7 +9580,7 @@ final class GameEngine: ObservableObject {
             id: UUID(),
             storeID: storeID,
             preference: resolvedPreference,
-            budget: Int(Double(budget) * nicheBudgetFactor),
+            budget: Int(Double(budget) * nicheBudgetFactor * (desiredGrade?.buyerBudgetMultiplier ?? 1)),
             minimumQuality: minimumQuality,
             minimumModelYear: minimumModelYear,
             maximumMileage: maximumMileage,
@@ -9333,7 +9589,14 @@ final class GameEngine: ObservableObject {
             tradeInVehicle: tradeInVehicle,
             purpose: purpose,
             desiredProductKind: productKind,
-            competitorOffer: bestCompetitorSaleOffer(category: desiredCategory ?? .compact, purpose: purpose, district: localDistrict, productKind: productKind)
+            desiredGrade: desiredGrade,
+            competitorOffer: bestCompetitorSaleOffer(
+                category: desiredCategory ?? .compact,
+                purpose: purpose,
+                district: localDistrict,
+                productKind: productKind,
+                desiredGrade: desiredGrade
+            )
         )
     }
 

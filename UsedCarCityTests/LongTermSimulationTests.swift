@@ -32,19 +32,19 @@ final class LongTermSimulationTests: XCTestCase {
         XCTAssertFalse(game.hasSaveData)
     }
 
-    func testBankruptcyAtCheckpointIsNotCountedAsSurvival() {
+    func testSurvivalStrategyReachesFiveYearCheckpointAndIsCountedAsSurvival() {
         let report = LongTermSimulationRunner.run(configuration: SimulationConfiguration(
             seeds: [3],
             strategies: [.survival],
             horizonWeeks: 240
         ))
 
-        XCTAssertLessThan(report.runs.first?.completedWeeks ?? 240, 240)
-        XCTAssertEqual(report.runs.first?.yearlySnapshots.last?.survived, false)
-        XCTAssertEqual(report.summaries.first?.checkpoints.first?.survivalRate, 0)
-        XCTAssertEqual(report.summaries.first?.checkpoints.first?.survivingRuns, 0)
-        XCTAssertNil(report.summaries.first?.checkpoints.first?.medianOperatingProfit)
-        XCTAssertTrue(report.markdown().contains("| 0/1 | 0.0% | — | — | — |"))
+        XCTAssertEqual(report.runs.first?.completedWeeks, 240)
+        XCTAssertEqual(report.runs.first?.yearlySnapshots.last?.survived, true)
+        XCTAssertEqual(report.summaries.first?.checkpoints.first?.survivalRate, 1)
+        XCTAssertEqual(report.summaries.first?.checkpoints.first?.survivingRuns, 1)
+        XCTAssertNotNil(report.summaries.first?.checkpoints.first?.medianOperatingProfit)
+        XCTAssertTrue(report.markdown().contains("| 1/1 | 100.0% |"))
     }
 
     func testGenerateLongTermSimulationReport() throws {

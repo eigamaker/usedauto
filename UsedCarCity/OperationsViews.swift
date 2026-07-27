@@ -73,11 +73,17 @@ private struct InventoryRow: View {
                     Text(batch.vehicleName).font(.subheadline.bold())
                     if batch.isRareClassic { Text("希少旧車").font(.caption2.bold()).foregroundStyle(GameTheme.orange) }
                     if batch.productState != .stock { Text(batch.productState.name).font(.caption2.bold()).foregroundStyle(.purple) }
+                    if let grade = batch.productGrade {
+                        Text(grade.name(for: game.marketProductKind(for: batch))).font(.caption2.bold()).foregroundStyle(GameTheme.orange)
+                    }
                     if let issue = batch.disclosedIssue { Text("告知：\(issue.name)").font(.caption2.bold()).foregroundStyle(GameTheme.danger) }
                 }
                 Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・品質 \(Int((batch.quality * 100).rounded()))/100").font(.caption).foregroundStyle(.secondary)
                 if let project = batch.workshopProject {
-                    Text("\(project.kind.name)・あと\(project.remainingWeeks)週・簿価 \(batch.averageCost.currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption2).foregroundStyle(.purple)
+                    let gradeText = project.targetGrade.map {
+                        "・\($0.name(for: MarketProductKind.resolve(productState: project.kind.productState ?? batch.productState, isRareClassic: batch.isRareClassic)))"
+                    } ?? ""
+                    Text("\(project.kind.name)\(gradeText)・あと\(project.remainingWeeks)週・簿価 \(batch.averageCost.currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption2).foregroundStyle(.purple)
                 } else {
                     Text("仕入れ値 \(batch.averageCost.currency)・販売目安 \((game.manualSaleQuote(storeID: store.id, inventoryID: batch.id)?.price ?? 0).currency)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption2).foregroundStyle(.secondary)
                 }
@@ -197,15 +203,28 @@ struct InventoryCustomizationSheet: View {
                         .gameCard()
 
                         ForEach(kinds) { kind in
-                            let previews = WorkFulfillmentMode.allCases
-                                .filter { $0 != .automatic }
-                                .compactMap {
-                                    game.workshopProjectPreview(
-                                        storeID: storeID,
-                                        inventoryID: inventoryID,
-                                        kind: kind,
-                                        fulfillment: $0
-                                    )
+                            let productKind = MarketProductKind.resolve(
+                                productState: kind.productState ?? batch.productState,
+                                isRareClassic: batch.isRareClassic
+                            )
+                            let isGradeProject = productKind.supportsGrades
+                                && ![WorkshopProjectKind.basicService, .repair].contains(kind)
+                                && (kind != .refurbishment || batch.isRareClassic)
+                            let gradeOptions: [SpecialtyProductGrade?] = isGradeProject
+                                ? SpecialtyProductGrade.allCases.map(Optional.some)
+                                : [nil]
+                            let previews = gradeOptions.flatMap { grade in
+                                WorkFulfillmentMode.allCases
+                                    .filter { $0 != .automatic }
+                                    .compactMap {
+                                        game.workshopProjectPreview(
+                                            storeID: storeID,
+                                            inventoryID: inventoryID,
+                                            kind: kind,
+                                            grade: grade,
+                                            fulfillment: $0
+                                        )
+                                    }
                                 }
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
@@ -226,7 +245,10 @@ struct InventoryCustomizationSheet: View {
                                     ForEach(Array(previews.enumerated()), id: \.offset) { _, preview in
                                         VStack(alignment: .leading, spacing: 7) {
                                             HStack {
-                                                Text(preview.fulfillmentMode.name).font(.caption.bold())
+                                                Text(
+                                                    preview.grade.map { "\($0.name(for: productKind))・\(preview.fulfillmentMode.name)" }
+                                                        ?? preview.fulfillmentMode.name
+                                                ).font(.caption.bold())
                                                 Spacer()
                                                 Text("原価 \(preview.cost.currency)").font(.caption.bold().monospacedDigit())
                                                 Text("外注基準 \(preview.outsourceBaselineCost.currency) → \(preview.finalCostRate)%")
@@ -242,10 +264,11 @@ struct InventoryCustomizationSheet: View {
                                                     storeID: storeID,
                                                     inventoryID: inventoryID,
                                                     kind: kind,
+                                                    grade: preview.grade,
                                                     fulfillment: preview.fulfillmentMode
                                                 )
                                                 resultMessage = started
-                                                    ? "\(kind.name)を\(preview.fulfillmentMode.name)で開始しました。"
+                                                    ? "\(kind.name) \(preview.grade?.name(for: productKind) ?? "")を\(preview.fulfillmentMode.name)で開始しました。"
                                                     : "現金、設備、担当者、外注枠を確認してください。"
                                             } label: {
                                                 Label("\(preview.fulfillmentMode.name)で開始", systemImage: "hammer.fill")

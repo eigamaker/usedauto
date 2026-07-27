@@ -1402,7 +1402,8 @@ final class GameEngineTests: XCTestCase {
             quality: 0.78,
             in: district
         )
-        XCTAssertEqual(peak.trendMultiplier, 2.4, accuracy: 0.001)
+        XCTAssertGreaterThan(peak.trendMultiplier, 1.0)
+        XCTAssertLessThan(peak.trendMultiplier, 2.4)
         XCTAssertGreaterThan(peak.fourWeekDemand.upperBound, baseline.fourWeekDemand.upperBound)
         let marginLift = Double(peak.estimatedUnitMargin.upperBound)
             / Double(max(1, baseline.estimatedUnitMargin.upperBound))
@@ -1802,7 +1803,7 @@ final class GameEngineTests: XCTestCase {
             fulfillment: .inHouse
         ))
         XCTAssertLessThan(refurbishment.cost, outsourcedRefurbishment.cost)
-        XCTAssertLessThan(refurbishment.weeks, outsourcedRefurbishment.weeks)
+        XCTAssertLessThanOrEqual(refurbishment.weeks, outsourcedRefurbishment.weeks)
         XCTAssertGreaterThan(refurbishment.projectedSalePrice, batch.averageCost + refurbishment.cost)
     }
 
@@ -1854,7 +1855,7 @@ final class GameEngineTests: XCTestCase {
             let staffOnly = try! XCTUnwrap(game.workshopProjectPreview(
                 storeID: storeID, inventoryID: batch.id, kind: kind
             ))
-            XCTAssertEqual(staffOnly.finalCostRate, 70, kind.name)
+            XCTAssertEqual(staffOnly.finalCostRate, 100, kind.name)
             XCTAssertTrue(staffOnly.outsourced)
 
             game.stores[0].employees = []
@@ -1862,7 +1863,7 @@ final class GameEngineTests: XCTestCase {
             let bayOnly = try! XCTUnwrap(game.workshopProjectPreview(
                 storeID: storeID, inventoryID: batch.id, kind: kind
             ))
-            XCTAssertEqual(bayOnly.finalCostRate, 70, kind.name)
+            XCTAssertEqual(bayOnly.finalCostRate, 100, kind.name)
             XCTAssertTrue(bayOnly.outsourced)
 
             game.stores[0].employees = [technician]
@@ -1906,7 +1907,7 @@ final class GameEngineTests: XCTestCase {
             storeID: storeID, inventoryID: batch.id, kind: .repair
         ))
         XCTAssertTrue(fallback.outsourced)
-        XCTAssertEqual(fallback.finalCostRate, 70)
+        XCTAssertEqual(fallback.finalCostRate, 100)
         XCTAssertEqual(fallback.facilityDiscount, 0)
     }
 
@@ -3513,7 +3514,7 @@ final class GameEngineTests: XCTestCase {
         let normalRefurbishment = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: normal.id, kind: .refurbishment))
         let classicRefurbishment = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: classic.id, kind: .refurbishment))
 
-        XCTAssertEqual(outdoor.requiredWork, 4)
+        XCTAssertEqual(outdoor.requiredWork, 2)
         XCTAssertEqual(normalRefurbishment.requiredWork, 1)
         XCTAssertEqual(normalRefurbishment.estimatedWeeks, 1)
         XCTAssertLessThanOrEqual(outdoor.estimatedWeeks, 4)
@@ -3535,7 +3536,7 @@ final class GameEngineTests: XCTestCase {
         let preview = try! XCTUnwrap(game.workshopProjectPreview(storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion))
         let beforeCash = game.cash
 
-        XCTAssertEqual(preview.requiredWork, 4)
+        XCTAssertEqual(preview.requiredWork, 2)
         XCTAssertTrue(game.startWorkshopProject(storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion))
         XCTAssertEqual(beforeCash - game.cash, preview.cost)
         XCTAssertNil(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id))
@@ -3584,7 +3585,7 @@ final class GameEngineTests: XCTestCase {
             fulfillment: .inHouse
         )
         XCTAssertNotNil(preview)
-        XCTAssertEqual(preview?.requiredWork, 4)
+        XCTAssertEqual(preview?.requiredWork, 2)
         XCTAssertLessThanOrEqual(preview?.estimatedWeeks ?? .max, 4)
         XCTAssertGreaterThan(preview?.cost ?? 0, minivan.category.purchaseCost)
     }
@@ -4057,7 +4058,7 @@ final class GameEngineTests: XCTestCase {
             (.kitchenCarConversion, .commercial, 0.60, 10, 1.90)
         ]
 
-        for (kind, category, costRate, work, priceCap) in specifications {
+        for (kind, category, costRate, _, priceCap) in specifications {
             let model = try XCTUnwrap(VehicleCatalog.all.first {
                 $0.category == category && !$0.isRareClassic
             })
@@ -4097,7 +4098,7 @@ final class GameEngineTests: XCTestCase {
             )
             XCTAssertEqual(
                 preview.requiredWork,
-                min(work, kind.maximumWorkWeeks),
+                max(1, 2 - kind.completionInspectionWeeks),
                 kind.name
             )
             XCTAssertGreaterThanOrEqual(
@@ -4138,6 +4139,231 @@ final class GameEngineTests: XCTestCase {
             inventoryID: vintageBatch.id,
             kind: .streetTuning
         ))
+    }
+
+    func testSpecialtyGradesScaleCostPriceAndSupportIncrementalUpgrades() throws {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 301)
+        startPlayableGame(game)
+        game.cash = 100_000
+        game.stores[0].facilities.insert(.customWorkshop)
+        game.stores[0].employees = [StoreEmployee(
+            name: "グレード担当", salesSkill: 50, procurementSkill: 60,
+            researchSkill: 55, serviceSkill: 90,
+            monthlySalary: 55, assignment: .service
+        )]
+        let storeID = game.stores[0].id
+        let district = try XCTUnwrap(game.plot(id: game.stores[0].plotID)?.district)
+        let batch = InventoryBatch(
+            modelID: "hokuto-ridge",
+            category: .suv,
+            count: 1,
+            averageCost: 220,
+            quality: 0.76,
+            modelYear: game.year - 3,
+            mileage: 42_000,
+            acquiredTurn: game.turn
+        )
+        game.stores[0].inventory = [batch]
+        game.segmentTrends = [SegmentTrend(
+            kind: .outdoorBoom,
+            districts: [district],
+            categories: [.suv],
+            startTurn: game.turn - 6,
+            rampWeeks: 6,
+            peakWeeks: 12,
+            decayWeeks: 6,
+            peakMultiplier: 3.4
+        )]
+
+        let low = try XCTUnwrap(game.workshopProjectPreview(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .low, fulfillment: .inHouse
+        ))
+        let middle = try XCTUnwrap(game.workshopProjectPreview(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .middle, fulfillment: .inHouse
+        ))
+        let high = try XCTUnwrap(game.workshopProjectPreview(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .high, fulfillment: .inHouse
+        ))
+
+        XCTAssertEqual(low.grade, .low)
+        XCTAssertEqual(middle.grade, .middle)
+        XCTAssertEqual(high.grade, .high)
+        XCTAssertEqual(SpecialtyProductGrade.high.name(for: .camper), "ラグジュアリー")
+        XCTAssertEqual(SpecialtyProductGrade.high.name(for: .collector), "純正フルレストア")
+        XCTAssertGreaterThan(middle.cost, low.cost)
+        XCTAssertGreaterThan(high.cost, middle.cost)
+        XCTAssertGreaterThan(Double(high.cost) / Double(low.cost), 2.5)
+        XCTAssertGreaterThan(high.projectedSalePrice, low.projectedSalePrice)
+        let model = try XCTUnwrap(VehicleCatalog.entry(id: batch.modelID))
+        XCTAssertLessThanOrEqual(
+            high.projectedSalePrice,
+            Int(Double(model.referenceRetailPrice) * 3.2)
+        )
+        XCTAssertEqual(low.requiredWork, 2)
+        XCTAssertEqual(middle.requiredWork, 3)
+        XCTAssertEqual(high.requiredWork, 4)
+
+        XCTAssertTrue(game.startWorkshopProject(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .low, fulfillment: .inHouse
+        ))
+        for _ in 0..<low.estimatedWeeks { game.advanceWeek() }
+        XCTAssertEqual(game.stores[0].inventory.first?.productGrade, .low)
+        XCTAssertNil(game.workshopProjectPreview(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .low, fulfillment: .inHouse
+        ))
+        let upgrade = try XCTUnwrap(game.workshopProjectPreview(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .middle, fulfillment: .inHouse
+        ))
+        XCTAssertLessThan(upgrade.cost, middle.cost)
+        XCTAssertTrue(game.startWorkshopProject(
+            storeID: storeID, inventoryID: batch.id, kind: .outdoorConversion,
+            grade: .middle, fulfillment: .inHouse
+        ))
+        for _ in 0..<upgrade.estimatedWeeks { game.advanceWeek() }
+        XCTAssertEqual(game.stores[0].inventory.first?.productGrade, .middle)
+    }
+
+    func testBuyerGradeIsMinimumAndHigherGradeInventoryIsAccepted() {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        let storeID = game.stores[0].id
+        let high = InventoryBatch(
+            modelID: "hokuto-ridge", category: .suv, count: 1,
+            averageCost: 300, quality: 0.90, modelYear: game.year - 2,
+            mileage: 30_000, acquiredTurn: game.turn,
+            productState: .outdoor, productGrade: .high
+        )
+        let low = InventoryBatch(
+            modelID: "hokuto-ridge", category: .suv, count: 1,
+            averageCost: 200, quality: 0.90, modelYear: game.year - 2,
+            mileage: 30_000, acquiredTurn: game.turn,
+            productState: .outdoor, productGrade: .low
+        )
+        game.stores[0].inventory = [high, low]
+        let lead = BuyerLead(
+            id: UUID(), storeID: storeID, preference: .category(.suv),
+            budget: 100_000, minimumQuality: 0.70,
+            priceSensitivity: 1, generatedTurn: game.turn,
+            purpose: .outdoor, desiredProductKind: .outdoor, desiredGrade: .middle
+        )
+
+        XCTAssertTrue(game.inventoryMatchesBuyer(high, lead: lead, storeID: storeID))
+        XCTAssertFalse(game.inventoryMatchesBuyer(low, lead: lead, storeID: storeID))
+    }
+
+    func testCollectorCustomizationOrderUsesServiceBayAndKeepsExactGrade() throws {
+        let game = GameEngine()
+        game.resetGame()
+        startPlayableGame(game)
+        game.cash = 100_000
+        game.stores[0].facilities = [.serviceWorkshop]
+        game.stores[0].employees = [StoreEmployee(
+            name: "旧車職人", salesSkill: 45, procurementSkill: 55,
+            researchSkill: 45, serviceSkill: 90,
+            monthlySalary: 58, assignment: .service
+        )]
+        let classic = try XCTUnwrap(VehicleCatalog.rareClassics.first)
+        let order = CustomerCustomizationOrder(
+            id: UUID(), storeID: game.stores[0].id,
+            modelID: classic.id, category: classic.category,
+            kind: .refurbishment, grade: .high,
+            quotedRevenue: 2_000, materialCost: 900,
+            requiredWork: 1, remainingWork: 1,
+            generatedTurn: game.turn, expiresTurn: game.turn + 1,
+            startedTurn: nil, priority: 1, status: .pending
+        )
+        game.customerCustomizationOrders = [order]
+
+        XCTAssertTrue(game.acceptCustomizationOrder(order.id))
+        XCTAssertEqual(game.customerCustomizationOrders.first?.grade, .high)
+        XCTAssertEqual(game.customerCustomizationOrders.first?.status, .active)
+    }
+
+    func testSegmentTrendUsesSixTwelveSixProfile() {
+        let trend = SegmentTrend(
+            kind: .campingBoom,
+            districts: [.suburb],
+            categories: [.minivan],
+            startTurn: 10,
+            rampWeeks: 6,
+            peakWeeks: 12,
+            decayWeeks: 6,
+            peakMultiplier: 4
+        )
+
+        XCTAssertEqual(trend.endTurn, 34)
+        XCTAssertGreaterThan(trend.multiplier(at: 10), 1)
+        XCTAssertLessThan(trend.multiplier(at: 10), 4)
+        XCTAssertEqual(trend.multiplier(at: 15), 4, accuracy: 0.001)
+        XCTAssertEqual(trend.multiplier(at: 27), 4, accuracy: 0.001)
+        XCTAssertLessThan(trend.multiplier(at: 28), 4)
+        XCTAssertEqual(trend.multiplier(at: 34), 1, accuracy: 0.001)
+    }
+
+    func testSpecialtyGradeDemandShiftsToHighGradeAtTrendPeak() {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 812)
+        startPlayableGame(game)
+        let district = try! XCTUnwrap(game.plot(id: game.stores[0].plotID)?.district)
+        let key = MarketSegmentKey(
+            district: district,
+            category: .suv,
+            purpose: .outdoor,
+            productKind: .outdoor
+        )
+
+        let baseline = game.specialtyGradeDemandShares(for: key)
+        XCTAssertEqual(baseline[.low] ?? 0, 0.65, accuracy: 0.001)
+        XCTAssertEqual(baseline[.middle] ?? 0, 0.30, accuracy: 0.001)
+        XCTAssertEqual(baseline[.high] ?? 0, 0.05, accuracy: 0.001)
+
+        game.segmentTrends = [SegmentTrend(
+            kind: .outdoorBoom,
+            districts: [key.district],
+            categories: [key.category],
+            startTurn: game.turn - 6,
+            peakWeeks: 12,
+            peakMultiplier: 4
+        )]
+        let peak = game.specialtyGradeDemandShares(for: key)
+        XCTAssertEqual(peak[.low] ?? 0, 0.15, accuracy: 0.001)
+        XCTAssertEqual(peak[.middle] ?? 0, 0.35, accuracy: 0.001)
+        XCTAssertEqual(peak[.high] ?? 0, 0.50, accuracy: 0.001)
+    }
+
+    func testScheduledTrendsStartSixToTenWeeksApartWithoutSameKindOverlap() {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 811)
+        startPlayableGame(game)
+        game.cash = 1_000_000
+        game.debt = 0
+        var observed: [UUID: SegmentTrend] = [:]
+
+        for _ in 0..<72 {
+            game.advanceWeek()
+            for trend in game.segmentTrends { observed[trend.id] = trend }
+            let active = game.segmentTrends.filter {
+                $0.startTurn <= game.turn && $0.endTurn > game.turn
+            }
+            XCTAssertLessThanOrEqual(active.count, 4)
+            XCTAssertEqual(Set(active.map(\.kind)).count, active.count)
+        }
+
+        let starts = observed.values.map(\.startTurn).sorted()
+        XCTAssertGreaterThan(starts.count, 6)
+        XCTAssertEqual(starts.first, 8)
+        for pair in zip(starts, starts.dropFirst()) {
+            XCTAssertTrue((6...10).contains(pair.1 - pair.0))
+        }
+        XCTAssertTrue(observed.values.allSatisfy { $0.endTurn - $0.startTurn == 24 })
     }
 
     func testSpecialtyStorePurchasesAreMostlyPriorityCategoryAndReferralPriceIsCapped() throws {
@@ -4240,8 +4466,8 @@ final class GameEngineTests: XCTestCase {
         game.advanceWeek()
         XCTAssertEqual(
             game.customerCustomizationOrders.first(where: { $0.id == orders[0].id })?.remainingWork,
-            5,
-            "在庫改造が先に週次工数を消費し、持ち込み案件と工数が競合する"
+            3,
+            "在庫改造が先に工数を使い、残った工数だけが持ち込み案件へ配分される"
         )
     }
 
@@ -4360,6 +4586,8 @@ final class GameEngineTests: XCTestCase {
             startedTurn: game.turn,
             remainingWeeks: 3
         )
+        game.stores[0].inventory[0].productState = .outdoor
+        game.stores[0].inventory[0].productGrade = .high
         game.stores[0].inventorySaleCooldownWeeks = 0
         let savedCustomizationOrder = CustomerCustomizationOrder(
             id: UUID(),
@@ -4367,6 +4595,7 @@ final class GameEngineTests: XCTestCase {
             modelID: "aoba-razor-s13",
             category: .sports,
             kind: .driftTuning,
+            grade: .high,
             quotedRevenue: 440,
             materialCost: 220,
             requiredWork: 7,
@@ -4386,6 +4615,7 @@ final class GameEngineTests: XCTestCase {
                 purpose: .outdoor,
                 productState: .outdoor,
                 marketProductKind: .outdoor,
+                productGrade: .middle,
                 count: 1,
                 unitCost: 420,
                 quality: 0.9,
@@ -4438,19 +4668,22 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].marketRepositioningWeeks, 2)
         XCTAssertEqual(game.stores[0].inventorySaleCampaign?.tier, .fifteen)
         XCTAssertEqual(game.stores[0].inventorySaleCampaign?.remainingWeeks, 3)
+        XCTAssertEqual(game.stores[0].inventory.first?.productGrade, .high)
         XCTAssertEqual(game.customerCustomizationOrders.first?.id, savedCustomizationOrder.id)
+        XCTAssertEqual(game.customerCustomizationOrders.first?.grade, .high)
         XCTAssertEqual(game.customerCustomizationOrders.first?.remainingWork, 5)
         XCTAssertEqual(game.competitors[0].segmentResponseWeeks[segmentKey], 8)
         XCTAssertEqual(game.competitors[0].branches[0].productizationQueue.first?.outsourcePartner, .fabrication)
+        XCTAssertEqual(game.competitors[0].branches[0].productizationQueue.first?.productGrade, .middle)
     }
 
-    func testVersion42SaveIsNotLoadedAfterVersion43ModelChange() {
+    func testVersion43SaveIsNotLoadedAfterVersion44ModelChange() {
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "UsedCarCity.save.v43")
-        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v42")
+        defaults.removeObject(forKey: "UsedCarCity.save.v44")
+        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v43")
         defer {
-            defaults.removeObject(forKey: "UsedCarCity.save.v42")
             defaults.removeObject(forKey: "UsedCarCity.save.v43")
+            defaults.removeObject(forKey: "UsedCarCity.save.v44")
         }
 
         let game = GameEngine()

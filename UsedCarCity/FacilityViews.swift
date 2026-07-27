@@ -694,6 +694,10 @@ private struct WorkshopContent: View {
                         Text("週\(store.weeklyWorkshopLabor)工数・稼働\(inHouseProjects)／整備\(store.serviceBays)・カスタム\(store.customizationBays)ベイ").font(.caption.bold())
                     }
                     ForEach(customerOrders) { order in
+                        let orderProductKind = MarketProductKind.resolve(
+                            productState: order.kind.productState ?? .stock,
+                            isRareClassic: VehicleCatalog.entry(id: order.modelID)?.isRareClassic == true
+                        )
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
                                 Label("持ち込み：\(order.vehicleName)", systemImage: order.kind.icon)
@@ -705,7 +709,7 @@ private struct WorkshopContent: View {
                                     icon: order.status == .active ? "wrench.and.screwdriver.fill" : "person.crop.circle.badge.plus"
                                 )
                             }
-                            Text("\(order.kind.name)・売上\(order.quotedRevenue.currency)・材料\(order.materialCost.currency)・粗利\(order.expectedGrossProfit.currency)")
+                            Text("\(order.kind.name)・\(order.grade.name(for: orderProductKind))・売上\(order.quotedRevenue.currency)・材料\(order.materialCost.currency)・粗利\(order.expectedGrossProfit.currency)")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             if order.status == .active {
@@ -726,8 +730,8 @@ private struct WorkshopContent: View {
                                 HStack {
                                     Button("受注する") {
                                         message = game.acceptCustomizationOrder(order.id)
-                                            ? "\(order.kind.name)を受注し、材料を手配しました。"
-                                            : "材料費、担当者、カスタムベイの空きを確認してください。"
+                                            ? "\(order.kind.name) \(order.grade.name(for: orderProductKind))を受注し、材料を手配しました。"
+                                            : "材料費、担当者、対応ベイの空きを確認してください。"
                                     }
                                     .font(.caption2.bold())
                                     .buttonStyle(.borderedProminent)
@@ -758,6 +762,9 @@ private struct WorkshopContent: View {
                                         if batch.productState != .stock {
                                             CapsuleLabel(text: batch.productState.name, color: .purple, icon: "paintbrush.fill")
                                         }
+                                        if let grade = batch.productGrade {
+                                            CapsuleLabel(text: grade.name(for: game.marketProductKind(for: batch)), color: GameTheme.orange, icon: "star.fill")
+                                        }
                                         if let issue = batch.disclosedIssue {
                                             CapsuleLabel(text: "告知：\(issue.name)", color: GameTheme.danger, icon: "exclamationmark.triangle.fill")
                                         }
@@ -769,7 +776,14 @@ private struct WorkshopContent: View {
                             }
                             if let project = batch.workshopProject {
                                 HStack {
-                                    Label(project.kind.name, systemImage: project.kind.icon).font(.caption2.bold()).foregroundStyle(.purple)
+                                    let projectProductKind = MarketProductKind.resolve(
+                                        productState: project.kind.productState ?? batch.productState,
+                                        isRareClassic: batch.isRareClassic
+                                    )
+                                    Label(
+                                        project.targetGrade.map { "\(project.kind.name)・\($0.name(for: projectProductKind))" } ?? project.kind.name,
+                                        systemImage: project.kind.icon
+                                    ).font(.caption2.bold()).foregroundStyle(.purple)
                                     if project.outsourced {
                                         ProgressView(value: Double(max(0, project.totalWeeks - project.remainingWeeks)), total: Double(project.totalWeeks)).tint(.purple)
                                         Text("外注・あと\(project.remainingWeeks)週").font(.caption2.bold().monospacedDigit())
@@ -780,15 +794,28 @@ private struct WorkshopContent: View {
                                 }
                             } else {
                                 let previews = WorkshopProjectKind.allCases.flatMap { kind in
-                                    WorkFulfillmentMode.allCases
-                                        .filter { $0 != .automatic }
-                                        .compactMap { mode in
-                                            game.workshopProjectPreview(
-                                                storeID: store.id,
-                                                inventoryID: batch.id,
-                                                kind: kind,
-                                                fulfillment: mode
-                                            )
+                                    let productKind = MarketProductKind.resolve(
+                                        productState: kind.productState ?? batch.productState,
+                                        isRareClassic: batch.isRareClassic
+                                    )
+                                    let isGradeProject = productKind.supportsGrades
+                                        && ![WorkshopProjectKind.basicService, .repair].contains(kind)
+                                        && (kind != .refurbishment || batch.isRareClassic)
+                                    let grades: [SpecialtyProductGrade?] = isGradeProject
+                                        ? SpecialtyProductGrade.allCases.map(Optional.some)
+                                        : [nil]
+                                    return grades.flatMap { grade in
+                                        WorkFulfillmentMode.allCases
+                                            .filter { $0 != .automatic }
+                                            .compactMap { mode in
+                                                game.workshopProjectPreview(
+                                                    storeID: store.id,
+                                                    inventoryID: batch.id,
+                                                    kind: kind,
+                                                    grade: grade,
+                                                    fulfillment: mode
+                                                )
+                                            }
                                         }
                                 }
                                 if previews.isEmpty {
@@ -797,7 +824,11 @@ private struct WorkshopContent: View {
                                     Menu {
                                         ForEach(Array(previews.enumerated()), id: \.offset) { _, preview in
                                             Button(
-                                                "\(preview.kind.name)・\(preview.fulfillmentMode.name)"
+                                                "\(preview.kind.name)"
+                                                    + (preview.grade.map {
+                                                        "・\($0.name(for: MarketProductKind.resolve(productState: preview.kind.productState ?? batch.productState, isRareClassic: batch.isRareClassic)))"
+                                                    } ?? "")
+                                                    + "・\(preview.fulfillmentMode.name)"
                                                     + "｜原価\(preview.cost.currency)・\(preview.estimatedWeeks)週"
                                                     + "・外注基準比\(preview.finalCostRate)%"
                                                     + "・品質上限\(preview.qualityCap)・売価目安\(preview.projectedSalePrice.currency)"
@@ -806,9 +837,10 @@ private struct WorkshopContent: View {
                                                     storeID: store.id,
                                                     inventoryID: batch.id,
                                                     kind: preview.kind,
+                                                    grade: preview.grade,
                                                     fulfillment: preview.fulfillmentMode
                                                 )
-                                                    ? "\(preview.kind.name)を\(preview.fulfillmentMode.name)で開始しました。販売目安は\(preview.projectedSalePrice.currency)です。"
+                                                    ? "\(preview.kind.name)\(preview.grade.map { "・\($0.name(for: MarketProductKind.resolve(productState: preview.kind.productState ?? batch.productState, isRareClassic: batch.isRareClassic)))" } ?? "")を\(preview.fulfillmentMode.name)で開始しました。販売目安は\(preview.projectedSalePrice.currency)です。"
                                                     : "現金、ベイ、担当者を確認してください。"
                                             }.disabled(game.cash < preview.cost)
                                         }
