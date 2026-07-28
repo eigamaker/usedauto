@@ -13,7 +13,9 @@ struct BuildStoreView: View {
 
     private var footprint: [LandPlot] { game.footprintPlots(startingAt: plot, type: type, mode: mode) }
     private var availableTypes: [StoreType] {
-        StoreType.allCases.filter { game.footprintPlots(startingAt: plot, type: $0, mode: mode).count == $0.requiredGridCells }
+        [.small, .standard].filter {
+            game.footprintPlots(startingAt: plot, type: $0, mode: mode).count == $0.requiredGridCells
+        }
     }
     private var landCost: Int { game.landAcquisitionCost(for: footprint, mode: mode) }
     private var demolitionCost: Int { game.demolitionCost(for: footprint) }
@@ -65,7 +67,7 @@ struct BuildStoreView: View {
                 }
             }
             .onChange(of: type) { _, _ in
-                facilities = facilities.filter { $0.minimumGridCells <= type.requiredGridCells }
+                facilities.removeAll()
             }
         }
     }
@@ -93,42 +95,52 @@ struct BuildStoreView: View {
 
     private var storeTypeSection: some View {
         VStack(spacing: 10) {
-            SectionTitle(title: "店舗を選択")
+            SectionTitle(title: "店舗の広さ")
             ForEach(availableTypes) { item in
-                ChoiceCard(title: item.name, subtitle: "\(footprintDescription(for: item))・展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)", icon: item.icon, gridCells: item.requiredGridCells, selected: type == item) { type = item }
+                ChoiceCard(
+                    title: footprintDescription(for: item),
+                    subtitle: "\(item.name)・展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)",
+                    icon: item.icon,
+                    gridCells: item.requiredGridCells,
+                    selected: type == item
+                ) {
+                    type = item
+                }
             }
         }
     }
 
+    @ViewBuilder
     private var facilitiesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionTitle(title: "店舗施設")
+        if type.requiredGridCells >= 2 {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(StoreFacility.allCases) { facility in
-                    let compatible = facility.minimumGridCells <= type.requiredGridCells
-                    Button {
-                        guard compatible else { return }
-                        if facilities.contains(facility) { facilities.remove(facility) }
-                        else { facilities.insert(facility) }
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: facility.icon).foregroundStyle(GameTheme.teal).frame(width: 24)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(facility.name).font(.subheadline.bold())
-                                Text("設置 \(facility.installationCost.currency)・月\(facility.monthlyCost.currency)　\(facility.summary)")
-                                    .font(.caption2).foregroundStyle(.secondary)
+                SectionTitle(title: "店舗施設", subtitle: "2区画では施設を1つ追加できます")
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(StoreFacility.allCases) { facility in
+                        let compatible = facility.minimumGridCells <= type.requiredGridCells
+                        Button {
+                            guard compatible else { return }
+                            facilities = facilities.contains(facility) ? [] : [facility]
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: facility.icon).foregroundStyle(GameTheme.teal).frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(facility.name).font(.subheadline.bold())
+                                    Text("設置 \(facility.installationCost.currency)・月\(facility.monthlyCost.currency)　\(facility.summary)")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: facilities.contains(facility) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(facilities.contains(facility) ? GameTheme.teal : .gray)
                             }
-                            Spacer()
-                            Image(systemName: facilities.contains(facility) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(facilities.contains(facility) ? GameTheme.teal : .gray)
                         }
+                        .buttonStyle(.plain)
+                        .disabled(!compatible)
+                        .opacity(compatible ? 1 : 0.42)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!compatible)
-                    .opacity(compatible ? 1 : 0.42)
                 }
+                .gameCard()
             }
-            .gameCard()
         }
     }
 
@@ -224,7 +236,7 @@ private struct IsometricFootprintIcon: View {
                     )
             }
         }
-        .accessibilityLabel("同一サイズの区画を\(cells)セル使用")
+        .accessibilityLabel("\(cells)区画を使用")
     }
 }
 
