@@ -4,10 +4,8 @@ struct BuildStoreView: View {
     @EnvironmentObject private var game: GameEngine
     @Environment(\.dismiss) private var dismiss
     let plot: LandPlot
-    @State private var step = 0
     @State private var mode: AcquisitionMode = .lease
-    @State private var type: StoreType = .standard
-    @State private var marketPolicy = StoreMarketPolicy()
+    @State private var type: StoreType = .small
     @State private var facilities: Set<StoreFacility> = []
     @State private var loan = 0
     @State private var completed = false
@@ -20,52 +18,45 @@ struct BuildStoreView: View {
     private var landCost: Int { game.landAcquisitionCost(for: footprint, mode: mode) }
     private var demolitionCost: Int { game.demolitionCost(for: footprint) }
     private var total: Int { game.totalBuildCost(for: footprint, type: type, mode: mode, facilities: facilities) }
-    private var neededLoan: Int { max(0, total - game.cash) }
-    private var monthlyOccupancyCost: Int { mode == .lease ? footprint.reduce(0) { $0 + $1.monthlyRent } : 0 }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ProgressView(value: Double(step + 1), total: 3).tint(GameTheme.teal).padding()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         GuideInlineCard(showing: [.planStore])
-                        Text(stepTitle).font(.title2.bold()).foregroundStyle(GameTheme.ink)
-                        if step == 0 { acquisitionStep }
-                        if step == 1 { storeTypeStep }
-                        if step == 2 { forecastStep }
+                        acquisitionSection
+                        storeTypeSection
+                        facilitiesSection
+                        financingSection
                     }
                     .padding(18)
                 }
-                HStack(spacing: 12) {
-                    if step > 0 { Button("戻る") { step -= 1 }.buttonStyle(.bordered) }
-                    Button(step == 2 ? "契約して出店" : "次へ") {
-                        if step < 2 { step += 1 }
-                        else { completeBuild() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(GameTheme.teal)
-                    .frame(maxWidth: .infinity)
-                    .disabled(step == 2 && (game.cash + loan < total || footprint.count != type.requiredGridCells))
+                Button("契約して出店") {
+                    completeBuild()
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(GameTheme.teal)
+                .frame(maxWidth: .infinity)
+                .disabled(game.cash + loan < total || footprint.count != type.requiredGridCells)
                 .padding()
                 .background(.white)
             }
             .background(GameTheme.cream)
-            .navigationTitle("出店計画 \(step + 1)/3")
+            .navigationTitle("出店計画")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
             .alert(foundingBuildCompleted ? "創業店がオープンしました" : "新店舗の建設を開始しました", isPresented: $completed) {
                 Button("マップへ戻る") { dismiss() }
             } message: {
                 if foundingBuildCompleted {
-                    Text("既存建物を解体し、\(type.requiredGridCells)セルを連結した敷地に\(type.name)を開業しました。在庫はまだ0台です。")
+                    Text("既存建物を解体し、\(footprintDescription)に\(type.name)を開業しました。在庫はまだ0台です。")
                 } else {
-                    Text("\(type.requiredGridCells)セルの既存建物を解体し、\(type.name)を着工しました。完成まで\(type.constructionMonths)週間です。")
+                    Text("\(footprintDescription)の既存建物を解体し、\(type.name)を着工しました。完成まで\(type.constructionMonths)週間です。")
                 }
             }
             .onAppear {
-                type = availableTypes.contains(.standard) ? .standard : (availableTypes.first ?? type)
+                type = availableTypes.contains(.small) ? .small : (availableTypes.first ?? type)
                 ensureCompatibleStoreType()
             }
             .onChange(of: mode) { _, _ in
@@ -79,21 +70,20 @@ struct BuildStoreView: View {
         }
     }
 
-    private var stepTitle: String { ["物件取得と解体", "店舗と使用グリッド", "収支予測と資金"][step] }
-
-    private var acquisitionStep: some View {
+    private var acquisitionSection: some View {
         VStack(spacing: 12) {
+            SectionTitle(title: "物件取得と解体")
             HStack(spacing: 10) {
                 Image(systemName: plot.structure.icon).foregroundStyle(plot.district.color)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("現在：\(plot.structure.name)").font(.subheadline.bold())
-                    Text("選んだ店舗に必要な\(type.requiredGridCells)セルをまとめて取得し、建物を解体します").font(.caption).foregroundStyle(.secondary)
+                    Text("現在：\(structureText)").font(.subheadline.bold())
+                    Text("\(type.name)は\(footprintDescription)を使用します").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
             .gameCard()
-            ChoiceCard(title: "購入", subtitle: "\(type.footprintName)合計 \(landCost.currency)・土地を資産保有", icon: "building.columns.fill", selected: mode == .purchase) { mode = .purchase }
-            ChoiceCard(title: "借地", subtitle: "\(type.footprintName)分の保証金 \(landCost.currency)・建替え可能", icon: "key.fill", selected: mode == .lease) { mode = .lease }
+            ChoiceCard(title: "借地", subtitle: "\(footprintDescription)分の保証金 \(landCost.currency)・建替え可能", icon: "key.fill", selected: mode == .lease) { mode = .lease }
+            ChoiceCard(title: "購入", subtitle: "\(footprintDescription)合計 \(landCost.currency)・土地を資産保有", icon: "building.columns.fill", selected: mode == .purchase) { mode = .purchase }
             Label("解体費 \(demolitionCost.currency) は初期投資に含まれます", systemImage: "hammer.fill")
                 .font(.subheadline.bold()).foregroundStyle(GameTheme.orange)
             Text(mode == .purchase ? "多額の現金を使いますが、土地を資産として保有し融資枠を広げられます。" : "初期資金を守りながら出店でき、撤退もしやすい一方、毎月の賃料が利益を圧迫します。")
@@ -101,57 +91,19 @@ struct BuildStoreView: View {
         }
     }
 
-    private var storeTypeStep: some View {
+    private var storeTypeSection: some View {
         VStack(spacing: 10) {
+            SectionTitle(title: "店舗を選択")
             ForEach(availableTypes) { item in
-                ChoiceCard(title: item.name, subtitle: "\(item.footprintName)連結・展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)", icon: item.icon, gridCells: item.requiredGridCells, selected: type == item) { type = item }
+                ChoiceCard(title: item.name, subtitle: "\(footprintDescription(for: item))・展示\(item.capacity)台・工期\(item.constructionMonths)週間・建設 \(item.buildCost.currency)", icon: item.icon, gridCells: item.requiredGridCells, selected: type == item) { type = item }
             }
-            Label("大きい店舗ほど隣接する同一サイズのセルを多く使用します", systemImage: "square.grid.3x3.fill")
-                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var facilitiesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionTitle(title: "店舗施設")
             VStack(alignment: .leading, spacing: 10) {
-                SectionTitle(title: "最初の市場方針", subtitle: "固定業態ではなく、重点車種と用途を後から変更できます")
-                Picker("狙う用途", selection: $marketPolicy.targetPurpose) {
-                    ForEach(CustomerPurpose.allCases) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.menu)
-                Text("重点車種（最大3車種）").font(.subheadline.bold())
-                ForEach(VehicleCategory.allCases) { category in
-                    Button {
-                        if marketPolicy.priorityCategories.contains(category) {
-                            marketPolicy.priorityCategories.remove(category)
-                        } else if marketPolicy.priorityCategories.count < 3 {
-                            marketPolicy.priorityCategories.insert(category)
-                        }
-                    } label: {
-                        HStack {
-                            Text(category.name)
-                            Spacer()
-                            Image(systemName: marketPolicy.priorityCategories.contains(category) ? "checkmark.circle.fill" : "circle")
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!marketPolicy.priorityCategories.contains(category) && marketPolicy.priorityCategories.count >= 3)
-                }
-                Text("産地ラベル").font(.subheadline.bold())
-                HStack(spacing: 10) {
-                    ForEach(VehicleOrigin.allCases) { origin in
-                        Button {
-                            if marketPolicy.priorityOrigins.contains(origin) {
-                                marketPolicy.priorityOrigins.remove(origin)
-                            } else {
-                                marketPolicy.priorityOrigins.insert(origin)
-                            }
-                        } label: {
-                            Label(origin.name, systemImage: marketPolicy.priorityOrigins.contains(origin) ? "checkmark.circle.fill" : "circle")
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                Text("未指定なら国産・輸入の両方を扱います。輸入車は車型ではなく産地として、重点車種と組み合わせます。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Divider()
-                Text("店舗施設").font(.subheadline.bold())
                 ForEach(StoreFacility.allCases) { facility in
                     let compatible = facility.minimumGridCells <= type.requiredGridCells
                     Button {
@@ -163,7 +115,7 @@ struct BuildStoreView: View {
                             Image(systemName: facility.icon).foregroundStyle(GameTheme.teal).frame(width: 24)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(facility.name).font(.subheadline.bold())
-                                Text("設置 (facility.installationCost.currency)・月(facility.monthlyCost.currency)　\(facility.summary)")
+                                Text("設置 \(facility.installationCost.currency)・月\(facility.monthlyCost.currency)　\(facility.summary)")
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -175,35 +127,18 @@ struct BuildStoreView: View {
                     .disabled(!compatible)
                     .opacity(compatible ? 1 : 0.42)
                 }
-                HStack {
-                    MetricView(title: "需要上位", value: game.recommendedCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・"))
-                    MetricView(title: "供給上位", value: game.recommendedSupplyCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・"))
-                }
             }
             .gameCard()
         }
     }
 
-    private var forecastStep: some View {
+    private var financingSection: some View {
         VStack(spacing: 14) {
-            let sales = game.estimatedSales(for: plot, type: type, marketPolicy: marketPolicy)
-            VStack(alignment: .leading, spacing: 14) {
-                SectionTitle(title: "初期方針のシナリオ", subtitle: "需要・供給と重点市場を含む初期計画")
-                HStack { MetricView(title: "初期投資", value: total.currency, detail: "土地 \(landCost.currency)＋解体 \(demolitionCost.currency)"); MetricView(title: "想定販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal) }
-                HStack { MetricView(title: "損益分岐", value: "\(game.breakEvenSales(for: plot, type: type, mode: mode, facilities: facilities))台/月"); MetricView(title: "開店まで", value: "\(type.constructionMonths)週間") }
-                Divider()
-                let facilityCost = facilities.reduce(0) { $0 + $1.monthlyCost }
-                ScenarioRow(name: "最悪", sales: max(1, sales.lowerBound - 3), profit: (sales.lowerBound - 3) * 32 - type.monthlyFixedCost - facilityCost - monthlyOccupancyCost, color: GameTheme.danger)
-                ScenarioRow(name: "標準", sales: (sales.lowerBound + sales.upperBound) / 2, profit: ((sales.lowerBound + sales.upperBound) / 2) * 32 - type.monthlyFixedCost - facilityCost - monthlyOccupancyCost, color: GameTheme.teal)
-                ScenarioRow(name: "好調", sales: sales.upperBound + 2, profit: (sales.upperBound + 2) * 32 - type.monthlyFixedCost - facilityCost - monthlyOccupancyCost, color: .blue)
-            }
-            .gameCard()
             VStack(alignment: .leading, spacing: 10) {
-                HStack { Text("資金調達").font(.headline); Spacer(); Text("現金 \(game.cash.currency)").font(.caption).foregroundStyle(.secondary) }
+                MetricView(title: "初期投資額", value: total.currency)
                 Stepper(value: $loan, in: 0...max(0, game.borrowingLimit - game.debt), step: 1_000) {
-                    Text("新規借入  \(loan.currency)").font(.subheadline.bold())
+                    MetricView(title: "新規調達", value: loan.currency, tint: GameTheme.teal)
                 }
-                if neededLoan > 0 && loan < neededLoan { Label("あと \((neededLoan - loan).currency) 必要です", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(GameTheme.danger) }
             }
             .gameCard()
         }
@@ -211,7 +146,7 @@ struct BuildStoreView: View {
 
     private func completeBuild() {
         let isFounding = game.stores.isEmpty
-        if game.buildStore(on: plot, type: type, mode: mode, marketPolicy: marketPolicy, facilities: facilities, loanAmount: loan) {
+        if game.buildStore(on: plot, type: type, mode: mode, facilities: facilities, loanAmount: loan) {
             foundingBuildCompleted = isFounding
             completed = true
         }
@@ -221,6 +156,18 @@ struct BuildStoreView: View {
         if !availableTypes.contains(type), let fallback = availableTypes.first {
             type = fallback
         }
+    }
+
+    private var structureText: String {
+        plot.structure == .vacant ? "なし" : plot.structure.name
+    }
+
+    private var footprintDescription: String {
+        footprintDescription(for: type)
+    }
+
+    private func footprintDescription(for type: StoreType) -> String {
+        type.requiredGridCells == 1 ? "1区画" : "\(type.requiredGridCells)区画連結"
     }
 
 }
@@ -290,15 +237,5 @@ private struct IsometricCellShape: Shape {
         path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
         path.closeSubpath()
         return path
-    }
-}
-
-private struct ScenarioRow: View {
-    let name: String
-    let sales: Int
-    let profit: Int
-    let color: Color
-    var body: some View {
-        HStack { Text(name).font(.caption.bold()).foregroundStyle(color).frame(width: 42, alignment: .leading); Text("\(sales)台").font(.subheadline.monospacedDigit()); Spacer(); Text(profit.currency).font(.subheadline.bold().monospacedDigit()).foregroundStyle(profit >= 0 ? GameTheme.teal : GameTheme.danger) }
     }
 }
