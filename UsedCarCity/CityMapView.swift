@@ -33,15 +33,15 @@ struct CityMapView: View {
                     VStack(spacing: 0) {
                         HStack {
                             Button { showNationalMap = true } label: {
-                                MapTopControlLabel(title: "全国", icon: "globe.asia.australia.fill")
+                                MapTopControlIcon(title: "全国", icon: "globe.asia.australia.fill")
                             }
                             .buttonStyle(.plain)
                             Button { showCompanyDashboard = true } label: {
-                                MapTopControlLabel(title: "経営", icon: "chart.bar.xaxis")
+                                MapTopControlIcon(title: "経営", icon: "chart.bar.xaxis")
                             }
                             .buttonStyle(.plain)
                             Button { showMarketNewspaper = true } label: {
-                                MapTopControlLabel(title: "新聞", icon: "newspaper.fill")
+                                MapTopControlIcon(title: "新聞", icon: "newspaper.fill")
                             }
                             .buttonStyle(.plain)
                             GuideToggleButton()
@@ -68,7 +68,7 @@ struct CityMapView: View {
                                     }
                                 }
                             } label: {
-                                MapTopControlLabel(title: layer.name, icon: "square.3.layers.3d.top.filled")
+                                MapTopControlIcon(title: layer.name, icon: "square.3.layers.3d.top.filled")
                             }
                         }
                         .padding(.horizontal, 10)
@@ -187,19 +187,19 @@ struct CityMapView: View {
 
 }
 
-private struct MapTopControlLabel: View {
+private struct MapTopControlIcon: View {
     let title: String
     let icon: String
 
     var body: some View {
-        Label(title, systemImage: icon)
-            .font(.caption.bold())
+        Image(systemName: icon)
+            .font(.subheadline.bold())
             .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .frame(height: 38)
+            .frame(width: 38, height: 38)
             .background(GameTheme.navy.opacity(0.88))
-            .clipShape(Capsule())
+            .clipShape(Circle())
             .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+            .accessibilityLabel(title)
     }
 }
 
@@ -213,8 +213,10 @@ private struct MapBottomHUD: View {
             VStack(alignment: .leading, spacing: 3) {
                 Label("翠浜市", systemImage: "building.2.fill")
                     .font(.subheadline.bold())
-                Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : layer == .competition ? "固定需要を自社と競合の商圏で奪い合います" : "道路・区画・建物は全市共通の正方形グリッドに整列")
-                    .font(.caption2).foregroundStyle(.secondary)
+                if layer != .normal {
+                    Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : "固定需要を自社と競合の商圏で奪い合います")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 HStack(spacing: 9) {
                     MapLegendItem(title: "自社中古車店", color: GameTheme.teal)
                     MapLegendItem(title: "競合", color: GameTheme.orange)

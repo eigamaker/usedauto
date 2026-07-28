@@ -398,6 +398,7 @@ struct GuideIntroView: View {
     @Environment(\.dismiss) private var dismiss
     let start: (GuideMode) -> Void
     @State private var appeared = false
+    @State private var selectedMode: GuideMode?
 
     var body: some View {
         ZStack {
@@ -435,14 +436,32 @@ struct GuideIntroView: View {
                     VStack(spacing: 11) {
                         ForEach(GuideMode.allCases) { mode in
                             Button {
-                                start(mode)
-                                dismiss()
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    selectedMode = mode
+                                }
                             } label: {
-                                GuideModeChoiceLabel(mode: mode)
+                                GuideModeChoiceLabel(mode: mode, isSelected: selectedMode == mode)
                             }
                             .buttonStyle(.plain)
                         }
                     }
+
+                    Button {
+                        guard let selectedMode else { return }
+                        start(selectedMode)
+                        dismiss()
+                    } label: {
+                        Text("この内容でゲームを始める")
+                            .font(.headline)
+                            .foregroundStyle(GameTheme.ink)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(GameTheme.mint)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedMode == nil)
+                    .opacity(selectedMode == nil ? 0.42 : 1)
 
                     Text("案内はいつでも設定から切り替えられます。表示位置の移動・透過・最小化もできます。")
                         .font(.caption2)
@@ -461,14 +480,15 @@ struct GuideIntroView: View {
 
 private struct GuideModeChoiceLabel: View {
     let mode: GuideMode
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 13) {
             Image(systemName: mode.icon)
                 .font(.headline)
-                .foregroundStyle(mode == .full ? GameTheme.ink : .white)
+                .foregroundStyle(isSelected ? GameTheme.ink : .white)
                 .frame(width: 42, height: 42)
-                .background(mode == .full ? GameTheme.mint : Color.white.opacity(0.12))
+                .background(isSelected ? GameTheme.mint : Color.white.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text(mode.title)
@@ -481,16 +501,16 @@ private struct GuideModeChoiceLabel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundStyle(.white.opacity(0.5))
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.title3.bold())
+                .foregroundStyle(isSelected ? GameTheme.mint : .white.opacity(0.35))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(mode == .full ? Color.white.opacity(0.14) : Color.white.opacity(0.07))
+        .background(isSelected ? GameTheme.teal.opacity(0.28) : Color.white.opacity(0.07))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(mode == .full ? GameTheme.mint.opacity(0.75) : Color.white.opacity(0.14), lineWidth: mode == .full ? 1.6 : 1)
+                .stroke(isSelected ? GameTheme.mint : Color.white.opacity(0.14), lineWidth: isSelected ? 2.4 : 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

@@ -64,7 +64,6 @@ private struct PlotHero: View {
                 Image(systemName: plot.district.symbol).font(.title2).foregroundStyle(plot.district.color)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(plot.district.name) \(plot.localNumber)番区画").font(.title3.bold())
-                    Text("共通グリッド1セル・\(plot.area)㎡・\(plot.structure.name)").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 status
@@ -93,13 +92,53 @@ private struct PlotHero: View {
 private struct AttributeBar: View {
     let title: String
     let value: Double
+
+    private var normalizedValue: Double {
+        min(1, max(0, (value - 0.5) / 0.7))
+    }
+
+    private var score: Int {
+        Int((value * 100).rounded())
+    }
+
+    private var rating: String {
+        if value >= 1.05 { return "良好" }
+        if value >= 0.9 { return "標準" }
+        return "弱い"
+    }
+
+    private var color: Color {
+        if value >= 1.05 { return GameTheme.teal }
+        if value >= 0.9 { return GameTheme.orange }
+        return GameTheme.danger
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title).font(.caption2).foregroundStyle(.secondary)
-            ProgressView(value: min(value, 1.2), total: 1.2).tint(GameTheme.teal)
-            Text(value >= 1.05 ? "良好" : value >= 0.9 ? "標準" : "弱い").font(.caption.bold())
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(GameTheme.ink.opacity(0.10))
+                    Capsule()
+                        .fill(color)
+                        .frame(width: proxy.size.width * normalizedValue)
+                }
+            }
+            .frame(height: 10)
+            HStack(spacing: 3) {
+                Text(rating)
+                    .foregroundStyle(color)
+                Spacer(minLength: 2)
+                Text("\(score)")
+                    .foregroundStyle(GameTheme.ink.opacity(0.72))
+                    .monospacedDigit()
+            }
+            .font(.caption.bold())
         }
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title)、\(rating)、\(score)")
     }
 }
 
@@ -108,11 +147,10 @@ private struct LandOpportunityCard: View {
     let plot: LandPlot
 
     var body: some View {
-        let sales = game.estimatedSales(for: plot)
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "物件取得と建替え", subtitle: "街の建物はすべて同じグリッド上で管理されます")
+            SectionTitle(title: "物件取得と建替え")
             HStack {
-                MetricView(title: "既存建物", value: plot.structure.name)
+                MetricView(title: "既存建物", value: structureText)
                 MetricView(title: "解体費", value: plot.structure.demolitionCost.currency, tint: GameTheme.orange)
             }
             HStack {
@@ -121,44 +159,22 @@ private struct LandOpportunityCard: View {
             }
             Divider()
             HStack {
-                MetricView(title: "想定来店数", value: "\(game.estimatedVisitors(for: plot))人/月")
-                MetricView(title: "予想販売", value: "\(sales.lowerBound)〜\(sales.upperBound)台/月", tint: GameTheme.teal)
+                MetricView(title: "近隣の競合", value: hasNearbyCompetitor ? "あり" : "なし")
             }
-            HStack {
-                MetricView(title: "競合影響", value: competitionText, detail: "地区内の密度")
-                MetricView(title: "推奨車種", value: recommendedText)
-            }
-            HStack {
-                MetricView(title: "持込・供給上位", value: supplyText)
-                MetricView(title: "供給量", value: "週\(game.weeklySellerPool(in: plot.district))台", detail: "地区全体・競合を含む")
-            }
-            HStack(spacing: 10) {
-                Image(systemName: "slider.horizontal.3")
-                    .foregroundStyle(plot.district.color)
-                    .frame(width: 34, height: 34)
-                    .background(plot.district.color.opacity(0.12))
-                    .clipShape(Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("業態は自由に選択できます").font(.subheadline.bold())
-                    Text("土地は業態を限定しません。周辺需要・持込車・交通量・競合によって結果が変わります。")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            .padding(10).background(plot.district.color.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 11))
-            DisclosureGroup("予測の計算根拠") {
-                Text("地区人口 × 購入率 × 交通量 × 視認性 × 車種需要から来店と販売を試算。競合出店、在庫、価格、広告によって実績は変動します。")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
-            }
-            .font(.subheadline.bold())
         }
         .gameCard()
     }
 
-    private var recommendedText: String { game.recommendedCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・") }
-    private var supplyText: String { game.recommendedSupplyCategories(for: plot.district).prefix(2).map(\.name).joined(separator: "・") }
-    private var competitionText: String {
-        let value = game.district(for: plot).competition
-        return value > 1.2 ? "強い" : value > 0.85 ? "中程度" : "弱い"
+    private var structureText: String {
+        plot.structure == .vacant ? "なし" : plot.structure.name
+    }
+
+    private var hasNearbyCompetitor: Bool {
+        game.plots.contains { candidate in
+            guard candidate.district == plot.district else { return false }
+            if case .competitor = candidate.occupant { return true }
+            return false
+        }
     }
 }
 

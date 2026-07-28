@@ -233,7 +233,7 @@ enum GuideCurriculum {
                 "賃料が高い場所は、その分だけ客足も多い。「安いから」で選ぶと、在庫は売れないのに賃料だけ出ていきます。"
             ],
             objective: "マップで区画をタップして、創業地を決めてください。",
-            tip: "区画詳細の「想定来店数」「予想販売」は、地区人口・交通量・視認性から計算した目安です。",
+            tip: "区画詳細では、視認性・出入り・交通量の差と、近隣に競合がいるかを確認しましょう。",
             expression: .point,
             goal: .plotSelected,
             action: .focusRecommendedPlot,

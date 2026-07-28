@@ -65,21 +65,33 @@ private struct GameHeader: View {
     @State private var warnBeforeFirstStore = false
     @State private var showSettings = false
 
-    /// ガイドが「1週間進める」を案内している最中だけ、ボタンを目立たせます。
+    /// ガイドが「1週間進める」を案内している最中だけ、日付ボタンを目立たせます。
     private var highlightsAdvance: Bool {
         game.currentGuideLesson?.id == .advanceWeek || game.tutorialStep == .runFirstMonth
     }
 
     var body: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(String(game.year))年 \(game.month)月 第\(game.weekOfMonth)週")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(.white)
-                Text("\(game.turn + 1) / \(game.maxTurns)週")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.65))
+            Button(action: advanceWeek) {
+                Text("\(String(game.year))年\(game.month)月第\(game.weekOfMonth)週")
+                    .font(.subheadline.bold().monospacedDigit())
+                    .foregroundStyle(GameTheme.ink)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, 11)
+                    .frame(height: 40)
+                    .background(GameTheme.mint)
+                    .clipShape(Capsule())
+                    .overlay {
+                        if highlightsAdvance {
+                            Capsule().stroke(.white, lineWidth: 3)
+                        }
+                    }
+                    .shadow(color: highlightsAdvance ? GameTheme.mint.opacity(0.7) : .clear, radius: 9)
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("タップすると1週間進みます")
+            .layoutPriority(1)
             Spacer()
             VStack(alignment: .trailing, spacing: 1) {
                 Text("現金")
@@ -88,30 +100,6 @@ private struct GameHeader: View {
                 Text(game.cash.currency)
                     .font(.subheadline.bold().monospacedDigit())
                     .foregroundStyle(game.cash < 0 ? Color.red.opacity(0.9) : .white)
-            }
-            Button {
-                if game.stores.isEmpty { warnBeforeFirstStore = true }
-                else if confirmWeeklyAdvance { confirmAdvance = true }
-                else { game.advanceWeek() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill")
-                    Text("1週間進める")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                }
-                .font(.subheadline.bold())
-                .foregroundStyle(GameTheme.ink)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
-                .background(GameTheme.mint)
-                .clipShape(Capsule())
-                .overlay {
-                    if highlightsAdvance {
-                        Capsule().stroke(.white, lineWidth: 3)
-                    }
-                }
-                .shadow(color: highlightsAdvance ? GameTheme.mint.opacity(0.7) : .clear, radius: 9)
             }
             Button { showSettings = true } label: {
                 VStack(spacing: 2) {
@@ -144,6 +132,12 @@ private struct GameHeader: View {
         .sheet(isPresented: $showSettings) {
             GameSettingsView()
         }
+    }
+
+    private func advanceWeek() {
+        if game.stores.isEmpty { warnBeforeFirstStore = true }
+        else if confirmWeeklyAdvance { confirmAdvance = true }
+        else { game.advanceWeek() }
     }
 }
 

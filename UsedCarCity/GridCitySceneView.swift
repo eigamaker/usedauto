@@ -39,13 +39,6 @@ struct GridCityMapSurface: View {
 
             VStack {
                 HStack {
-                    Label("翠浜市 2.5Dビュー · \(GridCameraZoom.percentage(for: zoomStep))%", systemImage: "building.2.crop.circle")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(GameTheme.navy.opacity(0.86))
-                        .clipShape(Capsule())
                     Spacer()
                     VStack(spacing: 7) {
                         GridCameraButton(icon: "plus.magnifyingglass", label: "一段階拡大") {
@@ -1722,7 +1715,7 @@ private final class GridCitySceneController {
             border.lineWidth = 10
             border.stroke()
 
-            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 92, weight: .bold)
+            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 104, weight: .bold)
             let symbol = UIImage(systemName: iconName, withConfiguration: symbolConfiguration)?
                 .withTintColor(color, renderingMode: .alwaysOriginal)
             symbol?.draw(in: CGRect(x: 34, y: 52, width: 96, height: 96))
@@ -1731,16 +1724,16 @@ private final class GridCitySceneController {
             paragraph.lineBreakMode = .byTruncatingTail
             paragraph.alignment = .left
             (text as NSString).draw(
-                in: CGRect(x: 158, y: 47, width: 700, height: 110),
+                in: CGRect(x: 158, y: 34, width: 700, height: 136),
                 withAttributes: [
-                    .font: UIFont.systemFont(ofSize: 88, weight: .bold),
+                    .font: UIFont.systemFont(ofSize: 108, weight: .bold),
                     .foregroundColor: UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1),
                     .paragraphStyle: paragraph
                 ]
             )
         }
 
-        let plane = SCNPlane(width: 145, height: 32)
+        let plane = SCNPlane(width: 174, height: 38.4)
         let labelMaterial = SCNMaterial()
         labelMaterial.diffuse.contents = image
         labelMaterial.lightingModel = .constant
