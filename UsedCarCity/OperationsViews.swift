@@ -319,8 +319,8 @@ struct InventoryCustomizationSheet: View {
         if kind == .outdoorConversion && ![VehicleCategory.suv, .pickup, .minivan].contains(batch.category) {
             return "アウトドア仕様はSUV・ピックアップ・ミニバンが対象です。"
         }
-        if kind == .workConversion && ![VehicleCategory.minivan, .commercial, .pickup].contains(batch.category) {
-            return "職人・配送仕様はミニバン・商用車・ピックアップが対象です。"
+        if kind == .workConversion && ![VehicleCategory.minivan, .pickup].contains(batch.category) {
+            return "職人・配送仕様はミニバン・ピックアップが対象です。"
         }
         if !store.facilities.contains(.customWorkshop) {
             return "内製にはカスタム工房、外注には提携先の空き枠が必要です。"
@@ -456,6 +456,21 @@ struct StoreSettingsView: View {
                                     Label(category.name, systemImage: store.wrappedValue.marketPolicy.priorityCategories.contains(category) ? "checkmark.circle.fill" : "circle")
                                 }
                                 .buttonStyle(.plain)
+                            }
+                            Text("産地ラベル").font(.caption.bold())
+                            HStack(spacing: 12) {
+                                ForEach(VehicleOrigin.allCases) { origin in
+                                    Button {
+                                        if store.wrappedValue.marketPolicy.priorityOrigins.contains(origin) {
+                                            store.wrappedValue.marketPolicy.priorityOrigins.remove(origin)
+                                        } else {
+                                            store.wrappedValue.marketPolicy.priorityOrigins.insert(origin)
+                                        }
+                                    } label: {
+                                        Label(origin.name, systemImage: store.wrappedValue.marketPolicy.priorityOrigins.contains(origin) ? "checkmark.circle.fill" : "circle")
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                             Text("受け入れる車両状態").font(.caption.bold())
                             ForEach(VehicleConditionBand.allCases) { condition in

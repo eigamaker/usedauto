@@ -271,6 +271,13 @@ private struct BrandDashboardCard: View {
                             Label(profile.productKind.name, systemImage: brandIcon(profile.productKind))
                                 .font(.caption.bold())
                             Spacer()
+                            if store.certifiedSpecialties.contains(profile.productKind) {
+                                CapsuleLabel(
+                                    text: "認定Lv.\(game.specialtyCertificationTier(for: store, productKind: profile.productKind))",
+                                    color: profile.productKind == .collector ? GameTheme.orange : .purple,
+                                    icon: "checkmark.seal.fill"
+                                )
+                            }
                             Text("\(profile.tierName) \(profile.recognition)/100")
                                 .font(.caption2.bold().monospacedDigit())
                                 .foregroundStyle(profile.recognition >= 40 ? GameTheme.teal : .secondary)
@@ -288,7 +295,7 @@ private struct BrandDashboardCard: View {
                 .background(GameTheme.navy.opacity(0.045))
                 .clipShape(RoundedRectangle(cornerRadius: 11))
             }
-            Text("専門知名度は、対象商品の完成・販売実績を積み、広告と高評価口コミを継続すると育ちます。")
+            Text("スポーツ／クラシックは、設備・担当者・技術・実績・知名度の条件を満たすと認定専門店になります。認定後は地区外からの来店、買取、持ち込み改造が段階的に増えます。")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .gameCard()
@@ -536,7 +543,7 @@ private struct AuctionBidRow: View {
                         if VehicleCatalog.entry(id: listing.modelID)?.isRareClassic == true {
                             Text("希少旧車").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(GameTheme.orange).clipShape(Capsule())
                         }
-                        if let model = VehicleCatalog.entry(id: listing.modelID), model.category == .imported {
+                        if let model = VehicleCatalog.entry(id: listing.modelID), model.origin == .imported {
                             Text("指名需要 \(Int((model.customerDemandIndex * 100).rounded()))")
                                 .font(.caption2.bold())
                                 .foregroundStyle(listing.venue.tint)

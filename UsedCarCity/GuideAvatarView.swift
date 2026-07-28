@@ -560,9 +560,9 @@ extension BuyerLead {
 extension PurchaseCase {
     var characterAvatarRole: CharacterAvatarRole {
         if lotCount > 1 { return .corporateCustomer }
+        if VehicleCatalog.entry(id: modelID)?.origin == .imported { return .affluentCustomer }
         switch category {
-        case .commercial, .pickup: return .craftsmanCustomer
-        case .imported: return .affluentCustomer
+        case .pickup: return .craftsmanCustomer
         case .sports: return .affluentCustomer
         case .suv: return .outdoorCustomer
         default: return .seller

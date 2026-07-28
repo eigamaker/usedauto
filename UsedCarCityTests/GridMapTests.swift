@@ -1033,7 +1033,7 @@ final class GridMapTests: XCTestCase {
             plotIDs: [108, 109, 110],
             type: .roadside,
             acquisition: .lease,
-            marketPolicy: StoreMarketPolicy(priorityCategories: [.commercial, .pickup], targetPurpose: .corporate),
+            marketPolicy: StoreMarketPolicy(priorityCategories: [.minivan, .pickup], targetPurpose: .corporate),
             facilities: [.corporateDesk],
             inventory: []
         )

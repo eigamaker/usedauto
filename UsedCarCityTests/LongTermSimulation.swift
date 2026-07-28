@@ -57,7 +57,7 @@ enum SimulationBusinessType: String, Codable, CaseIterable {
         case .camper: "キャンピングカー専門"
         case .imported: "輸入車専門"
         case .outdoor: "アウトドア車専門"
-        case .commercial: "商用車・法人専門"
+        case .commercial: "法人・仕事仕様専門"
         case .welfare: "福祉車両専門"
         case .mobileBusiness: "移動販売車専門"
         }
@@ -76,11 +76,11 @@ enum SimulationBusinessType: String, Codable, CaseIterable {
         case .general: nil
         case .sports: [.sports]
         case .camper: [.minivan]
-        case .imported: [.imported]
+        case .imported: [.sedan, .suv, .sports]
         case .outdoor: [.suv, .pickup]
-        case .commercial: [.commercial, .pickup]
+        case .commercial: [.minivan, .pickup]
         case .welfare: [.minivan, .compact]
-        case .mobileBusiness: [.commercial, .kei]
+        case .mobileBusiness: [.minivan, .pickup]
         }
     }
 
@@ -103,6 +103,10 @@ enum SimulationBusinessType: String, Codable, CaseIterable {
         case .commercial: [.corporateDesk, .customWorkshop]
         case .sports, .camper, .outdoor, .welfare, .mobileBusiness: [.customWorkshop]
         }
+    }
+
+    var priorityOrigins: Set<VehicleOrigin> {
+        self == .imported ? [.imported] : []
     }
 
     var acceptedConditions: Set<VehicleConditionBand> {
@@ -633,6 +637,7 @@ final class LongTermSimulationRunner {
         )
         let policy = StoreMarketPolicy(
             priorityCategories: Set(categories),
+            priorityOrigins: businessType?.priorityOrigins ?? [],
             targetPurpose: businessType?.purpose ?? foundingPurpose(for: plot.district),
             acceptedConditions: businessType?.acceptedConditions ?? [.normal]
         )
@@ -645,7 +650,12 @@ final class LongTermSimulationRunner {
             facilities: facilities
         )
         let availableBorrowing = max(0, game.borrowingLimit - game.debt)
-        let desiredLoan = roundedUpToThousand(max(0, buildCost + 2_000 - game.cash))
+        let workingCapital: Int = switch strategy {
+        case .survival: 8_000
+        case .adaptive: 4_000
+        case .growth: 2_000
+        }
+        let desiredLoan = roundedUpToThousand(max(0, buildCost + workingCapital - game.cash))
         let loan = min(availableBorrowing, desiredLoan)
         guard game.cash + loan >= buildCost else { return false }
 

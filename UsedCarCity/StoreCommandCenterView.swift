@@ -544,7 +544,7 @@ private struct ManualSalesPanel: View {
 
     private func noMatchingInventoryMessage(for lead: BuyerLead) -> String {
         switch lead.preference {
-        case .category: "希望車種・年式・走行距離に合う在庫がありません"
+        case .category, .categoryOrigin: "希望車種・産地・年式・走行距離に合う在庫がありません"
         case .maker: "指定メーカーと条件に合う在庫がありません"
         case .exactModel: "指名車種と条件に合う在庫がありません"
         case .budgetFirst: "予算内の在庫なし・値引きか仕入れ構成の見直しが必要です"
@@ -2086,6 +2086,7 @@ private struct ProcurementInstructionEditor: View {
     @State private var ruleSelection: ProcurementRuleSelection
     @State private var ruleAmount: Int
     @State private var category: VehicleCategory?
+    @State private var origin: VehicleOrigin?
     @State private var modelID: String?
     @State private var faultOnly: Bool
     @State private var allowedSources: Set<ProcurementSource>
@@ -2106,13 +2107,17 @@ private struct ProcurementInstructionEditor: View {
             _ruleAmount = State(initialValue: 40)
         }
         _category = State(initialValue: instruction?.category)
+        _origin = State(initialValue: instruction?.origin)
         _modelID = State(initialValue: instruction?.modelID)
         _faultOnly = State(initialValue: instruction?.faultOnly ?? false)
         _allowedSources = State(initialValue: instruction?.allowedSources ?? Set(ProcurementSource.allCases))
     }
 
     private var availableModels: [VehicleCatalogEntry] {
-        game.availableVehicleCatalog.filter { category == nil || $0.category == category }
+        game.availableVehicleCatalog.filter {
+            (category == nil || $0.category == category) &&
+            (origin == nil || $0.origin == origin)
+        }
     }
 
     private var minimumBudget: Int {
@@ -2126,6 +2131,12 @@ private struct ProcurementInstructionEditor: View {
                     Picker("カテゴリ", selection: $category) {
                         Text("指定なし").tag(VehicleCategory?.none)
                         ForEach(VehicleCategory.allCases) { item in
+                            Text(item.name).tag(Optional(item))
+                        }
+                    }
+                    Picker("産地", selection: $origin) {
+                        Text("指定なし").tag(VehicleOrigin?.none)
+                        ForEach(VehicleOrigin.allCases) { item in
                             Text(item.name).tag(Optional(item))
                         }
                     }
@@ -2170,9 +2181,17 @@ private struct ProcurementInstructionEditor: View {
                     self.modelID = nil
                 }
             }
+            .onChange(of: origin) { _, newOrigin in
+                if let modelID,
+                   VehicleCatalog.entry(id: modelID)?.origin != newOrigin {
+                    self.modelID = nil
+                }
+            }
             .onChange(of: modelID) { _, newModelID in
                 if let newModelID {
-                    category = VehicleCatalog.entry(id: newModelID)?.category
+                    let model = VehicleCatalog.entry(id: newModelID)
+                    category = model?.category
+                    origin = model?.origin
                 }
             }
             .toolbar {
@@ -2188,6 +2207,7 @@ private struct ProcurementInstructionEditor: View {
                             changed.totalBudget = totalBudget
                             changed.financialRule = rule
                             changed.category = category
+                            changed.origin = origin
                             changed.modelID = modelID
                             changed.faultOnly = faultOnly
                             changed.allowedSources = allowedSources
@@ -2198,6 +2218,7 @@ private struct ProcurementInstructionEditor: View {
                                 totalBudget: totalBudget,
                                 financialRule: rule,
                                 category: category,
+                                origin: origin,
                                 modelID: modelID,
                                 faultOnly: faultOnly,
                                 allowedSources: allowedSources
@@ -2736,11 +2757,12 @@ private struct ProcurementPanel: View {
     @EnvironmentObject private var game: GameEngine
     let store: Store
     let plot: LandPlot
-    @State private var category: VehicleCategory = .commercial
+    @State private var category: VehicleCategory = .pickup
+    @State private var origin: VehicleOrigin?
     @State private var message: String?
 
     private var dealerQuote: ProcurementQuote? {
-        game.dealerTradeQuote(category: category, count: 3, storeID: store.id)
+        game.dealerTradeQuote(category: category, count: 3, storeID: store.id, origin: origin)
     }
 
     private var freeCapacity: Int {
@@ -2754,6 +2776,13 @@ private struct ProcurementPanel: View {
                 ForEach(VehicleCategory.allCases) { item in Text(item.name).tag(item) }
             }
             .pickerStyle(.menu)
+            Picker("産地", selection: $origin) {
+                Text("国産・輸入の両方").tag(VehicleOrigin?.none)
+                ForEach(VehicleOrigin.allCases) { item in
+                    Text(item.name).tag(Optional(item))
+                }
+            }
+            .pickerStyle(.segmented)
 
             HStack {
                 let demandRange = game.marketForecastRange(value: Int(game.vehicleDemand(category, in: plot.district) * 100), storeID: store.id)
@@ -2770,7 +2799,7 @@ private struct ProcurementPanel: View {
                     detail: "車種を確定して探索。メーカー・モデル相場と地域の希少性を反映",
                     disabled: game.cash < quote.totalCost || freeCapacity < quote.count
                 ) {
-                    message = game.orderDealerTrade(category: category, count: quote.count, storeID: store.id)
+                    message = game.orderDealerTrade(category: category, count: quote.count, storeID: store.id, origin: origin)
                         ? "\(quote.vehicleName)3台を手配しました。\(quote.weeks)週間後に入庫します。"
                         : "現金または展示枠が不足しています。"
                 }
@@ -2792,7 +2821,7 @@ private struct ProcurementPanel: View {
         }
         .gameCard()
         .onAppear {
-            category = game.recommendedCategories(for: plot.district).first ?? .commercial
+            category = game.recommendedCategories(for: plot.district).first ?? .pickup
         }
         .alert("仕入れ手配", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK") { message = nil }
@@ -2874,11 +2903,13 @@ private struct VehicleCatalogPanel: View {
     let store: Store
     let district: DistrictKind
     @State private var selectedCategory: VehicleCategory?
+    @State private var selectedOrigin: VehicleOrigin?
     @State private var selectedPowertrain: VehiclePowertrain?
 
     private var models: [VehicleCatalogEntry] {
         game.availableVehicleCatalog.filter {
             (selectedCategory == nil || $0.category == selectedCategory) &&
+            (selectedOrigin == nil || $0.origin == selectedOrigin) &&
             (selectedPowertrain == nil || $0.powertrain == selectedPowertrain)
         }
     }
@@ -2898,6 +2929,14 @@ private struct VehicleCatalogPanel: View {
                     CatalogFilterChip(title: "すべて", selected: selectedCategory == nil) { selectedCategory = nil }
                     ForEach(VehicleCategory.allCases) { category in
                         CatalogFilterChip(title: category.name, selected: selectedCategory == category) { selectedCategory = category }
+                    }
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    CatalogFilterChip(title: "全産地", selected: selectedOrigin == nil) { selectedOrigin = nil }
+                    ForEach(VehicleOrigin.allCases) { origin in
+                        CatalogFilterChip(title: origin.name, selected: selectedOrigin == origin) { selectedOrigin = origin }
                     }
                 }
             }
@@ -2982,13 +3021,19 @@ private struct CatalogVehicleRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(model.fullName).font(.subheadline.bold())
+                        Text(model.origin.shortName)
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundStyle(model.origin == .imported ? .white : GameTheme.navy)
+                            .padding(.horizontal, 5).padding(.vertical, 3)
+                            .background(model.origin == .imported ? Color.purple : GameTheme.navy.opacity(0.10))
+                            .clipShape(Capsule())
                         Text(model.powertrain.name).font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(powertrainColor).clipShape(Capsule())
                         if model.isRareClassic {
                             Text("希少旧車").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())
                         } else if model.isPopularCustomBase {
                             Text("カスタム人気").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(Color.purple).clipShape(Capsule())
                         }
-                        if model.category == .imported {
+                        if model.origin == .imported {
                             Text("指名需要 \(Int(model.customerDemandIndex * 100))")
                                 .font(.system(size: 8, weight: .black)).foregroundStyle(.white)
                                 .padding(.horizontal, 5).padding(.vertical, 3)

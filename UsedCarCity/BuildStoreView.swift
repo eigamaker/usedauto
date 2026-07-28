@@ -132,6 +132,24 @@ struct BuildStoreView: View {
                     .buttonStyle(.plain)
                     .disabled(!marketPolicy.priorityCategories.contains(category) && marketPolicy.priorityCategories.count >= 3)
                 }
+                Text("産地ラベル").font(.subheadline.bold())
+                HStack(spacing: 10) {
+                    ForEach(VehicleOrigin.allCases) { origin in
+                        Button {
+                            if marketPolicy.priorityOrigins.contains(origin) {
+                                marketPolicy.priorityOrigins.remove(origin)
+                            } else {
+                                marketPolicy.priorityOrigins.insert(origin)
+                            }
+                        } label: {
+                            Label(origin.name, systemImage: marketPolicy.priorityOrigins.contains(origin) ? "checkmark.circle.fill" : "circle")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text("未指定なら国産・輸入の両方を扱います。輸入車は車型ではなく産地として、重点車種と組み合わせます。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 Divider()
                 Text("店舗施設").font(.subheadline.bold())
                 ForEach(StoreFacility.allCases) { facility in
