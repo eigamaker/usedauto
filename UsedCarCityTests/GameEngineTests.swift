@@ -34,7 +34,8 @@ final class GameEngineTests: XCTestCase {
             switch self {
             case .family: .standard
             case .business: .service
-            case .discount, .quality: .small
+            case .discount: .standard
+            case .quality: .small
             }
         }
         var purpose: CustomerPurpose {
@@ -55,7 +56,7 @@ final class GameEngineTests: XCTestCase {
         var facilities: Set<StoreFacility> {
             switch self {
             case .family: [.kidsSpace]
-            case .discount: [.quickAppraisal]
+            case .discount: [.serviceWorkshop]
             case .quality: [.importLounge]
             case .business: [.corporateDesk]
             }
@@ -352,7 +353,7 @@ final class GameEngineTests: XCTestCase {
 
         game.selectFoundingPlot(plot.id)
         XCTAssertEqual(game.tutorialStep, .buildStore)
-        XCTAssertTrue(game.buildStore(on: plot, type: .small, mode: .lease, marketPolicy: StoreMarketPolicy(priorityCategories: [.kei, .compact]), facilities: [.quickAppraisal], loanAmount: 0))
+        XCTAssertTrue(game.buildStore(on: plot, type: .small, mode: .lease, marketPolicy: StoreMarketPolicy(priorityCategories: [.kei, .compact]), loanAmount: 0))
         XCTAssertEqual(game.tutorialStep, .purchaseInventory)
         XCTAssertTrue(game.stores[0].isOperational)
         XCTAssertEqual(game.totalInventory, 0)
@@ -2382,7 +2383,7 @@ final class GameEngineTests: XCTestCase {
             skilled.conditionRange.upperBound - skilled.conditionRange.lowerBound,
             owner.conditionRange.upperBound - owner.conditionRange.lowerBound
         )
-        game.stores[0].facilities.insert(.quickAppraisal)
+        game.stores[0].facilities.insert(.serviceWorkshop)
         XCTAssertEqual(game.appraisalConfidence(for: storeID), 95)
         XCTAssertEqual(game.appraisalConfidence(for: storeID, source: .online), 90)
     }
@@ -2540,7 +2541,7 @@ final class GameEngineTests: XCTestCase {
             type: .small,
             mode: .lease,
             marketPolicy: StoreMarketPolicy(priorityCategories: [.kei, .compact]),
-            facilities: [.quickAppraisal],
+            facilities: [],
             loanAmount: 100_000
         ))
         let newStore = game.store(at: plot.id)!
@@ -3014,7 +3015,7 @@ final class GameEngineTests: XCTestCase {
             if case .available = plot.occupant { return true }
             return false
         }!
-        XCTAssertTrue(game.buildStore(on: secondPlot, type: .small, mode: .lease, marketPolicy: StoreMarketPolicy(priorityCategories: [.kei, .compact]), facilities: [.quickAppraisal], loanAmount: 0))
+        XCTAssertTrue(game.buildStore(on: secondPlot, type: .small, mode: .lease, marketPolicy: StoreMarketPolicy(priorityCategories: [.kei, .compact]), loanAmount: 0))
         XCTAssertEqual(game.store(at: secondPlot.id)?.inventoryCount, 0)
 
         XCTAssertEqual(game.weeklyBuyerPool(in: district), buyerPool)

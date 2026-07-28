@@ -216,7 +216,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v45"
+    private static let saveKey = "UsedCarCity.save.v46"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -2505,7 +2505,7 @@ final class GameEngine: ObservableObject {
 
     func employeeAppraisalAccuracyBonus(for storeID: UUID) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
-        let facilityBonus = store.facilities.contains(.quickAppraisal) ? 5 : 0
+        let facilityBonus = store.facilities.contains(.serviceWorkshop) ? 5 : 0
         let employeeBonus = store.employees
             .filter { $0.assignment == .service }
             .map(employeeAppraisalAccuracyBonus)
@@ -2522,7 +2522,7 @@ final class GameEngine: ObservableObject {
             .filter { $0.assignment == .service }
             .map(\.serviceSkill)
             .max() ?? 35
-        let facilityBonus = store.facilities.contains(.quickAppraisal)
+        let facilityBonus = store.facilities.contains(.serviceWorkshop)
             && [.storePurchase, .tradeIn].contains(source) ? 5 : 0
         return min(95, max(20, skill + facilityBonus))
     }
@@ -5274,7 +5274,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func facilitySellerFactor(_ store: Store, category: VehicleCategory, origin: VehicleOrigin? = nil) -> Double {
-        var factor = store.facilities.contains(.quickAppraisal) ? 1.24 : 1.0
+        var factor = store.facilities.contains(.serviceWorkshop) ? 1.24 : 1.0
         if store.facilities.contains(.corporateDesk),
            [.kei, .compact, .sedan, .minivan, .pickup].contains(category) {
             factor *= 1.42
@@ -9230,9 +9230,9 @@ final class GameEngine: ObservableObject {
             }
         }
 
-        // A dedicated appraisal lane guarantees two additional weekly intake
-        // opportunities at that store, on top of its +24% seller attraction.
-        for store in stores where store.isOperational && store.facilities.contains(.quickAppraisal) {
+        // The service workshop also handles appraisal intake, guaranteeing two
+        // additional weekly opportunities on top of its +24% seller attraction.
+        for store in stores where store.isOperational && store.facilities.contains(.serviceWorkshop) {
             guard let storeIndex = stores.firstIndex(where: { $0.id == store.id }),
                   let storePlot = plot(id: store.plotID) else { continue }
             var added = 0

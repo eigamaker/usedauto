@@ -739,7 +739,6 @@ struct StoreMarketPolicy: Codable, Hashable {
 }
 
 enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
-    case quickAppraisal
     case kidsSpace
     case corporateDesk
     case importLounge
@@ -749,7 +748,6 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
     var name: String {
         switch self {
-        case .quickAppraisal: "クイック査定場"
         case .kidsSpace: "キッズスペース"
         case .corporateDesk: "法人営業窓口"
         case .importLounge: "輸入車商談ラウンジ"
@@ -759,7 +757,6 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
     }
     var icon: String {
         switch self {
-        case .quickAppraisal: "checkmark.seal.fill"
         case .kidsSpace: "figure.2.and.child.holdinghands"
         case .corporateDesk: "briefcase.fill"
         case .importLounge: "sparkles"
@@ -769,17 +766,15 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
     }
     var summary: String {
         switch self {
-        case .quickAppraisal: "店舗買取・下取り客 +24%／査定確度 +5／週の買取受付 +2"
         case .kidsSpace: "ファミリー客 +18%／成約率 +8pt"
         case .corporateDesk: "法人・仕事客 +22%／成約率 +7pt／対象の売却客 +42%"
         case .importLounge: "輸入車の売買客 +18%／成約率 +7pt"
-        case .serviceWorkshop: "整備ベイ +2。基本整備・修理・完全再生の設備費を圧縮"
+        case .serviceWorkshop: "整備ベイ +2／買取・下取り客 +24%／査定確度 +5／週の買取受付 +2"
         case .customWorkshop: "カスタムベイ +2。キャンパー・仕事・アウトドア架装の設備費を圧縮"
         }
     }
     var installationCost: Int {
         switch self {
-        case .quickAppraisal: 320
         case .kidsSpace: 480
         case .corporateDesk: 650
         case .importLounge: 900
@@ -789,7 +784,6 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
     }
     var monthlyCost: Int {
         switch self {
-        case .quickAppraisal: 12
         case .kidsSpace: 18
         case .corporateDesk: 24
         case .importLounge: 36
@@ -799,8 +793,8 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
     }
     var minimumGridCells: Int {
         switch self {
-        case .kidsSpace, .corporateDesk, .serviceWorkshop, .customWorkshop: 2
-        case .quickAppraisal, .importLounge: 1
+        case .kidsSpace, .corporateDesk, .importLounge, .customWorkshop: 2
+        case .serviceWorkshop: 1
         }
     }
     var serviceBays: Int { self == .serviceWorkshop ? 2 : 0 }

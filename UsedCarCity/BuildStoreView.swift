@@ -110,37 +110,35 @@ struct BuildStoreView: View {
         }
     }
 
-    @ViewBuilder
     private var facilitiesSection: some View {
-        if type.requiredGridCells >= 2 {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionTitle(
+                title: "店舗施設",
+                subtitle: type.requiredGridCells == 1
+                    ? "1区画では整備工場を追加できます"
+                    : "施設を1つ追加できます"
+            )
             VStack(alignment: .leading, spacing: 10) {
-                SectionTitle(title: "店舗施設", subtitle: "2区画では施設を1つ追加できます")
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(StoreFacility.allCases) { facility in
-                        let compatible = facility.minimumGridCells <= type.requiredGridCells
-                        Button {
-                            guard compatible else { return }
-                            facilities = facilities.contains(facility) ? [] : [facility]
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: facility.icon).foregroundStyle(GameTheme.teal).frame(width: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(facility.name).font(.subheadline.bold())
-                                    Text("設置 \(facility.installationCost.currency)・月\(facility.monthlyCost.currency)　\(facility.summary)")
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: facilities.contains(facility) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(facilities.contains(facility) ? GameTheme.teal : .gray)
+                ForEach(compatibleFacilities) { facility in
+                    Button {
+                        facilities = facilities.contains(facility) ? [] : [facility]
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: facility.icon).foregroundStyle(GameTheme.teal).frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(facility.name).font(.subheadline.bold())
+                                Text("設置 \(facility.installationCost.currency)・月\(facility.monthlyCost.currency)　\(facility.summary)")
+                                    .font(.caption2).foregroundStyle(.secondary)
                             }
+                            Spacer()
+                            Image(systemName: facilities.contains(facility) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(facilities.contains(facility) ? GameTheme.teal : .gray)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(!compatible)
-                        .opacity(compatible ? 1 : 0.42)
                     }
+                    .buttonStyle(.plain)
                 }
-                .gameCard()
             }
+            .gameCard()
         }
     }
 
@@ -180,6 +178,10 @@ struct BuildStoreView: View {
 
     private func footprintDescription(for type: StoreType) -> String {
         type.requiredGridCells == 1 ? "1区画" : "\(type.requiredGridCells)区画連結"
+    }
+
+    private var compatibleFacilities: [StoreFacility] {
+        StoreFacility.allCases.filter { $0.minimumGridCells <= type.requiredGridCells }
     }
 
 }
