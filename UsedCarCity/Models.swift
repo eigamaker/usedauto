@@ -1572,6 +1572,17 @@ struct SegmentOpportunityReport: Identifiable, Hashable {
     var id: String { key.id }
 }
 
+struct DistrictSpecialtyReport: Identifiable, Hashable {
+    let productKind: MarketProductKind
+    let competitorBranchCount: Int
+    let competitorNames: [String]
+    let fourWeekDemand: ClosedRange<Int>
+    let competingInventory: ClosedRange<Int>
+
+    var id: MarketProductKind { productKind }
+    var isAbsent: Bool { competitorBranchCount == 0 }
+}
+
 enum WorkFulfillmentMode: String, Codable, CaseIterable, Identifiable, Hashable {
     case automatic
     case inHouse

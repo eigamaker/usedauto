@@ -3983,6 +3983,152 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(outdoor.status, .blueOcean)
     }
 
+    func testDistrictSpecialtyReportsUseOnlyCustomFocusedProductKinds() {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 71)
+        startPlayableGame(game)
+        let store = game.stores[0]
+        let district = game.plot(id: store.plotID)!.district
+
+        let reports = game.districtSpecialtyReports(
+            storeID: store.id,
+            district: district
+        )
+        let productKinds = Set(reports.map(\.productKind))
+
+        XCTAssertEqual(productKinds, [
+            .camper,
+            .workCargo,
+            .outdoor,
+            .collector,
+            .sportTuned,
+            .welfare,
+            .mobileShop
+        ])
+        XCTAssertFalse(productKinds.contains(.standard))
+        XCTAssertFalse(productKinds.contains(.repaired))
+        XCTAssertFalse(productKinds.contains(.refurbished))
+    }
+
+    func testDistrictSpecialtyReportsCountInventoryQueueAndTargetPolicyInDistrict() {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 73)
+        startPlayableGame(game)
+        let store = game.stores[0]
+        let district = game.plot(id: store.plotID)!.district
+
+        for competitorIndex in game.competitors.indices {
+            game.competitors[competitorIndex].segmentTargetShare = [:]
+            for branchIndex in game.competitors[competitorIndex].branches.indices {
+                game.competitors[competitorIndex].branches[branchIndex].inventory.removeAll()
+                game.competitors[competitorIndex].branches[branchIndex].productizationQueue.removeAll()
+            }
+        }
+
+        let localCompetitorIndex = try! XCTUnwrap(
+            game.competitors.indices.first { competitorIndex in
+                game.competitors[competitorIndex].branches.contains {
+                    game.plot(id: $0.plotID)?.district == district
+                }
+            }
+        )
+        let localBranchIndex = try! XCTUnwrap(
+            game.competitors[localCompetitorIndex].branches.firstIndex {
+                game.plot(id: $0.plotID)?.district == district
+            }
+        )
+        let remoteLocation = try! XCTUnwrap(
+            game.competitors.enumerated().compactMap { competitorIndex, competitor in
+                competitor.branches.enumerated().first {
+                    game.plot(id: $0.element.plotID)?.district != district
+                }.map { (competitorIndex, $0.offset) }
+            }.first
+        )
+
+        let camperInventory = CompetitorInventoryBucket(
+            category: .minivan,
+            purpose: .camper,
+            count: 2,
+            averageCost: 180,
+            averageQuality: 0.82,
+            productState: .camper,
+            marketProductKind: .camper,
+            productGrade: .middle
+        )
+        game.competitors[remoteLocation.0].branches[remoteLocation.1].inventory = [
+            camperInventory
+        ]
+
+        var camper = try! XCTUnwrap(
+            game.districtSpecialtyReports(storeID: store.id, district: district)
+                .first { $0.productKind == .camper }
+        )
+        XCTAssertTrue(camper.isAbsent)
+        XCTAssertEqual(camper.competitorBranchCount, 0)
+
+        game.competitors[localCompetitorIndex].branches[localBranchIndex].inventory = [
+            camperInventory
+        ]
+        camper = try! XCTUnwrap(
+            game.districtSpecialtyReports(storeID: store.id, district: district)
+                .first { $0.productKind == .camper }
+        )
+        XCTAssertEqual(camper.competitorBranchCount, 1)
+        XCTAssertEqual(camper.competitorNames, [
+            game.competitors[localCompetitorIndex].name
+        ])
+        XCTAssertEqual(game.districtSpecialtyBranchCount(in: district), 1)
+
+        game.competitors[localCompetitorIndex].branches[localBranchIndex].inventory = []
+        game.competitors[localCompetitorIndex].branches[localBranchIndex].productizationQueue = [
+            CompetitorProductizationOrder(
+                category: .minivan,
+                purpose: .camper,
+                productState: .camper,
+                marketProductKind: .camper,
+                productGrade: .middle,
+                count: 1,
+                unitCost: 240,
+                quality: 0.86,
+                outsourced: false,
+                outsourcePartner: nil,
+                weeksRemaining: 2
+            )
+        ]
+        camper = try! XCTUnwrap(
+            game.districtSpecialtyReports(storeID: store.id, district: district)
+                .first { $0.productKind == .camper }
+        )
+        XCTAssertEqual(camper.competitorBranchCount, 1)
+
+        game.competitors[localCompetitorIndex].branches[localBranchIndex].productizationQueue = []
+        let camperKey = MarketSegmentKey(
+            district: district,
+            category: .minivan,
+            purpose: .camper,
+            productKind: .camper
+        )
+        game.competitors[localCompetitorIndex].segmentTargetShare[camperKey] = 0.25
+        camper = try! XCTUnwrap(
+            game.districtSpecialtyReports(storeID: store.id, district: district)
+                .first { $0.productKind == .camper }
+        )
+        XCTAssertEqual(camper.competitorBranchCount, 1)
+
+        let camperOpportunities = game.segmentOpportunityReports(
+            storeID: store.id,
+            district: district
+        ).filter { $0.key.productKind == .camper }
+        XCTAssertEqual(
+            camper.fourWeekDemand,
+            camperOpportunities.reduce(0) {
+                $0 + $1.fourWeekDemand.lowerBound
+            }...camperOpportunities.reduce(0) {
+                $0 + $1.fourWeekDemand.upperBound
+            }
+        )
+    }
+
     func testOutsourcedServiceHasNoBayOrWeeklyPartnerLimit() {
         let game = GameEngine()
         game.resetGame()

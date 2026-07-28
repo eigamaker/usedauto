@@ -2952,6 +2952,113 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    private var marketOverviewSpecialtyKinds: [MarketProductKind] {
+        [.camper, .workCargo, .outdoor, .collector, .sportTuned, .welfare, .mobileShop]
+    }
+
+    private func competitorTargetsSpecialty(
+        _ competitor: Competitor,
+        productKind: MarketProductKind,
+        district: DistrictKind
+    ) -> Bool {
+        competitor.segmentTargetShare.contains { entry in
+            entry.value > 0
+                && entry.key.district == district
+                && entry.key.productKind == productKind
+        }
+    }
+
+    private func competitorBranchHandlesSpecialty(
+        _ branch: CompetitorBranch,
+        competitor: Competitor,
+        productKind: MarketProductKind,
+        district: DistrictKind
+    ) -> Bool {
+        branch.inventory.contains {
+            $0.count > 0 && $0.marketProductKind == productKind
+        }
+            || branch.productizationQueue.contains {
+                $0.count > 0 && $0.marketProductKind == productKind
+            }
+            || competitorTargetsSpecialty(
+                competitor,
+                productKind: productKind,
+                district: district
+            )
+    }
+
+    func districtSpecialtyReports(
+        storeID: UUID,
+        district: DistrictKind
+    ) -> [DistrictSpecialtyReport] {
+        let opportunities = segmentOpportunityReports(storeID: storeID, district: district)
+
+        return marketOverviewSpecialtyKinds.map { productKind in
+            let matchingOpportunities = opportunities.filter {
+                $0.key.productKind == productKind
+            }
+            var branchCount = 0
+            var competitorNames: Set<String> = []
+
+            for competitor in competitors {
+                let matchingBranches = competitor.branches.filter { branch in
+                    plot(id: branch.plotID)?.district == district
+                        && competitorBranchHandlesSpecialty(
+                            branch,
+                            competitor: competitor,
+                            productKind: productKind,
+                            district: district
+                        )
+                }
+                if !matchingBranches.isEmpty {
+                    branchCount += matchingBranches.count
+                    competitorNames.insert(competitor.name)
+                }
+            }
+
+            let demandLow = matchingOpportunities.reduce(0) {
+                $0 + $1.fourWeekDemand.lowerBound
+            }
+            let demandHigh = matchingOpportunities.reduce(0) {
+                $0 + $1.fourWeekDemand.upperBound
+            }
+            let inventoryLow = matchingOpportunities.reduce(0) {
+                $0 + $1.competingInventory.lowerBound
+            }
+            let inventoryHigh = matchingOpportunities.reduce(0) {
+                $0 + $1.competingInventory.upperBound
+            }
+
+            return DistrictSpecialtyReport(
+                productKind: productKind,
+                competitorBranchCount: branchCount,
+                competitorNames: competitorNames.sorted(),
+                fourWeekDemand: demandLow...demandHigh,
+                competingInventory: inventoryLow...inventoryHigh
+            )
+        }
+    }
+
+    func districtSpecialtyBranchCount(in district: DistrictKind) -> Int {
+        var branchIDs: Set<Int> = []
+        for competitor in competitors {
+            for branch in competitor.branches where plot(id: branch.plotID)?.district == district {
+                let handlesSpecialty = marketOverviewSpecialtyKinds.contains { productKind in
+                    competitorBranchHandlesSpecialty(
+                        branch,
+                        competitor: competitor,
+                        productKind: productKind,
+                        district: district
+                    )
+                }
+                if handlesSpecialty {
+                    branchIDs.insert(branch.plotID)
+                }
+            }
+        }
+        return branchIDs.count
+    }
+
     func marketForecastRange(value: Int, storeID: UUID) -> ClosedRange<Int> {
         forecastRange(value: value, storeID: storeID, horizonWeeks: 1, seedSalt: 0)
     }

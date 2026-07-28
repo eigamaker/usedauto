@@ -738,7 +738,7 @@ struct GuideProfitLossLessonView: View {
             lines.append("販管費（\(operatingExpenses.currency)）が粗利（\(grossProfit.currency)）を上回っています。台数を増やすか、固定費を見直す局面です。")
         }
         if finance.personnel > 0, grossProfit > 0, Double(finance.personnel) / Double(grossProfit) > 0.5 {
-            lines.append("人件費が粗利の半分を超えています。採用した店員に担当を割り当て、自動枠を使い切れているか確認してください。")
+            lines.append("人件費が粗利の半分を超えています。採用した店員に担当を割り当て、社員営業枠を使い切れているか確認してください。")
         }
         if finance.interest > 0 {
             lines.append("支払利息が\(finance.interest.currency)発生しています。現金に余裕が出たら繰り上げ返済も選択肢です。")
