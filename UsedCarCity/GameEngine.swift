@@ -837,7 +837,10 @@ final class GameEngine: ObservableObject {
     func weeklyBuyerPool(in kind: DistrictKind) -> Int {
         guard let district = districts.first(where: { $0.kind == kind }) else { return 0 }
         let season = [3, 9].contains(month) ? 1.12 : ([1, 8].contains(month) ? 0.92 : 1.0)
-        let base = Double(district.population) / 6_500.0 * district.trafficIndex * season * customerTrafficIndex
+        // 大型店が十分な在庫と認知を用意できれば、週30〜40組を獲得できる市場規模にする。
+        // 来店先は従来どおり評判・広告・在庫・立地によるウェイトで配分するため、
+        // 成約率には手を入れず、資本と店舗力がある店だけが増えた母数を取り込める。
+        let base = Double(district.population) / 2_500.0 * district.trafficIndex * season * customerTrafficIndex
         let index = DistrictKind.allCases.firstIndex(of: kind) ?? 0
         return max(0, Int((base * weeklyMarketShock(seed: turn * 149 + index * 37 + 11)).rounded()))
     }
@@ -853,11 +856,14 @@ final class GameEngine: ObservableObject {
         case .industrial: activity = 1.15
         case .highway: activity = 1.25
         }
-        let base = Double(district.population) / 13_500.0 * district.trafficIndex * activity
+        let base = Double(district.population) / 3_000.0 * district.trafficIndex * activity
         let economy = min(1.45, max(0.70, 1.10 + (1 - economicIndex) * 0.85))
         let index = DistrictKind.allCases.firstIndex(of: kind) ?? 0
         return max(0, Int((base * economy * weeklyMarketShock(seed: turn * 173 + index * 43 + 29)).rounded()))
     }
+
+    /// 販売・仕入担当者が1週間に処理できる商談件数。成約率とは独立した処理上限。
+    var employeeWeeklyCaseCapacity: Int { 10 }
 
     func weeklyOpportunityCapacity(storeID: UUID) -> Int {
         stores.contains(where: { $0.id == storeID }) ? 7 : 0
@@ -1366,7 +1372,9 @@ final class GameEngine: ObservableObject {
             Int((Double(weeklyBuyerPool(in: plot.district)) * marketShare(for: store)).rounded())
         )
         let fourWeekDemand = weeklyDemand * 4
-        let automaticSalesCapacity = store.autoSales ? store.employees.filter { $0.assignment == .sales }.count * 7 : 0
+        let automaticSalesCapacity = store.autoSales
+            ? store.employees.filter { $0.assignment == .sales }.count * employeeWeeklyCaseCapacity
+            : 0
         let fourWeekCapacity = (weeklyOpportunityCapacity(storeID: storeID) + automaticSalesCapacity) * 4
         let possibleSales = min(sellableUnits, fourWeekDemand, fourWeekCapacity)
         let skillLift = employeeSalesCloseAdjustment(for: storeID)
@@ -2229,13 +2237,28 @@ final class GameEngine: ObservableObject {
             quality: profile.quality,
             in: plot.district
         )
-        let minimumGrossProfit = max(1, expectedRetail * 10 / 100)
-        let maximumUnitCost = expectedRetail - minimumGrossProfit - Int(ceil(Double(fee) / Double(count)))
-        guard maximumUnitCost > 0 else { return nil }
+        let feePerVehicle = Int(ceil(Double(fee) / Double(count)))
+        // 業者間取引は指定車種を確実に確保できる緊急補充ルート。
+        // 需給と仕入技能で差は出るが、価格方針100での粗利率は2〜6%を目安にする。
+        let availabilityMargin = min(0.06, max(0.02, 0.045 + (availability - demand) * 0.025))
+        let expertiseMargin = min(
+            0.01,
+            effectiveSourceExpertise(for: store, source: .dealerTrade) * 0.0001
+        )
+        let targetMargin = min(0.06, availabilityMargin + expertiseMargin)
         let marketUnitCost = Int(
             (Double(calculatedWholesale) * sourcingMultiplier * sourceEfficiency).rounded()
         )
-        let unitCost = min(marketUnitCost, maximumUnitCost)
+        let targetUnitCost = expectedRetail
+            - Int((Double(expectedRetail) * targetMargin).rounded())
+            - feePerVehicle
+        // レンジは保証ではない。地域相場の差を一部残すため、目標価格へ寄せつつ
+        // 市場原価との乖離も反映する。
+        let marketDeviation = min(
+            expectedRetail / 50,
+            max(-expectedRetail / 50, (marketUnitCost - targetUnitCost) / 4)
+        )
+        let unitCost = max(1, targetUnitCost + marketDeviation)
         return ProcurementQuote(
             source: .dealerTrade,
             modelID: model.id,
@@ -2249,7 +2272,7 @@ final class GameEngine: ObservableObject {
             modelYear: profile.modelYear,
             mileage: profile.mileage,
             expectedRetailPrice: expectedRetail,
-            expectedGrossProfit: expectedRetail - unitCost - Int(ceil(Double(fee) / Double(count)))
+            expectedGrossProfit: expectedRetail - unitCost - feePerVehicle
         )
     }
 
@@ -2316,6 +2339,28 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    func corporateDisposalExpectedGrossProfit(
+        for opportunity: CorporateOpportunity,
+        unitPrice: Int,
+        storeID: UUID
+    ) -> Int? {
+        guard opportunity.kind == .fleetDisposal,
+              let modelID = opportunity.modelID,
+              let modelYear = opportunity.modelYear,
+              let mileage = opportunity.mileage,
+              let store = stores.first(where: { $0.id == storeID }),
+              let plot = plot(id: store.plotID) else { return nil }
+        let retail = vehicleRetailValue(
+            modelID: modelID,
+            category: opportunity.category,
+            modelYear: modelYear,
+            mileage: mileage,
+            quality: opportunity.quality,
+            in: plot.district
+        )
+        return retail - unitPrice
+    }
+
     private func generateCorporateOpportunities() {
         corporateOpportunities.removeAll { $0.resolved && $0.dueTurn < turn - 3 }
         guard !corporateOpportunities.contains(where: { !$0.resolved && $0.createdTurn == turn }) else { return }
@@ -2333,14 +2378,6 @@ final class GameEngine: ObservableObject {
             }
             let unitPrice: Int
             if let model, let profile {
-                let wholesale = vehicleWholesaleValue(
-                    modelID: model.id,
-                    category: category,
-                    modelYear: profile.modelYear,
-                    mileage: profile.mileage,
-                    quality: profile.quality,
-                    in: district
-                )
                 let retail = DistrictKind.allCases.map {
                     vehicleRetailValue(
                         modelID: model.id,
@@ -2351,7 +2388,15 @@ final class GameEngine: ObservableObject {
                         in: $0
                     )
                 }.min() ?? category.purchaseCost * 13 / 10
-                unitPrice = min(wholesale * 92 / 100, retail * 85 / 100)
+                // 法人放出は複数台をまとめて確保できる代わりに単価利益は薄い。
+                // 基準価格では店頭販売価格に対して5〜10%の粗利を残す。
+                let margin = 0.05 + transactionRoll(
+                    seed: turn * 347 + index * 59 + categoryIndex(category) * 17
+                ) * 0.05
+                unitPrice = max(
+                    10,
+                    retail - Int((Double(retail) * margin).rounded())
+                )
             } else {
                 unitPrice = Int(Double(category.purchaseCost) * 1.34)
             }
@@ -5706,7 +5751,8 @@ final class GameEngine: ObservableObject {
         let roll = transactionRoll(seed: seed)
         if roll < 0.06 { return 0.08 }
         if roll < 0.18 { return 0.35 }
-        return 0.65 + roll * 0.72
+        if roll > 0.92 { return 1.80 }
+        return 0.62 + roll * 0.80
     }
 
     private func updateMarketConditions(notes: inout [String]) {
@@ -7333,7 +7379,7 @@ final class GameEngine: ObservableObject {
 
         for handler in handlers {
             var handledByEmployee = 0
-            while handledByEmployee < 7,
+            while handledByEmployee < employeeWeeklyCaseCapacity,
                   let lead = buyerLeads.first(where: {
                       $0.storeID == storeID && automaticInventoryIndex(for: $0, storeIndex: storeIndex, salesperson: handler) != nil
                   }),
@@ -7737,7 +7783,15 @@ final class GameEngine: ObservableObject {
         }
         }
 
-        if instruction.allowedSources.contains(.dealerTrade), !instruction.faultOnly {
+        let securedInventory = store.inventoryCount
+            + incomingCount(for: storeID)
+            + bidReservations.filter { $0.storeID == storeID }.count
+            + onlineBidReservations.filter { $0.storeID == storeID }.count
+        let dealerTradeIsExplicit = instruction.allowedSources == [.dealerTrade]
+        let dealerTradeIsEmergency = securedInventory <= max(1, store.type.capacity / 4)
+        if instruction.allowedSources.contains(.dealerTrade),
+           !instruction.faultOnly,
+           dealerTradeIsExplicit || dealerTradeIsEmergency {
             let categories = instruction.category.map { [$0] } ?? VehicleCategory.allCases
             for category in categories {
                 let modelID = instruction.modelID
@@ -8153,7 +8207,7 @@ final class GameEngine: ObservableObject {
 
         var performedInstructionIDs: Set<UUID> = []
         for handler in handlers {
-            for _ in 0..<7 {
+            for _ in 0..<employeeWeeklyCaseCapacity {
                 var selected: (ProcurementInstruction, AutomaticProcurementCandidate)?
                 for instruction in procurementInstructions(for: storeID)
                     where instruction.status == .active && instruction.remainingBudget > 0 {
@@ -8372,7 +8426,7 @@ final class GameEngine: ObservableObject {
                     + (stores[index].autoProcurement
                         ? max(stores[index].sellerArrivalsThisWeek, needsInstructionHandler ? 1 : 0)
                         : 0)
-                let caseWorkers = max(0, Int(ceil(Double(automatedCases) / 7.0)))
+                let caseWorkers = max(0, Int(ceil(Double(automatedCases) / Double(employeeWeeklyCaseCapacity))))
                 let supportWorkers = (stores[index].autoMarketing ? 1 : 0)
                     + (stores[index].autoService && stores[index].inventoryCount > 0 ? 1 : 0)
                 let target = min(maxEmployeesPerStore, caseWorkers + supportWorkers)
@@ -8399,14 +8453,19 @@ final class GameEngine: ObservableObject {
                               let employeeIndex = stores[index].employees.firstIndex(where: {
                                   $0.assignment == .unassigned || !enabledAssignments.contains($0.assignment)
                               }) else { break }
-                        let buyerNeed = max(0, stores[index].buyerArrivalsThisWeek - stores[index].employees.filter { $0.assignment == .sales }.count * 7)
+                        let buyerNeed = max(
+                            0,
+                            stores[index].buyerArrivalsThisWeek
+                                - stores[index].employees.filter { $0.assignment == .sales }.count * employeeWeeklyCaseCapacity
+                        )
                         let sellerCases = max(
                             stores[index].sellerArrivalsThisWeek,
                             needsInstructionHandler ? 1 : 0
                         )
                         let sellerNeed = max(
                             0,
-                            sellerCases - stores[index].employees.filter { $0.assignment == .procurement }.count * 7
+                            sellerCases
+                                - stores[index].employees.filter { $0.assignment == .procurement }.count * employeeWeeklyCaseCapacity
                         )
                         let assignment: EmployeeAssignment
                         if stores[index].autoMarketing && !stores[index].employees.contains(where: { $0.assignment == .research }) {
@@ -9045,8 +9104,13 @@ final class GameEngine: ObservableObject {
     }
 
     private func generateAuctionListings() {
-        if turn > 0 && auctionListings.count >= 25 {
-            let stale = auctionListings.filter { listing in !bidReservations.contains(where: { $0.listingID == listing.id }) }.prefix(5).map(\.id)
+        let targetCount = 72
+        let weeklyRefreshCount = 18
+        if turn > 0 {
+            let stale = auctionListings
+                .filter { listing in !bidReservations.contains(where: { $0.listingID == listing.id }) }
+                .prefix(weeklyRefreshCount)
+                .map(\.id)
             auctionListings.removeAll { stale.contains($0.id) }
         }
         let legendary = VehicleCatalog.rareClassics.first { $0.collectorRarity == .legendary }
@@ -9091,7 +9155,7 @@ final class GameEngine: ObservableObject {
                 detail: "\(model.fullName)が都心プレミアAAへ出品されました"
             ))
         }
-        while auctionListings.count < 30 {
+        while auctionListings.count < targetCount {
             let index = auctionListings.count + turn * 5
             let availableCombinations = VehicleCategory.allCases.flatMap { category in
                 availableOrigins(for: category)
@@ -9178,12 +9242,31 @@ final class GameEngine: ObservableObject {
                     condition: vehicleState.condition,
                     storeID: nil
                 )
-                let profitableHammer = max(
+                let fixedCosts = venue.fee + venue.shippingCost
+                // AAは開始価格なら15〜25%程度の上振れ余地を持たせ、
+                // 競り上がった業者間相場では概ね-5〜12%まで振れる。
+                let reserveMargin = 0.15 + transactionRoll(
+                    seed: index * 229 + turn * 163 + categoryIndex(category) * 19
+                ) * 0.10
+                let marketMargin = -0.05 + transactionRoll(
+                    seed: index * 233 + turn * 167 + categoryIndex(category) * 23
+                ) * 0.17
+                let reserveCeiling = max(
                     10,
-                    retail * 88 / 100 - repair - venue.fee - venue.shippingCost
+                    retail
+                        - Int((Double(retail) * reserveMargin).rounded())
+                        - repair
+                        - fixedCosts
                 )
-                market = min(rawMarket, profitableHammer)
-                reserve = min(market, max(10, market * (78 + (index % 13)) / 100))
+                let marketTarget = max(
+                    reserveCeiling,
+                    retail
+                        - Int((Double(retail) * marketMargin).rounded())
+                        - repair
+                        - fixedCosts
+                )
+                reserve = reserveCeiling
+                market = max(reserve, marketTarget)
             }
             let seller = isRareClassicListing
                 ? "コレクター放出・現状渡し"
@@ -9250,14 +9333,16 @@ final class GameEngine: ObservableObject {
     }
 
     private func generateOnlineListings() {
-        if turn > 0 && onlineListings.count >= 25 {
+        let targetCount = 72
+        let weeklyRefreshCount = 18
+        if turn > 0 {
             let stale = onlineListings
                 .filter { listing in !onlineBidReservations.contains(where: { $0.listingID == listing.id }) }
-                .prefix(5)
+                .prefix(weeklyRefreshCount)
                 .map(\.id)
             onlineListings.removeAll { stale.contains($0.id) }
         }
-        while onlineListings.count < 30 {
+        while onlineListings.count < targetCount {
             let index = onlineListings.count + turn * 7
             let availableCombinations = VehicleCategory.allCases.flatMap { category in
                 availableOrigins(for: category)
@@ -9287,19 +9372,37 @@ final class GameEngine: ObservableObject {
                 seed: index * 211 + turn * 157,
                 faultRate: 0.36
             )
-            let calculatedMarket = vehicleWholesaleValue(
-                modelID: model.id,
-                category: category,
-                modelYear: profile.modelYear,
-                mileage: profile.mileage,
-                quality: vehicleState.condition.quality,
-                in: .station
-            )
-            // ネット市場の表示相場には隠れた故障が十分反映されない。
-            // 未検品経路なので、査定担当の精度が実利益を左右する。
-            let market = max(12, calculatedMarket)
-            let reserve = max(10, market * (70 + index % 17) / 100)
             let premiumShipping = model.origin == .imported || category == .pickup
+            let fee = 9
+            let shippingCost = premiumShipping ? 18 : 12
+            let cleanRetail = DistrictKind.allCases.map {
+                vehicleRetailValue(
+                    modelID: model.id,
+                    category: category,
+                    modelYear: profile.modelYear,
+                    mileage: profile.mileage,
+                    quality: vehicleState.condition.quality,
+                    in: $0
+                )
+            }.min() ?? category.purchaseCost * 13 / 10
+            // ネット市場は現車確認できない。表示価格は故障を織り込まず、
+            // 掘り出し物なら最大25%程度、見落とし時は-10%程度まで振れる。
+            let reserveMargin = 0.12 + transactionRoll(
+                seed: index * 239 + turn * 173 + categoryIndex(category) * 29
+            ) * 0.13
+            let marketMargin = transactionRoll(
+                seed: index * 241 + turn * 179 + categoryIndex(category) * 31
+            ) * 0.12
+            let reserveTarget = cleanRetail
+                - Int((Double(cleanRetail) * reserveMargin).rounded())
+                - fee
+                - shippingCost
+            let marketTarget = cleanRetail
+                - Int((Double(cleanRetail) * marketMargin).rounded())
+                - fee
+                - shippingCost
+            let reserve = max(10, reserveTarget)
+            let market = max(reserve, marketTarget)
             onlineListings.append(OnlineListing(
                 id: UUID(),
                 modelID: model.id,
@@ -9312,8 +9415,8 @@ final class GameEngine: ObservableObject {
                 reservePrice: reserve,
                 marketPrice: market,
                 seller: index.isMultiple(of: 4) ? "全国整備工場・現状車" : "ネット加盟店",
-                fee: 9,
-                shippingCost: premiumShipping ? 18 : 12,
+                fee: fee,
+                shippingCost: shippingCost,
                 shippingWeeks: premiumShipping ? 2 : 1,
                 createdTurn: turn
             ))
@@ -10428,19 +10531,25 @@ final class GameEngine: ObservableObject {
         let model = vehicleModel(for: category, seed: seed + 5)
         let profile = usedVehicleProfile(for: model, seed: seed + 7, maximumAge: 14)
         let quality = min(0.90, max(0.50, profile.quality - transactionRoll(seed: seed + 11) * 0.06))
-        let marketValue = vehicleWholesaleValue(
-            modelID: model.id,
-            category: category,
-            modelYear: profile.modelYear,
-            mileage: profile.mileage,
-            quality: quality,
-            in: plot.district
-        )
-        let allowance = max(20, Int(Double(marketValue) * (0.90 + transactionRoll(seed: seed + 13) * 0.08)))
         let conditionScore = Int((quality * 100).rounded())
         let repairCost = hasServiceTechnician(storeID: storeID)
             ? 0
             : max(5, (100 - conditionScore) * category.purchaseCost / 280)
+        let expectedRetail = vehicleRetailValue(
+            modelID: model.id,
+            category: category,
+            modelYear: profile.modelYear,
+            mileage: profile.mileage,
+            quality: Double(min(94, conditionScore + (conditionScore < 75 ? 4 : 3))) / 100,
+            in: plot.district
+        )
+        // 下取りは販売成約を助けるため店舗買取よりやや薄利。
+        // 査定額どおりに販売できた場合の想定粗利率を8〜20%に置く。
+        let targetMargin = 0.08 + transactionRoll(seed: seed + 13) * 0.12
+        let targetAllowance = expectedRetail
+            - repairCost
+            - Int((Double(expectedRetail) * targetMargin).rounded())
+        let allowance = max(20, targetAllowance)
         return TradeInVehicle(
             modelID: model.id,
             category: category,
@@ -10485,7 +10594,7 @@ final class GameEngine: ObservableObject {
         let faultDiscount: Double = switch fault { case .none: 1; case .minor: 0.78; case .major: 0.48; case .immobile: 0.25 }
         let askingFactor = askingPremium
             ?? (0.84 + transactionRoll(seed: seed + 13) * 0.22)
-        let asking = max(12, Int(Double(wholesale) * min(1.24, askingFactor) * faultDiscount))
+        var asking = max(12, Int(Double(wholesale) * min(1.24, askingFactor) * faultDiscount))
         // 部品・消耗品・清掃など、内製でも必ず発生する商品化原価。
         let asIsRepair = max(6, (100 - condition) * base / 230)
         let repairGain = condition < 75 ? 4 : 3
@@ -10533,6 +10642,24 @@ final class GameEngine: ObservableObject {
                     asIsExpectedSale,
                     Int(Double(asIsExpectedSale + conversionCost) * trendPrice)
                 )
+            )
+        }
+        if !model.isRareClassic {
+            let faultRepair = estimatedSourcingRepairCost(
+                category: category,
+                fault: fault,
+                condition: conditionProfile,
+                storeID: storeID
+            )
+            let targetMargin = 0.12 + transactionRoll(seed: seed + 17) * 0.16
+            // 店頭買取の基準価格では12〜28%を狙う。交渉による値下げは
+            // プレイヤーの上振れ、未発見の問題歴や故障は下振れとして残す。
+            asking = max(
+                12,
+                asIsExpectedSale
+                    - asIsRepair
+                    - faultRepair
+                    - Int((Double(asIsExpectedSale) * targetMargin).rounded())
             )
         }
         let assessment = vehicleAssessment(

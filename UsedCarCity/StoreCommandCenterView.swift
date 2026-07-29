@@ -262,6 +262,13 @@ private struct PurchaseCasesPanel: View {
                         let saleRange = game.marketForecastRange(value: item.expectedSaleAfterAppraisal, storeID: storeID)
                         let assessment = game.purchaseAssessment(for: item)
                         let saleForecastText = "\(saleRange.lowerBound.currency)〜\(saleRange.upperBound.currency)"
+                        let grossMargin = Int(
+                            (
+                                Double(grossProfit / max(1, item.lotCount))
+                                    / Double(max(1, item.expectedSaleAfterAppraisal))
+                                    * 100
+                            ).rounded()
+                        )
                         let conditionText = "\(assessment.conditionRange.lowerBound)〜\(assessment.conditionRange.upperBound)/100"
                         let repairText = "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)"
                         HStack {
@@ -294,8 +301,8 @@ private struct PurchaseCasesPanel: View {
                             PurchaseMetric(title: "査定見積り", value: item.appraisedPrice.currency)
                             PurchaseMetric(title: "必要修繕費見積り", value: repairText)
                             PurchaseMetric(
-                                title: item.suggestedProjectKind == nil ? "想定粗利" : "改造後粗利",
-                                value: grossProfit.currency,
+                                title: item.suggestedProjectKind == nil ? "価格100の想定粗利" : "価格100の改造後粗利",
+                                value: "\(grossProfit.currency)（\(grossMargin)%）",
                                 tint: grossProfit >= 0 ? GameTheme.teal : GameTheme.danger
                             )
                         }
@@ -435,7 +442,7 @@ private struct ManualSalesPanel: View {
             }
 
             if isAutomated {
-                Label("販売担当1人につき週7件まで自動対応します。希望在庫がなくても代替車を提案し、販売能力が高いほど希望外の車でも成約しやすくなります。", systemImage: "person.crop.circle.badge.checkmark")
+                Label("販売担当1人につき週\(game.employeeWeeklyCaseCapacity)件まで自動対応します。希望在庫がなくても代替車を提案し、販売能力が高いほど希望外の車でも成約しやすくなります。", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.caption).foregroundStyle(GameTheme.teal)
             }
             if leads.isEmpty {
@@ -726,10 +733,18 @@ private struct VehicleProposalSheet: View {
 
     private func tradeInSettlementLabel(_ preview: TradeInSalePreview?) -> String {
         guard let preview else { return "下取り条件を計算できません" }
+        let margin = Int(
+            (
+                Double(preview.expectedTradeInGrossProfit)
+                    / Double(max(1, preview.expectedTradeInSalePrice))
+                    * 100
+            ).rounded()
+        )
+        let grossText = "\(preview.expectedTradeInGrossProfit.currency)（\(margin)%）"
         if preview.customerCashSettlement >= 0 {
-            return "下取り\(preview.allowance.currency)・お客様差額\(preview.customerCashSettlement.currency)・下取粗利見込\(preview.expectedTradeInGrossProfit.currency)"
+            return "下取り\(preview.allowance.currency)・お客様差額\(preview.customerCashSettlement.currency)・下取粗利見込\(grossText)"
         }
-        return "下取り\(preview.allowance.currency)・店舗支払\((-preview.customerCashSettlement).currency)・下取粗利見込\(preview.expectedTradeInGrossProfit.currency)"
+        return "下取り\(preview.allowance.currency)・店舗支払\((-preview.customerCashSettlement).currency)・下取粗利見込\(grossText)"
     }
 }
 
@@ -1720,7 +1735,7 @@ private struct ManagerPanel: View {
                         .frame(width: 96, alignment: .trailing)
                 }
                 .padding(.vertical, 4)
-                Label("オーナーの営業枠とは別に、販売・仕入担当は1人週7件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
+                Label("オーナーの営業枠とは別に、販売・仕入担当は1人週\(game.employeeWeeklyCaseCapacity)件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .gameCard()
@@ -1736,7 +1751,11 @@ private struct ManagerPanel: View {
                     MetricView(title: "在籍", value: "\(store.staff)名")
                     MetricView(title: "月額給与", value: store.employeeMonthlyPayroll.currency)
                     MetricView(title: "営業枠", value: "週\(game.weeklyOpportunityCapacity(storeID: store.id))回", detail: "オーナー")
-                    MetricView(title: "社員営業枠", value: "週\(store.employees.filter { [.sales, .procurement].contains($0.assignment) }.count * 7)回", detail: "担当社員")
+                    MetricView(
+                        title: "社員営業枠",
+                        value: "週\(store.employees.filter { [.sales, .procurement].contains($0.assignment) }.count * game.employeeWeeklyCaseCapacity)回",
+                        detail: "担当社員"
+                    )
                 }
                 Text("社員は担当を割り当てないと業務をしてくれません")
                     .font(.caption)
@@ -2152,7 +2171,7 @@ private struct ProcurementInstructionEditor: View {
                 Section("仕入先") {
                     ForEach(ProcurementSource.allCases) { source in
                         Toggle(
-                            "\(source.name)（\(source.isConditionVerified ? "状態確認済" : "査定が必要")）",
+                            "\(source.name)（目安\(source.baselineGrossMarginLabel)・\(source.isConditionVerified ? "状態確認済" : "査定が必要")）",
                             isOn: Binding(
                                 get: { allowedSources.contains(source) },
                                 set: { enabled in
@@ -2162,6 +2181,9 @@ private struct ProcurementInstructionEditor: View {
                             )
                         )
                     }
+                    Text("粗利率は販売価格方針100を基準にした仕入れ時点の目安です。値付け、値引き、相場変動、修理費によって実績はレンジ外になります。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle(instruction == nil ? "仕入れ指示を追加" : "仕入れ指示を編集")
@@ -2692,14 +2714,14 @@ private struct OnlineMarketPanel: View {
                     .foregroundStyle(GameTheme.teal)
             }
 
-            ForEach(listings.prefix(12)) { listing in
+            ForEach(listings) { listing in
                 OnlineListingRow(
                     listing: listing,
                     store: store,
                     plot: plot,
                     manualEnabled: canOperateManually
                 ) { message = $0 }
-                if listing.id != listings.prefix(12).last?.id { Divider() }
+                if listing.id != listings.last?.id { Divider() }
             }
 
             let results = game.onlineBidResults.filter { $0.storeID == store.id }
@@ -2826,8 +2848,16 @@ private struct OnlineListingRow: View {
                     .foregroundStyle(GameTheme.teal)
             } else {
                 if let expectedGrossProfit {
+                    let assessedRetail = expectedGrossProfit
+                        + maxPrice
+                        + listing.fee
+                        + listing.shippingCost
+                        + assessment.repairCostRange.upperBound
+                    let expectedMargin = Int(
+                        (Double(expectedGrossProfit) / Double(max(1, assessedRetail)) * 100).rounded()
+                    )
                     Label(
-                        "査定上限での予測粗利 \(expectedGrossProfit.currency)",
+                        "上限落札・価格方針100での予測粗利 \(expectedGrossProfit.currency)（\(expectedMargin)%）",
                         systemImage: expectedGrossProfit >= 0
                             ? "checkmark.circle.fill"
                             : "exclamationmark.triangle.fill"
@@ -2892,7 +2922,10 @@ private struct ProcurementPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "仕入れ網")
+            SectionTitle(
+                title: "業者間取引（仕入れ網）",
+                subtitle: "指定車種を3台確実に補充。価格方針100で粗利2〜6%が目安です"
+            )
             Picker("探す車種", selection: $category) {
                 ForEach(VehicleCategory.allCases) { item in Text(item.name).tag(item) }
             }
@@ -2916,7 +2949,7 @@ private struct ProcurementPanel: View {
 
             if let quote = dealerQuote {
                 ProcurementRouteRow(
-                    title: "業者間探索・\(quote.vehicleName) 3台",
+                    title: "業者間取引・\(quote.vehicleName) 3台",
                     quote: quote,
                     disabled: game.cash < quote.totalCost || freeCapacity < quote.count
                 ) {
@@ -2934,7 +2967,12 @@ private struct ProcurementPanel: View {
             }
 
             Divider()
-            Text("共有法人案件").font(.subheadline.bold())
+            VStack(alignment: .leading, spacing: 2) {
+                Text("共有法人案件").font(.subheadline.bold())
+                Text("法人放出は複数台一括・価格方針100で粗利5〜10%が目安")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             if !store.facilities.contains(.corporateDesk) {
                 Label("応募には法人窓口が必要です", systemImage: "building.2.fill")
                     .font(.caption2).foregroundStyle(.secondary)
@@ -3000,6 +3038,20 @@ private struct CorporateOpportunityRow: View {
                 Text(opportunity.kind == .fleetDisposal ? "買取提示 \(unitPrice.currency)/台" : "販売提案 \(unitPrice.currency)/台")
                     .font(.caption.bold())
             }
+            if let gross = game.corporateDisposalExpectedGrossProfit(
+                for: opportunity,
+                unitPrice: unitPrice,
+                storeID: store.id
+            ) {
+                let retail = gross + unitPrice
+                let margin = Int((Double(gross) / Double(max(1, retail)) * 100).rounded())
+                Label(
+                    "価格方針100での予測粗利 \(gross.currency)/台（\(margin)%）",
+                    systemImage: gross >= 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.caption2.bold())
+                .foregroundStyle(gross >= 0 ? GameTheme.teal : GameTheme.danger)
+            }
             Button(opportunity.playerStoreID == store.id ? "提案を更新" : "この店舗で応募") {
                 _ = game.submitCorporateBid(opportunityID: opportunity.id, storeID: store.id, unitPrice: unitPrice)
             }
@@ -3029,7 +3081,13 @@ private struct ProcurementRouteRow: View {
                 Text(title).font(.subheadline.bold())
                 Text("\(quote.availabilityLabel)・1台\(quote.unitCost.currency)・\(quote.weeks)週・総額\(quote.totalCost.currency)")
                     .font(.caption.bold()).foregroundStyle(.secondary)
-                Text("販売予測 \(quote.expectedRetailPrice.currency)・予測粗利 \(quote.expectedGrossProfit.currency)/台")
+                let expectedMargin = Int(
+                    (Double(quote.expectedGrossProfit) / Double(max(1, quote.expectedRetailPrice)) * 100).rounded()
+                )
+                Text(
+                    "価格方針100の販売予測 \(quote.expectedRetailPrice.currency)"
+                        + "・予測粗利 \(quote.expectedGrossProfit.currency)/台（\(expectedMargin)%）"
+                )
                     .font(.caption2.bold())
                     .foregroundStyle(quote.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
             }
@@ -3297,6 +3355,9 @@ private struct StoreFinancePanel: View {
                 Divider()
                 Text("広告予算  \(store.advertising.currency)/月").font(.subheadline.bold())
                 Slider(value: Binding(get: { Double(store.advertising) }, set: { value in var changed = store; changed.advertising = Int(value); update(changed) }), in: 0...500, step: 20).tint(GameTheme.orange)
+                Text("設定額だけが月次PLに計上されます。初期値は0で、集客を店長へ委任すると店長が予算を調整します。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .gameCard()
 

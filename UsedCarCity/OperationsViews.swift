@@ -531,6 +531,9 @@ struct StoreSettingsView: View {
                             SectionTitle(title: "広告と整備能力", subtitle: "整備担当の工数と設備ベイは独立した制約です")
                             Text("広告予算  \(store.wrappedValue.advertising.currency)/月").font(.subheadline.bold())
                             Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...500, step: 20).tint(GameTheme.orange)
+                            Text("設定額だけを費用計上。新規店舗は0から開始し、集客を店長へ委任した場合は自動調整されます。")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                             HStack {
                                 MetricView(title: "週次工数", value: "\(store.wrappedValue.weeklyWorkshopLabor)")
                                 MetricView(
@@ -546,10 +549,10 @@ struct StoreSettingsView: View {
                             HStack {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
-                                MetricView(title: "営業枠", value: "週7回")
+                                MetricView(title: "営業枠", value: "1人週\(game.employeeWeeklyCaseCapacity)回")
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は1人週7件まで、登録した指示を4経路で処理します。")
+                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は1人週\(game.employeeWeeklyCaseCapacity)件まで、登録した指示を4経路で処理します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

@@ -953,18 +953,20 @@ final class LongTermSimulationRunner {
         let age = game.averageInventoryWeeks(storeID: storeID)
         if age > 12 {
             store.salesPolicy = .volume
-            store.priceIndex = strategy == .adaptive ? 0.98 : 0.94
+            store.priceIndex = strategy == .adaptive ? 0.98 : (strategy == .survival ? 1.00 : 0.94)
         } else if age > 8 {
             store.salesPolicy = .balanced
-            store.priceIndex = strategy == .adaptive ? 1.03 : 0.99
+            store.priceIndex = strategy == .adaptive ? 1.03 : (strategy == .survival ? 1.06 : 0.99)
         } else {
             store.salesPolicy = strategy == .growth ? .balanced : .profit
-            store.priceIndex = strategy == .growth ? 0.99 : (strategy == .adaptive ? 1.10 : 1.03)
+            store.priceIndex = strategy == .growth
+                ? 0.99
+                : (strategy == .adaptive ? 1.10 : 1.12)
         }
 
         switch strategy {
         case .survival:
-            store.advertising = 60
+            store.advertising = 20
         case .growth:
             let profitableWeeks = game.reports.prefix(12).filter { $0.operatingProfit > 0 }.count
             store.advertising = min(320, 120 + profitableWeeks * 15)

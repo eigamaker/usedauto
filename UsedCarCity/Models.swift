@@ -893,9 +893,9 @@ enum StoreTrafficLevel: Int, CaseIterable, Equatable {
     static func from(visitorCount: Int) -> StoreTrafficLevel {
         switch max(0, visitorCount) {
         case 0: .quiet
-        case 1...2: .light
-        case 3...5: .steady
-        case 6...9: .busy
+        case 1...9: .light
+        case 10...24: .steady
+        case 25...49: .busy
         default: .packed
         }
     }
@@ -2191,6 +2191,16 @@ enum ProcurementSource: String, Codable, Hashable, CaseIterable, Identifiable {
         case .storePurchase, .tradeIn, .online: false
         }
     }
+    var baselineGrossMarginLabel: String {
+        switch self {
+        case .storePurchase: "12〜28%"
+        case .tradeIn: "8〜20%"
+        case .auction: "-5〜25%"
+        case .dealerTrade: "2〜6%"
+        case .corporateLot: "5〜10%"
+        case .online: "-10〜25%"
+        }
+    }
 }
 
 /// Player-facing inspection information. The true condition stays on the
@@ -3081,7 +3091,7 @@ struct Store: Identifiable, Codable, Hashable {
         self.facilities = facilities
         self.inventory = inventory
         self.employees = employees
-        advertising = 80
+        advertising = 0
         priceIndex = 1.0
         reputation = 0.65
         serviceAllocation = 0.35

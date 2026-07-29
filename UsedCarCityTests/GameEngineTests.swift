@@ -702,7 +702,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(suvs.map(\.referenceRetailPrice).max() ?? 0, 600)
     }
 
-    func testVerifiedAuctionStartsWithAtLeastTwelvePercentGrossMargin() throws {
+    func testVerifiedAuctionStartsWithProfitableUpsideAtPricePolicyOneHundred() throws {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, plan: .quality)
@@ -726,7 +726,7 @@ final class GameEngineTests: XCTestCase {
             let sourceCosts = listing.reservePrice
                 + listing.venue.fee
                 + listing.venue.shippingCost
-            XCTAssertLessThanOrEqual(sourceCosts, minimumRetail * 88 / 100)
+            XCTAssertLessThanOrEqual(sourceCosts, minimumRetail * 85 / 100)
             XCTAssertGreaterThanOrEqual(
                 try XCTUnwrap(
                     game.auctionExpectedGrossProfit(
@@ -735,7 +735,7 @@ final class GameEngineTests: XCTestCase {
                         maxPrice: listing.reservePrice
                     )
                 ),
-                minimumRetail * 12 / 100
+                minimumRetail * 15 / 100
             )
         }
     }
@@ -751,7 +751,9 @@ final class GameEngineTests: XCTestCase {
         let model = try XCTUnwrap(VehicleCatalog.entry(id: modelID))
 
         XCTAssertEqual(quote.vehicleName, model.fullName)
-        XCTAssertGreaterThanOrEqual(quote.expectedGrossProfit, quote.expectedRetailPrice * 10 / 100)
+        let expectedMargin = Double(quote.expectedGrossProfit) / Double(quote.expectedRetailPrice)
+        XCTAssertGreaterThanOrEqual(expectedMargin, 0.00)
+        XCTAssertLessThanOrEqual(expectedMargin, 0.08)
         XCTAssertTrue(game.orderDealerTrade(category: .sedan, count: 3, storeID: store.id, origin: .imported))
         XCTAssertEqual(game.inboundShipments.last?.modelID, modelID)
         XCTAssertEqual(game.inboundShipments.last?.modelYear, quote.modelYear)
@@ -925,7 +927,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(game.competitorAuctionPurchases.contains { purchase in
             purchase.listingID == listing.id && purchase.competitorID == result?.winningCompetitorID
         })
-        XCTAssertEqual(game.auctionListings.count, 30)
+        XCTAssertEqual(game.auctionListings.count, 72)
     }
 
     func testCompetitorAuctionPurchasePaysAllCostsAndAddsActualInventory() throws {
@@ -1091,7 +1093,13 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertNotNil(localQuote)
         XCTAssertNotNil(remoteQuote)
-        XCTAssertLessThan(localQuote?.unitCost ?? .max, remoteQuote?.unitCost ?? .min)
+        let localMargin = localQuote.map {
+            Double($0.expectedGrossProfit) / Double(max(1, $0.expectedRetailPrice))
+        } ?? -.infinity
+        let remoteMargin = remoteQuote.map {
+            Double($0.expectedGrossProfit) / Double(max(1, $0.expectedRetailPrice))
+        } ?? .infinity
+        XCTAssertGreaterThan(localMargin, remoteMargin)
         XCTAssertLessThanOrEqual(localQuote?.weeks ?? .max, remoteQuote?.weeks ?? .min)
     }
 
@@ -1112,7 +1120,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.incomingCount(for: store.id), opportunity.count)
     }
 
-    func testCorporateDisposalReferenceKeepsFifteenPercentGrossMargin() throws {
+    func testCorporateDisposalReferenceTargetsFiveToTenPercentGrossMargin() throws {
         let game = GameEngine(persistenceEnabled: false)
         game.resetGame(simulationSeed: 47)
         game.startNewGame(simulationSeed: 47)
@@ -1135,8 +1143,19 @@ final class GameEngineTests: XCTestCase {
                     in: $0
                 )
             }.min())
-            XCTAssertLessThanOrEqual(opportunity.unitPrice, minimumRetail * 85 / 100)
+            let margin = Double(minimumRetail - opportunity.unitPrice) / Double(minimumRetail)
+            XCTAssertGreaterThanOrEqual(margin, 0.045)
+            XCTAssertLessThanOrEqual(margin, 0.105)
         }
+    }
+
+    func testProcurementSourcesExposePricePolicyOneHundredMarginGuides() {
+        XCTAssertEqual(ProcurementSource.storePurchase.baselineGrossMarginLabel, "12〜28%")
+        XCTAssertEqual(ProcurementSource.tradeIn.baselineGrossMarginLabel, "8〜20%")
+        XCTAssertEqual(ProcurementSource.auction.baselineGrossMarginLabel, "-5〜25%")
+        XCTAssertEqual(ProcurementSource.dealerTrade.baselineGrossMarginLabel, "2〜6%")
+        XCTAssertEqual(ProcurementSource.corporateLot.baselineGrossMarginLabel, "5〜10%")
+        XCTAssertEqual(ProcurementSource.online.baselineGrossMarginLabel, "-10〜25%")
     }
 
     func testCorporatePurchaseBidReservesInventoryUntilWithdrawal() throws {
@@ -2088,10 +2107,20 @@ final class GameEngineTests: XCTestCase {
             financialRule: .maximumOffer(10_000),
             category: nil,
             modelID: nil,
-            faultOnly: false
+            faultOnly: false,
+            allowedSources: [.dealerTrade]
         )
 
-        game.advanceWeek()
+        for _ in 0..<4 {
+            game.advanceWeek()
+            let salesProgress = game.stores[0].employees.first {
+                $0.id == salesEmployee.id
+            }?.salesExperience ?? 0
+            let procurementProgress = game.stores[0].employees.first {
+                $0.id == procurementEmployee.id
+            }?.procurementExperience ?? 0
+            if salesProgress > 0, procurementProgress > 0 { break }
+        }
 
         let updatedSales = game.stores[0].employees.first(where: { $0.id == salesEmployee.id })!
         let updatedProcurement = game.stores[0].employees.first(where: { $0.id == procurementEmployee.id })!

@@ -582,8 +582,12 @@ private struct AuctionBidRow: View {
                 .foregroundStyle(GameTheme.teal)
             } else {
                 if let expectedGrossProfit {
+                    let expectedMargin = retailReferencePrice.map {
+                        Int((Double(expectedGrossProfit) / Double(max(1, $0)) * 100).rounded())
+                    }
                     Label(
-                        "上限落札時の予測粗利 \(expectedGrossProfit.currency)",
+                        "上限落札・価格方針100での予測粗利 \(expectedGrossProfit.currency)"
+                            + (expectedMargin.map { "（\($0)%）" } ?? ""),
                         systemImage: expectedGrossProfit >= 0
                             ? "checkmark.circle.fill"
                             : "exclamationmark.triangle.fill"
