@@ -40,6 +40,14 @@ struct SimulationVehicleTransaction {
     }
 }
 
+enum WeeklyPresentationStage: String, Identifiable {
+    case weeklyReport
+    case monthlyPL
+    case newspaper
+
+    var id: String { rawValue }
+}
+
 @MainActor
 final class GameEngine: ObservableObject {
     @Published var hasStarted = false
@@ -75,8 +83,7 @@ final class GameEngine: ObservableObject {
     @Published var finance = FinanceSnapshot()
     @Published var lastReport: MonthlyReport?
     @Published var lastMonthlyReport: MonthlyPLReport?
-    @Published var showWeeklyReport = false
-    @Published var showMonthlyReport = false
+    @Published var weeklyPresentationStage: WeeklyPresentationStage?
     @Published var gameOver = false
     @Published var tutorialStep: TutorialStep?
     @Published var tutorialPlotID: Int?
@@ -104,6 +111,7 @@ final class GameEngine: ObservableObject {
     var simulationTransactionHandler: ((SimulationVehicleTransaction) -> Void)?
     private var openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord] = [:]
     private var procurementWeekActivities: [ProcurementActivityKey: ProcurementWeekActivity] = [:]
+    private var weeklyPresentationQueue: [WeeklyPresentationStage] = []
     private let persistenceEnabled: Bool
 
     let maxTurns = 480
@@ -216,7 +224,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v46"
+    private static let saveKey = "UsedCarCity.save.v47"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -394,6 +402,13 @@ final class GameEngine: ObservableObject {
             if $0.launchTurn != $1.launchTurn { return $0.launchTurn > $1.launchTurn }
             return $0.fullName < $1.fullName
         }
+    }
+    func availableOrigins(for category: VehicleCategory) -> Set<VehicleOrigin> {
+        VehicleCatalog.availableOrigins(for: category, through: turn)
+    }
+
+    func hasAvailableVehicle(category: VehicleCategory, origin: VehicleOrigin?) -> Bool {
+        !VehicleCatalog.available(category: category, origin: origin, through: turn).isEmpty
     }
     var recentNewVehicleReleases: [VehicleCatalogEntry] {
         VehicleCatalog.releasedNewCars(through: turn)
@@ -637,8 +652,8 @@ final class GameEngine: ObservableObject {
             hasSaveData = true
         }
         hasStarted = false
-        showWeeklyReport = false
-        showMonthlyReport = false
+        weeklyPresentationStage = nil
+        weeklyPresentationQueue = []
         gameOver = false
     }
 
@@ -666,7 +681,7 @@ final class GameEngine: ObservableObject {
         nikkeiMomentum = 0
         demandMomentum = 0
         activeMarketShocks = []
-        careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; lastMonthlyReport = nil; showWeeklyReport = false; showMonthlyReport = false; gameOver = false; tutorialStep = nil; tutorialPlotID = nil
+        careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; lastMonthlyReport = nil; weeklyPresentationStage = nil; weeklyPresentationQueue = []; gameOver = false; tutorialStep = nil; tutorialPlotID = nil
         guide = .dismissed
         guideStorePanelRequest = nil
         unlockedFeatures = ["仕入", "価格設定", "出店"]
@@ -676,6 +691,31 @@ final class GameEngine: ObservableObject {
             hasSaveData = false
             UserDefaults.standard.removeObject(forKey: Self.saveKey)
         }
+    }
+
+    func presentLatestWeeklyReport() {
+        guard lastReport != nil else { return }
+        weeklyPresentationQueue = []
+        weeklyPresentationStage = .weeklyReport
+    }
+
+    func advanceWeeklyPresentationSequence() {
+        weeklyPresentationStage = weeklyPresentationQueue.isEmpty
+            ? nil
+            : weeklyPresentationQueue.removeFirst()
+    }
+
+    func beginWeeklyPresentationSequence(
+        includesWeeklyReport: Bool,
+        includesMonthlyPL: Bool
+    ) {
+        var stages: [WeeklyPresentationStage] = []
+        if includesWeeklyReport { stages.append(.weeklyReport) }
+        if includesMonthlyPL { stages.append(.monthlyPL) }
+        // 新しい週の市況は、自動週次レポート設定に関係なく必ず知らせる。
+        stages.append(.newspaper)
+        weeklyPresentationStage = stages.first
+        weeklyPresentationQueue = Array(stages.dropFirst())
     }
 
     private func apply(_ saved: SaveData) {
@@ -893,10 +933,11 @@ final class GameEngine: ObservableObject {
         return 1 + max(0, 1 - Double(weeks) / 52.0) * 0.18
     }
 
-    private func categoryStockPressure(_ category: VehicleCategory) -> Double {
-        let playerStock = stores.flatMap(\.inventory).filter { $0.category == category }.reduce(0) { $0 + $1.count }
-        let rivalStock = competitors.flatMap(\.branches).flatMap(\.inventory).filter { $0.category == category }.reduce(0) { $0 + $1.count }
-        return min(0.24, Double(max(0, playerStock + rivalStock - 12)) * 0.004)
+    private func normalMarketPressure(_ category: VehicleCategory, in kind: DistrictKind) -> Double {
+        let demand = vehicleDemand(category, in: kind)
+        let supply = vehicleSupply(category, in: kind)
+        let imbalance = demand / max(0.20, supply) - 1
+        return min(1.06, max(0.94, 1 + imbalance * 0.08))
     }
 
     private func catalogGenerationDepreciation(for model: VehicleCatalogEntry) -> Double {
@@ -914,7 +955,23 @@ final class GameEngine: ObservableObject {
         let index = catalogMarketIndex(for: model, in: kind)
         let aging = catalogGenerationDepreciation(for: model)
         let scarcity = usedMarketScarcityPriceFactor(for: model)
-        return max(25, Int(Double(model.baseWholesalePrice) * (0.86 + index * 0.14) * aging * scarcity * (1 + categoryStockPressure(model.category))))
+        let pressure = normalMarketPressure(model.category, in: kind)
+        let wholesale = Int(
+            Double(model.baseWholesalePrice)
+                * (0.86 + index * 0.14)
+                * aging
+                * scarcity
+                * pressure
+        )
+        let retail = rawCatalogRetailPrice(
+            for: model,
+            in: kind,
+            index: index,
+            aging: aging,
+            scarcity: scarcity,
+            pressure: pressure
+        )
+        return max(25, min(wholesale, retail * 80 / 100))
     }
 
     func catalogRetailPrice(for model: VehicleCatalogEntry, in kind: DistrictKind) -> Int {
@@ -924,13 +981,42 @@ final class GameEngine: ObservableObject {
         let index = catalogMarketIndex(for: model, in: kind)
         let aging = catalogGenerationDepreciation(for: model)
         let scarcity = usedMarketScarcityPriceFactor(for: model)
+        let pressure = normalMarketPressure(model.category, in: kind)
+        return rawCatalogRetailPrice(
+            for: model,
+            in: kind,
+            index: index,
+            aging: aging,
+            scarcity: scarcity,
+            pressure: pressure
+        )
+    }
+
+    private func rawCatalogRetailPrice(
+        for model: VehicleCatalogEntry,
+        in kind: DistrictKind,
+        index: Double,
+        aging: Double,
+        scarcity: Double,
+        pressure: Double
+    ) -> Int {
         // 軽・コンパクトは高回転型。需要は厚い一方、1台あたりの値付け余地を抑える。
         let volumeSegmentPriceFactor: Double = switch model.category {
         case .kei: 0.92
         case .compact: 0.95
         default: 1.0
         }
-        return max(35, Int(Double(model.referenceRetailPrice) * volumeSegmentPriceFactor * (0.78 + index * 0.22) * aging * scarcity * (1 + categoryStockPressure(model.category) * 0.35)))
+        return max(
+            35,
+            Int(
+                Double(model.referenceRetailPrice)
+                    * volumeSegmentPriceFactor
+                    * (0.78 + index * 0.22)
+                    * aging
+                    * scarcity
+                    * pressure
+            )
+        )
     }
 
     func vehicleWholesaleValue(modelID: String, category: VehicleCategory, modelYear: Int, mileage: Int, quality: Double, in kind: DistrictKind) -> Int {
@@ -1842,6 +1928,10 @@ final class GameEngine: ObservableObject {
         faultOnly: Bool,
         allowedSources: Set<ProcurementSource> = Set(ProcurementSource.allCases)
     ) -> UUID? {
+        if let category, let origin,
+           !hasAvailableVehicle(category: category, origin: origin) {
+            return nil
+        }
         guard stores.contains(where: { $0.id == storeID }),
               totalBudget > 0,
               financialRule.amount >= 0 else { return nil }
@@ -1865,6 +1955,10 @@ final class GameEngine: ObservableObject {
 
     @discardableResult
     func updateProcurementInstruction(_ changed: ProcurementInstruction) -> Bool {
+        if let category = changed.category, let origin = changed.origin,
+           !hasAvailableVehicle(category: category, origin: origin) {
+            return false
+        }
         guard let index = procurementInstructions.firstIndex(where: { $0.id == changed.id }),
               stores.contains(where: { $0.id == changed.storeID }),
               changed.totalBudget >= changed.spentBudget + changed.reservedBudget,
@@ -2039,7 +2133,20 @@ final class GameEngine: ObservableObject {
               store.inventoryCount + incomingCount(for: storeID) + count <= store.type.capacity else { return false }
         guard cash >= quote.totalCost else { return false }
         cash -= quote.totalCost
-        inboundShipments.append(InboundShipment(id: UUID(), storeID: storeID, source: .dealerTrade, modelID: quote.modelID, category: category, count: count, unitCost: quote.unitCost + quote.fee / count, quality: quote.quality, modelYear: nil, mileage: nil, acquiredTurn: turn, monthsRemaining: quote.weeks))
+        inboundShipments.append(InboundShipment(
+            id: UUID(),
+            storeID: storeID,
+            source: .dealerTrade,
+            modelID: quote.modelID,
+            category: category,
+            count: count,
+            unitCost: quote.unitCost + quote.fee / count,
+            quality: quote.quality,
+            modelYear: quote.modelYear,
+            mileage: quote.mileage,
+            acquiredTurn: turn,
+            monthsRemaining: quote.weeks
+        ))
         simulationTransactionHandler?(SimulationVehicleTransaction(
             turn: turn,
             kind: .acquired,
@@ -2074,7 +2181,12 @@ final class GameEngine: ObservableObject {
            selected.usedMarketTurn <= turn {
             model = selected
         } else {
-            model = vehicleModel(for: category, origin: origin, seed: turn * 193 + categoryIndex(category) * 47)
+            guard let selected = vehicleModelIfAvailable(
+                for: category,
+                origin: origin,
+                seed: turn * 193 + categoryIndex(category) * 47
+            ) else { return nil }
+            model = selected
         }
         let profile = usedVehicleProfile(
             for: model,
@@ -2089,9 +2201,6 @@ final class GameEngine: ObservableObject {
             quality: profile.quality,
             in: plot.district
         )
-        let modelWholesale = model.origin == .imported
-            ? max(calculatedWholesale, Int(Double(model.baseWholesalePrice) * 0.78))
-            : calculatedWholesale
         let multiplier: Double
         let weeks: Int
         let label: String
@@ -2111,16 +2220,36 @@ final class GameEngine: ObservableObject {
         let categorySearchPremium: Double = [.suv, .sports, .sedan].contains(category) || model.origin == .imported ? 0.04 : 0.02
         let sourcingMultiplier = multiplier + scarcityPremium + categorySearchPremium
         let sourceEfficiency = 1 - min(0.15, effectiveSourceExpertise(for: store, source: .dealerTrade) * 0.0015)
+        let fee = 8 + max(0, count - 3) * 2
+        let expectedRetail = vehicleRetailValue(
+            modelID: model.id,
+            category: category,
+            modelYear: profile.modelYear,
+            mileage: profile.mileage,
+            quality: profile.quality,
+            in: plot.district
+        )
+        let minimumGrossProfit = max(1, expectedRetail * 10 / 100)
+        let maximumUnitCost = expectedRetail - minimumGrossProfit - Int(ceil(Double(fee) / Double(count)))
+        guard maximumUnitCost > 0 else { return nil }
+        let marketUnitCost = Int(
+            (Double(calculatedWholesale) * sourcingMultiplier * sourceEfficiency).rounded()
+        )
+        let unitCost = min(marketUnitCost, maximumUnitCost)
         return ProcurementQuote(
             source: .dealerTrade,
             modelID: model.id,
             category: category,
             count: count,
-            unitCost: Int((Double(modelWholesale) * sourcingMultiplier * sourceEfficiency).rounded()),
-            fee: 8 + max(0, count - 3) * 2,
+            unitCost: unitCost,
+            fee: fee,
             weeks: weeks,
-            quality: availability >= 0.85 ? 0.80 : 0.77,
-            availabilityLabel: label
+            quality: profile.quality,
+            availabilityLabel: label,
+            modelYear: profile.modelYear,
+            mileage: profile.mileage,
+            expectedRetailPrice: expectedRetail,
+            expectedGrossProfit: expectedRetail - unitCost - Int(ceil(Double(fee) / Double(count)))
         )
     }
 
@@ -2195,15 +2324,47 @@ final class GameEngine: ObservableObject {
             let category = categories[(turn * 3 + index * 2) % categories.count]
             let kind: CorporateOpportunityKind = index == 0 ? .fleetDisposal : .fleetPurchase
             let count = 3 + abs((turn + index * 3) % 5)
-            let reference = category.purchaseCost
-            let unitPrice = kind == .fleetDisposal ? Int(Double(reference) * 0.78) : Int(Double(reference) * 1.34)
+            let district = DistrictKind.allCases[(turn + index * 2) % DistrictKind.allCases.count]
+            let model = kind == .fleetDisposal
+                ? vehicleModel(for: category, origin: .domestic, seed: turn * 307 + index * 41)
+                : nil
+            let profile = model.map {
+                usedVehicleProfile(for: $0, seed: turn * 313 + index * 43, maximumAge: 8)
+            }
+            let unitPrice: Int
+            if let model, let profile {
+                let wholesale = vehicleWholesaleValue(
+                    modelID: model.id,
+                    category: category,
+                    modelYear: profile.modelYear,
+                    mileage: profile.mileage,
+                    quality: profile.quality,
+                    in: district
+                )
+                let retail = DistrictKind.allCases.map {
+                    vehicleRetailValue(
+                        modelID: model.id,
+                        category: category,
+                        modelYear: profile.modelYear,
+                        mileage: profile.mileage,
+                        quality: profile.quality,
+                        in: $0
+                    )
+                }.min() ?? category.purchaseCost * 13 / 10
+                unitPrice = min(wholesale * 92 / 100, retail * 85 / 100)
+            } else {
+                unitPrice = Int(Double(category.purchaseCost) * 1.34)
+            }
             corporateOpportunities.append(CorporateOpportunity(
                 id: UUID(), kind: kind,
-                district: DistrictKind.allCases[(turn + index * 2) % DistrictKind.allCases.count],
+                district: district,
                 category: category,
                 purpose: kind == .fleetPurchase ? (category == .pickup ? .work : .corporate) : .general,
                 count: count, unitPrice: unitPrice,
-                quality: kind == .fleetDisposal ? 0.68 : 0.78,
+                quality: profile?.quality ?? (kind == .fleetDisposal ? 0.68 : 0.78),
+                modelID: model?.id,
+                modelYear: profile?.modelYear,
+                mileage: profile?.mileage,
                 createdTurn: turn, dueTurn: turn + 1,
                 playerStoreID: nil, playerUnitPrice: nil, reservedInventoryIDs: [],
                 resolved: false, winnerName: nil
@@ -2282,7 +2443,20 @@ final class GameEngine: ObservableObject {
                     let total = bid * opportunity.count
                     if cash >= total && stores[storeIndex].inventoryCount + opportunity.count <= stores[storeIndex].type.capacity {
                         cash -= total
-                        inboundShipments.append(InboundShipment(id: UUID(), storeID: storeID, source: .corporateLot, modelID: nil, category: opportunity.category, count: opportunity.count, unitCost: bid, quality: opportunity.quality, modelYear: nil, mileage: nil, acquiredTurn: resolvingTurn, monthsRemaining: 1))
+                        inboundShipments.append(InboundShipment(
+                            id: UUID(),
+                            storeID: storeID,
+                            source: .corporateLot,
+                            modelID: opportunity.modelID,
+                            category: opportunity.category,
+                            count: opportunity.count,
+                            unitCost: bid,
+                            quality: opportunity.quality,
+                            modelYear: opportunity.modelYear,
+                            mileage: opportunity.mileage,
+                            acquiredTurn: resolvingTurn,
+                            monthsRemaining: 1
+                        ))
                         simulationTransactionHandler?(SimulationVehicleTransaction(
                             turn: resolvingTurn,
                             kind: .acquired,
@@ -2596,6 +2770,53 @@ final class GameEngine: ObservableObject {
             storeID: storeID,
             seed: listing.modelYear * 103 + listing.mileage / 100 + categoryIndex(listing.category)
         )
+    }
+
+    func auctionExpectedGrossProfit(
+        for listing: AuctionListing,
+        storeID: UUID,
+        maxPrice: Int
+    ) -> Int? {
+        guard let store = stores.first(where: { $0.id == storeID }),
+              let plot = plot(id: store.plotID) else { return nil }
+        let retail = vehicleRetailValue(
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            quality: listing.condition.quality,
+            in: plot.district
+        )
+        let repair = estimatedSourcingRepairCost(
+            category: listing.category,
+            fault: listing.fault,
+            condition: listing.condition,
+            storeID: storeID
+        )
+        return retail - maxPrice - listing.venue.fee - listing.venue.shippingCost - repair
+    }
+
+    func onlineExpectedGrossProfit(
+        for listing: OnlineListing,
+        storeID: UUID,
+        maxPrice: Int
+    ) -> Int? {
+        guard let store = stores.first(where: { $0.id == storeID }),
+              let plot = plot(id: store.plotID) else { return nil }
+        let assessment = onlineAssessment(for: listing, storeID: storeID)
+        let retail = vehicleRetailValue(
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            quality: Double(assessment.estimatedCondition) / 100,
+            in: plot.district
+        )
+        return retail
+            - maxPrice
+            - listing.fee
+            - listing.shippingCost
+            - assessment.repairCostRange.upperBound
     }
 
     func tradeInAssessment(for tradeIn: TradeInVehicle, storeID: UUID) -> VehicleAssessment {
@@ -4755,10 +4976,13 @@ final class GameEngine: ObservableObject {
         let reportYear = year, reportMonth = month, reportWeek = weekOfMonth
         var totalSales = 0, revenue = 0, costOfSales = 0, personnel = 0, rent = 0, ads = 0, depreciation = 0
         var revenueToCollect = 0
+        var weeklyNegotiations = 0
+        var weeklyTradeIns = 0
         var notes: [String] = []
         procurementWeekActivities = [:]
         beginProcurementWeek()
         beginEmployeeWeek()
+        let resolvedClaimCount = pendingCustomerClaims.filter { $0.dueTurn <= turn + 1 }.count
         let claimCostsByStore = resolveCustomerClaims(at: turn + 1, notes: &notes)
         let claimCosts = claimCostsByStore.values.reduce(0, +)
         processInboundShipments(notes: &notes)
@@ -4800,6 +5024,8 @@ final class GameEngine: ObservableObject {
             let automatic = automaticSalesByStore[stores[index].id] ?? AutomaticSaleResult()
             let manualSales = stores[index].pendingManualSales
             let sales = automatic.sales + manualSales
+            weeklyNegotiations += automatic.attempts + stores[index].pendingManualNegotiations
+            weeklyTradeIns += automatic.tradeIns
 
             let storeRevenue = stores[index].pendingManualRevenue
                 + stores[index].pendingCustomizationRevenue
@@ -4879,7 +5105,7 @@ final class GameEngine: ObservableObject {
         updateMarketConditions(notes: &notes)
         updateLandValues(notes: &notes)
         progressDevelopments(notes: &notes)
-        expireWeeklyCustomerLeads(notes: &notes)
+        let missedBuyers = expireWeeklyCustomerLeads(notes: &notes)
         progressInventorySaleCampaigns(notes: &notes)
         finalizeSegmentWeek(notes: &notes)
         updateSegmentTrends(at: turn + 1, notes: &notes)
@@ -4961,7 +5187,15 @@ final class GameEngine: ObservableObject {
                     operatingProfit: $0.lastProfit,
                     causes: $0.causes
                 )
-            }
+            },
+            salesSummary: WeeklySalesSummary(
+                negotiations: weeklyNegotiations,
+                sales: totalSales,
+                missedBuyers: missedBuyers,
+                tradeIns: weeklyTradeIns,
+                claimCount: resolvedClaimCount,
+                claimCost: claimCosts
+            )
         )
         reports.insert(report, at: 0); lastReport = report
         if reportWeek == 4 {
@@ -4976,8 +5210,10 @@ final class GameEngine: ObservableObject {
         let automaticallyShowReport = persistenceEnabled
             ? UserDefaults.standard.object(forKey: "settings.autoShowWeeklyReport") as? Bool ?? true
             : false
-        showMonthlyReport = automaticallyShowReport && reportWeek == 4
-        showWeeklyReport = automaticallyShowReport && reportWeek != 4
+        beginWeeklyPresentationSequence(
+            includesWeeklyReport: automaticallyShowReport,
+            includesMonthlyPL: automaticallyShowReport && reportWeek == 4
+        )
         if financialDistressWeeks >= 2 { gameOver = true }
         if turn >= maxTurns { gameOver = true }
         recalculateAssets()
@@ -6491,7 +6727,22 @@ final class GameEngine: ObservableObject {
             for category in VehicleCategory.allCases {
                 let current = districts[index].demands[category] ?? 0.68
                 let categoryShift = (deterministicVariation(seed: turn * 43 + index * 13 + categoryIndex(category)) - 1) * 0.004
-                districts[index].demands[category] = min(1.75, max(0.38, current + categoryShift))
+                let nextDemand = min(1.75, max(0.38, current + categoryShift))
+                districts[index].demands[category] = nextDemand
+
+                // 持ち込み供給は地域需要を後追いする。完全一致にはせず、
+                // 地域差と週ごとの品薄・だぶつきは残す。
+                let currentSupply = districts[index].supplies[category] ?? 0.58
+                let supplyNoise = (
+                    deterministicVariation(
+                        seed: turn * 47 + index * 17 + categoryIndex(category) * 3
+                    ) - 1
+                ) * 0.003
+                let demandCorrection = (nextDemand - currentSupply) * 0.035
+                districts[index].supplies[category] = min(
+                    1.65,
+                    max(0.34, currentSupply + demandCorrection + supplyNoise)
+                )
             }
             let storesInDistrict = competitorCount(in: districts[index].kind) + stores.filter { plot(id: $0.plotID)?.district == districts[index].kind }.count
             districts[index].competition = min(1.75, max(0.42, 0.52 + Double(storesInDistrict) * 0.17 + districts[index].trafficIndex * 0.18))
@@ -6538,11 +6789,17 @@ final class GameEngine: ObservableObject {
         VehicleCategory.allCases.firstIndex(of: category) ?? 0
     }
 
-    private func vehicleModel(for category: VehicleCategory, origin: VehicleOrigin? = nil, seed: Int) -> VehicleCatalogEntry {
-        let candidates = VehicleCatalog.available(through: turn).filter {
-            $0.category == category && !$0.isRareClassic && (origin == nil || $0.origin == origin)
-        }
-        precondition(!candidates.isEmpty, "Every vehicle category must have an available catalog model")
+    private func vehicleModelIfAvailable(
+        for category: VehicleCategory,
+        origin: VehicleOrigin? = nil,
+        seed: Int
+    ) -> VehicleCatalogEntry? {
+        let candidates = VehicleCatalog.available(
+            category: category,
+            origin: origin,
+            through: turn
+        )
+        guard !candidates.isEmpty else { return nil }
         let weighted = candidates.map { model -> (model: VehicleCatalogEntry, weight: Double) in
             let identifierSeed = model.id.unicodeScalars.reduce(0) { $0 + Int($1.value) }
             let fashion = deterministicVariation(seed: (turn / 13) * 97 + identifierSeed)
@@ -6561,7 +6818,20 @@ final class GameEngine: ObservableObject {
             cursor -= item.weight
             if cursor <= 0 { return item.model }
         }
-        return weighted.last!.model
+        return weighted.last?.model
+    }
+
+    private func vehicleModel(
+        for category: VehicleCategory,
+        origin: VehicleOrigin? = nil,
+        seed: Int
+    ) -> VehicleCatalogEntry {
+        if let model = vehicleModelIfAvailable(for: category, origin: origin, seed: seed) {
+            return model
+        }
+        // Every category has a domestic or unfiltered base model. Explicitly
+        // unavailable origin filters are handled by the caller before reaching here.
+        return VehicleCatalog.available(category: category, through: turn).first!
     }
 
     private func launchYear(for model: VehicleCatalogEntry) -> Int {
@@ -8041,12 +8311,15 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func expireWeeklyCustomerLeads(notes: inout [String]) {
+    @discardableResult
+    private func expireWeeklyCustomerLeads(notes: inout [String]) -> Int {
+        var totalMissedBuyers = 0
         for store in stores where store.isOperational {
             let missedBuyerLeads = buyerLeads.filter { $0.storeID == store.id }
             let missedSellerCases = purchaseCases.filter { $0.storeID == store.id }
             let missedBuyers = missedBuyerLeads.count
             let missedSellers = missedSellerCases.count
+            totalMissedBuyers += missedBuyers
             for lead in missedBuyerLeads {
                 recordUnattendedReview(customerID: lead.id, storeID: store.id, channel: .buyer)
                 if !competitorFulfillsBuyerLead(lead) {
@@ -8063,6 +8336,7 @@ final class GameEngine: ObservableObject {
         }
         buyerLeads.removeAll()
         purchaseCases.removeAll()
+        return totalMissedBuyers
     }
 
     private func progressInventorySaleCampaigns(notes: inout [String]) {
@@ -8819,7 +9093,19 @@ final class GameEngine: ObservableObject {
         }
         while auctionListings.count < 30 {
             let index = auctionListings.count + turn * 5
-            let venue = AuctionVenue.allCases[index % AuctionVenue.allCases.count]
+            let availableCombinations = VehicleCategory.allCases.flatMap { category in
+                availableOrigins(for: category)
+                    .sorted { $0.rawValue < $1.rawValue }
+                    .map { (category: category, origin: $0) }
+            }
+            let missingCombination = availableCombinations.first { combination in
+                !auctionListings.contains {
+                    $0.category == combination.category
+                        && VehicleCatalog.entry(id: $0.modelID)?.origin == combination.origin
+                        && VehicleCatalog.entry(id: $0.modelID)?.isRareClassic == false
+                }
+            }
+            var venue = AuctionVenue.allCases[index % AuctionVenue.allCases.count]
             let categories: [VehicleCategory]
             switch venue {
             case .east: categories = [.kei, .compact, .minivan]
@@ -8833,6 +9119,14 @@ final class GameEngine: ObservableObject {
             let model: VehicleCatalogEntry
             if isRareClassicListing {
                 model = classicCandidates[abs(index * 7 + turn * 3) % classicCandidates.count]
+            } else if let missingCombination,
+                      let missingModel = vehicleModelIfAvailable(
+                        for: missingCombination.category,
+                        origin: missingCombination.origin,
+                        seed: index * 43 + turn * 101
+                      ) {
+                model = missingModel
+                venue = auctionVenue(for: missingModel)
             } else {
                 let normalCategory = categories[(index / 2 + turn) % categories.count]
                 let premiumOrigin: VehicleOrigin? = venue == .premium
@@ -8859,11 +9153,38 @@ final class GameEngine: ObservableObject {
                 quality: profile.quality,
                 in: pricingDistrict
             )
-            let premiumImportFloor = model.origin == .imported ? Int(Double(model.baseWholesalePrice) * 0.75) : 35
             let vehicleState = sourcingVehicleState(quality: profile.quality, seed: index * 197 + turn * 131, faultRate: 0.14)
             let faultDiscount = sourcingFaultDiscount(vehicleState.fault)
-            let market = max(18, Int(Double(max(35, premiumImportFloor, calculatedMarket)) * faultDiscount))
-            let reserve = max(28, market * (78 + (index % 13)) / 100)
+            let rawMarket = max(18, Int(Double(calculatedMarket) * faultDiscount))
+            let market: Int
+            let reserve: Int
+            if model.isRareClassic {
+                market = rawMarket
+                reserve = max(28, market * (78 + (index % 13)) / 100)
+            } else {
+                let retail = DistrictKind.allCases.map {
+                    vehicleRetailValue(
+                        modelID: model.id,
+                        category: category,
+                        modelYear: profile.modelYear,
+                        mileage: profile.mileage,
+                        quality: vehicleState.condition.quality,
+                        in: $0
+                    )
+                }.min() ?? category.purchaseCost * 13 / 10
+                let repair = estimatedSourcingRepairCost(
+                    category: category,
+                    fault: vehicleState.fault,
+                    condition: vehicleState.condition,
+                    storeID: nil
+                )
+                let profitableHammer = max(
+                    10,
+                    retail * 88 / 100 - repair - venue.fee - venue.shippingCost
+                )
+                market = min(rawMarket, profitableHammer)
+                reserve = min(market, max(10, market * (78 + (index % 13)) / 100))
+            }
             let seller = isRareClassicListing
                 ? "コレクター放出・現状渡し"
                 : venue == .premium ? "輸入車正規店・下取車" : (index.isMultiple(of: 3) ? "法人リース" : "中古車業者")
@@ -8882,6 +9203,18 @@ final class GameEngine: ObservableObject {
                 seller: seller,
                 createdTurn: turn
             ))
+        }
+    }
+
+    private func auctionVenue(for model: VehicleCatalogEntry) -> AuctionVenue {
+        if model.isRareClassic { return .premium }
+        if model.origin == .imported {
+            return [.minivan, .pickup].contains(model.category) ? .port : .premium
+        }
+        return switch model.category {
+        case .kei, .compact, .minivan: .east
+        case .pickup: .port
+        case .sedan, .suv, .sports: .premium
         }
     }
 
@@ -8926,8 +9259,24 @@ final class GameEngine: ObservableObject {
         }
         while onlineListings.count < 30 {
             let index = onlineListings.count + turn * 7
-            let category = VehicleCategory.allCases[(index * 5 + turn) % VehicleCategory.allCases.count]
-            let model = vehicleModel(for: category, seed: index * 73 + turn * 149)
+            let availableCombinations = VehicleCategory.allCases.flatMap { category in
+                availableOrigins(for: category)
+                    .sorted { $0.rawValue < $1.rawValue }
+                    .map { (category: category, origin: $0) }
+            }
+            let missingCombination = availableCombinations.first { combination in
+                !onlineListings.contains {
+                    $0.category == combination.category
+                        && VehicleCatalog.entry(id: $0.modelID)?.origin == combination.origin
+                }
+            }
+            let category = missingCombination?.category
+                ?? VehicleCategory.allCases[(index * 5 + turn) % VehicleCategory.allCases.count]
+            let model = vehicleModel(
+                for: category,
+                origin: missingCombination?.origin,
+                seed: index * 73 + turn * 149
+            )
             let profile = usedVehicleProfile(
                 for: model,
                 seed: index * 181 + turn * 127 + 47,
@@ -8946,7 +9295,9 @@ final class GameEngine: ObservableObject {
                 quality: vehicleState.condition.quality,
                 in: .station
             )
-            let market = max(12, Int(Double(calculatedMarket) * sourcingFaultDiscount(vehicleState.fault)))
+            // ネット市場の表示相場には隠れた故障が十分反映されない。
+            // 未検品経路なので、査定担当の精度が実利益を左右する。
+            let market = max(12, calculatedMarket)
             let reserve = max(10, market * (70 + index % 17) / 100)
             let premiumShipping = model.origin == .imported || category == .pickup
             onlineListings.append(OnlineListing(
@@ -9858,7 +10209,7 @@ final class GameEngine: ObservableObject {
             case .kei, .compact: economyMultiplier = 1.20 - (economicIndex - 0.8) * 0.22
             default: economyMultiplier = 0.88 + economicIndex * 0.12
             }
-            let broadDemand = category == .compact ? 1.45 : (category == .kei ? 1.12 : 1.0)
+            let broadDemand = category == .compact ? 1.16 : (category == .kei ? 1.04 : 1.0)
             return (category, max(0.05, demand * economyMultiplier * broadDemand))
         }
         let total = weighted.reduce(0.0) { $0 + $1.1 }
@@ -9875,18 +10226,24 @@ final class GameEngine: ObservableObject {
         let weighted = VehicleCategory.allCases.map { category in
             let ownershipTurnover: Double
             switch category {
-            case .kei: ownershipTurnover = 1.05
+            case .kei: ownershipTurnover = 0.92
             case .compact: ownershipTurnover = 1.0
-            case .sedan: ownershipTurnover = 0.78
-            case .minivan: ownershipTurnover = 0.90
-            case .suv: ownershipTurnover = 0.82
-            case .pickup: ownershipTurnover = 0.62
-            case .sports: ownershipTurnover = 0.64
+            case .sedan: ownershipTurnover = 0.86
+            case .minivan: ownershipTurnover = 0.98
+            case .suv: ownershipTurnover = 0.90
+            case .pickup: ownershipTurnover = 0.76
+            case .sports: ownershipTurnover = 0.72
             }
             let highIncomeTurnover = [.sedan, .suv, .sports].contains(category)
                 ? 0.88 + district.incomeIndex * 0.24
                 : 1.0
-            return (category, max(0.08, (district.supplies[category] ?? 0.58) * ownershipTurnover * highIncomeTurnover))
+            let supply = district.supplies[category] ?? 0.58
+            let demand = district.demands[category] ?? 0.58
+            let balancedAvailability = supply * 0.60 + demand * 0.40
+            return (
+                category,
+                max(0.08, balancedAvailability * ownershipTurnover * highIncomeTurnover)
+            )
         }
         let total = weighted.reduce(0.0) { $0 + $1.1 }
         var cursor = transactionRoll(seed: seed) * total

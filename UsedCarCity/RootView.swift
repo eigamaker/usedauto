@@ -37,11 +37,22 @@ struct RootView: View {
                         CityMapView(isExpanded: $isMapExpanded)
                     }
                 }
-                .sheet(isPresented: $game.showWeeklyReport) {
-                    if let report = game.lastReport { MonthlyReportView(report: report) }
-                }
-                .sheet(isPresented: $game.showMonthlyReport) {
-                    if let report = game.lastMonthlyReport { MonthlyPLDashboardView(report: report) }
+                .sheet(
+                    item: $game.weeklyPresentationStage,
+                    onDismiss: game.advanceWeeklyPresentationSequence
+                ) { stage in
+                    switch stage {
+                    case .weeklyReport:
+                        if let report = game.lastReport {
+                            MonthlyReportView(report: report)
+                        }
+                    case .monthlyPL:
+                        if let report = game.lastMonthlyReport {
+                            MonthlyPLDashboardView(report: report)
+                        }
+                    case .newspaper:
+                        MarketNewspaperView()
+                    }
                 }
                 .sheet(isPresented: $game.gameOver) {
                     GameEndView()

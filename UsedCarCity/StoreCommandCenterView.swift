@@ -2124,6 +2124,11 @@ private struct ProcurementInstructionEditor: View {
                         Text("指定なし").tag(VehicleOrigin?.none)
                         ForEach(VehicleOrigin.allCases) { item in
                             Text(item.name).tag(Optional(item))
+                                .disabled(
+                                    category.map {
+                                        !game.hasAvailableVehicle(category: $0, origin: item)
+                                    } ?? false
+                                )
                         }
                     }
                     Picker("車種", selection: $modelID) {
@@ -2162,12 +2167,21 @@ private struct ProcurementInstructionEditor: View {
             .navigationTitle(instruction == nil ? "仕入れ指示を追加" : "仕入れ指示を編集")
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: category) { _, newCategory in
+                if let newCategory, let origin,
+                   !game.hasAvailableVehicle(category: newCategory, origin: origin) {
+                    self.origin = nil
+                }
                 if let modelID,
                    VehicleCatalog.entry(id: modelID)?.category != newCategory {
                     self.modelID = nil
                 }
             }
             .onChange(of: origin) { _, newOrigin in
+                if let category, let newOrigin,
+                   !game.hasAvailableVehicle(category: category, origin: newOrigin) {
+                    self.origin = nil
+                    return
+                }
                 if let modelID,
                    VehicleCatalog.entry(id: modelID)?.origin != newOrigin {
                     self.modelID = nil
@@ -2766,6 +2780,13 @@ private struct OnlineListingRow: View {
     private var assessment: VehicleAssessment {
         game.onlineAssessment(for: listing, storeID: store.id)
     }
+    private var expectedGrossProfit: Int? {
+        game.onlineExpectedGrossProfit(
+            for: listing,
+            storeID: store.id,
+            maxPrice: maxPrice
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -2804,6 +2825,16 @@ private struct OnlineListingRow: View {
                     .font(.caption2.bold())
                     .foregroundStyle(GameTheme.teal)
             } else {
+                if let expectedGrossProfit {
+                    Label(
+                        "査定上限での予測粗利 \(expectedGrossProfit.currency)",
+                        systemImage: expectedGrossProfit >= 0
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption.bold())
+                    .foregroundStyle(expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
+                }
                 HStack {
                     Stepper(
                         "上限 \(maxPrice.currency)",
@@ -2870,6 +2901,7 @@ private struct ProcurementPanel: View {
                 Text("国産・輸入の両方").tag(VehicleOrigin?.none)
                 ForEach(VehicleOrigin.allCases) { item in
                     Text(item.name).tag(Optional(item))
+                        .disabled(!game.hasAvailableVehicle(category: category, origin: item))
                 }
             }
             .pickerStyle(.segmented)
@@ -2892,6 +2924,13 @@ private struct ProcurementPanel: View {
                         ? "\(quote.vehicleName)3台を手配しました。\(quote.weeks)週間後に入庫します。"
                         : "現金または展示枠が不足しています。"
                 }
+            } else if let origin {
+                Label(
+                    "\(origin.name)の\(category.name)は市場に存在しません",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption.bold())
+                .foregroundStyle(GameTheme.orange)
             }
 
             Divider()
@@ -2911,6 +2950,18 @@ private struct ProcurementPanel: View {
         .gameCard()
         .onAppear {
             category = game.recommendedCategories(for: plot.district).first ?? .pickup
+        }
+        .onChange(of: category) { _, newCategory in
+            if let origin,
+               !game.hasAvailableVehicle(category: newCategory, origin: origin) {
+                self.origin = nil
+            }
+        }
+        .onChange(of: origin) { _, newOrigin in
+            if let newOrigin,
+               !game.hasAvailableVehicle(category: category, origin: newOrigin) {
+                origin = nil
+            }
         }
         .alert("仕入れ手配", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("OK") { message = nil }
@@ -2938,8 +2989,13 @@ private struct CorporateOpportunityRow: View {
                 Spacer()
                 Text("締切 次週").font(.caption2.bold()).foregroundStyle(GameTheme.orange)
             }
-            Text("\(opportunity.category.name) \(opportunity.count)台・\(opportunity.purpose.name)用途・基準\(opportunity.unitPrice.currency)/台")
+            Text("\(opportunity.vehicleName) \(opportunity.count)台・\(opportunity.purpose.name)用途・基準\(opportunity.unitPrice.currency)/台")
                 .font(.caption2).foregroundStyle(.secondary)
+            if let year = opportunity.modelYear, let mileage = opportunity.mileage {
+                Text("\(year)年・\(mileage.formatted())km・状態\(Int((opportunity.quality * 100).rounded()))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             Stepper(value: $unitPrice, in: max(10, opportunity.unitPrice * 60 / 100)...opportunity.unitPrice * 140 / 100, step: 5) {
                 Text(opportunity.kind == .fleetDisposal ? "買取提示 \(unitPrice.currency)/台" : "販売提案 \(unitPrice.currency)/台")
                     .font(.caption.bold())
@@ -2973,6 +3029,9 @@ private struct ProcurementRouteRow: View {
                 Text(title).font(.subheadline.bold())
                 Text("\(quote.availabilityLabel)・1台\(quote.unitCost.currency)・\(quote.weeks)週・総額\(quote.totalCost.currency)")
                     .font(.caption.bold()).foregroundStyle(.secondary)
+                Text("販売予測 \(quote.expectedRetailPrice.currency)・予測粗利 \(quote.expectedGrossProfit.currency)/台")
+                    .font(.caption2.bold())
+                    .foregroundStyle(quote.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
             }
             Spacer()
             Button("手配", action: action)

@@ -345,6 +345,25 @@ enum VehicleCatalog {
         all.filter { $0.usedMarketTurn <= turn }
     }
 
+    static func available(
+        category: VehicleCategory,
+        origin: VehicleOrigin? = nil,
+        through turn: Int
+    ) -> [VehicleCatalogEntry] {
+        available(through: turn).filter {
+            $0.category == category
+                && !$0.isRareClassic
+                && (origin == nil || $0.origin == origin)
+        }
+    }
+
+    static func availableOrigins(
+        for category: VehicleCategory,
+        through turn: Int
+    ) -> Set<VehicleOrigin> {
+        Set(available(category: category, through: turn).map(\.origin))
+    }
+
     static var rareClassics: [VehicleCatalogEntry] { all.filter(\.isRareClassic) }
 
     private struct AnnualLine {
@@ -2407,6 +2426,10 @@ struct ProcurementQuote: Hashable {
     let weeks: Int
     let quality: Double
     let availabilityLabel: String
+    let modelYear: Int?
+    let mileage: Int?
+    let expectedRetailPrice: Int
+    let expectedGrossProfit: Int
 
     var totalCost: Int { unitCost * count + fee }
     var vehicleName: String {
@@ -2567,6 +2590,9 @@ struct CorporateOpportunity: Identifiable, Codable, Hashable {
     let count: Int
     let unitPrice: Int
     let quality: Double
+    let modelID: String?
+    let modelYear: Int?
+    let mileage: Int?
     let createdTurn: Int
     let dueTurn: Int
     var playerStoreID: UUID?
@@ -2574,6 +2600,11 @@ struct CorporateOpportunity: Identifiable, Codable, Hashable {
     var reservedInventoryIDs: [UUID]
     var resolved: Bool
     var winnerName: String?
+
+    var vehicleName: String {
+        guard let modelID else { return category.name }
+        return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
+    }
 }
 
 struct AuctionConsignment: Identifiable, Codable, Hashable {
@@ -3376,6 +3407,15 @@ struct StoreWeeklyResult: Identifiable, Codable, Hashable {
     var id: UUID { storeID }
 }
 
+struct WeeklySalesSummary: Codable, Hashable {
+    let negotiations: Int
+    let sales: Int
+    let missedBuyers: Int
+    let tradeIns: Int
+    let claimCount: Int
+    let claimCost: Int
+}
+
 enum WeeklyReportCategory: String, CaseIterable, Identifiable {
     case procurement
     case sales
@@ -3445,6 +3485,7 @@ struct MonthlyReport: Identifiable, Codable, Hashable {
     let notes: [String]
     let procurement: [ProcurementReportLine]
     let storeResults: [StoreWeeklyResult]
+    let salesSummary: WeeklySalesSummary
 
     func notes(in category: WeeklyReportCategory) -> [String] {
         notes.filter { WeeklyReportCategory.category(for: $0) == category }

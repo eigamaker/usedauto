@@ -165,7 +165,7 @@ struct CityMapView: View {
             selectedPlot = plot
         case .openWeeklyReport:
             guard game.lastReport != nil else { return }
-            game.showWeeklyReport = true
+            game.presentLatestWeeklyReport()
         case .openProfitLossLesson:
             showGuideProfitLoss = true
         }

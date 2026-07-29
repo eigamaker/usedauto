@@ -436,6 +436,31 @@ struct MonthlyReportView: View {
                         MetricView(title: "現金増減", value: report.cashChange.currency, tint: report.cashChange >= 0 ? GameTheme.teal : GameTheme.danger)
                     }
                     .gameCard()
+                    VStack(alignment: .leading, spacing: 11) {
+                        SectionTitle(
+                            title: "販売ダッシュボード",
+                            subtitle: "商談から成約、見送り、販売後対応まで"
+                        )
+                        HStack {
+                            MetricView(title: "商談", value: "\(report.salesSummary.negotiations)件")
+                            MetricView(title: "成約", value: "\(report.salesSummary.sales)台")
+                            MetricView(
+                                title: "見送り客",
+                                value: "\(report.salesSummary.missedBuyers)人",
+                                tint: report.salesSummary.missedBuyers == 0 ? GameTheme.teal : GameTheme.orange
+                            )
+                        }
+                        HStack {
+                            MetricView(title: "下取り", value: "\(report.salesSummary.tradeIns)台")
+                            MetricView(
+                                title: "クレーム",
+                                value: "\(report.salesSummary.claimCount)件",
+                                tint: report.salesSummary.claimCount == 0 ? GameTheme.teal : GameTheme.danger
+                            )
+                            MetricView(title: "補償費", value: report.salesSummary.claimCost.currency)
+                        }
+                    }
+                    .gameCard()
                     if let comparison = game.weeklyComparison(for: report) {
                         VStack(alignment: .leading, spacing: 11) {
                             SectionTitle(title: "前週からの変化", subtitle: "同じ指標を並べ、良化・悪化をすばやく確認")
@@ -465,8 +490,13 @@ struct MonthlyReportView: View {
                                     Spacer()
                                     Text("\(store.sales)台 / \(store.operatingProfit.currency)").font(.caption.bold())
                                 }
-                                ForEach(store.causes) { cause in
+                                ForEach(Array(store.causes.prefix(2))) { cause in
                                     HStack { Text(cause.effect >= 0 ? "+" : "−").foregroundStyle(cause.effect >= 0 ? GameTheme.teal : GameTheme.orange); Text(cause.title); Spacer(); Text(String(format: "%+.1f台", cause.effect)).monospacedDigit() }.font(.caption)
+                                }
+                                if store.causes.count > 2 {
+                                    Text("ほか\(store.causes.count - 2)要因")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             .padding(.vertical, 5)
@@ -502,20 +532,32 @@ struct MonthlyReportView: View {
                         }
                         .gameCard()
                     }
-                    if !report.notes.isEmpty {
+                    let compactEventCategories = WeeklyReportCategory.allCases.filter {
+                        $0 != .market && $0 != .sales
+                    }
+                    if compactEventCategories.contains(where: { !report.notes(in: $0).isEmpty }) {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionTitle(title: "今週の主な出来事")
-                            ForEach(WeeklyReportCategory.allCases) { category in
+                            SectionTitle(
+                                title: "今週の主な出来事",
+                                subtitle: "市場情報は週明けの新聞に統合しました"
+                            )
+                            ForEach(compactEventCategories) { category in
                                 let categoryNotes = report.notes(in: category)
                                 if !categoryNotes.isEmpty {
                                     VStack(alignment: .leading, spacing: 7) {
                                         Label(category.title, systemImage: category.icon)
                                             .font(.subheadline.bold())
                                             .foregroundStyle(GameTheme.teal)
-                                        ForEach(categoryNotes, id: \.self) { note in
-                                            Text("・\(note)")
-                                                .font(.subheadline)
+                                        ForEach(Array(categoryNotes.prefix(3)), id: \.self) { note in
+                                            Label(note, systemImage: "circle.fill")
+                                                .font(.caption)
                                                 .foregroundStyle(GameTheme.ink)
+                                                .lineLimit(2)
+                                        }
+                                        if categoryNotes.count > 3 {
+                                            Text("ほか\(categoryNotes.count - 3)件")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
                                         }
                                     }
                                     .padding(.vertical, 3)
@@ -820,6 +862,29 @@ struct MarketNewspaperView: View {
                         .foregroundStyle(hasResearcher ? GameTheme.teal : .secondary)
                     }
                     .gameCard()
+
+                    if let report = game.lastReport {
+                        let headlines = report.notes(in: .market)
+                        if !headlines.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                NewspaperSectionHeader(
+                                    kicker: "前週総括",
+                                    title: "市場ヘッドライン"
+                                )
+                                ForEach(Array(headlines.prefix(4)), id: \.self) { headline in
+                                    Label(headline, systemImage: "chart.line.uptrend.xyaxis")
+                                        .font(.subheadline)
+                                        .lineLimit(2)
+                                }
+                                if headlines.count > 4 {
+                                    Text("ほか\(headlines.count - 4)件の市場変化")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .gameCard()
+                        }
+                    }
 
                     if let store = researchStore {
                         let intelligence = game.marketIntelligence(for: store.id)

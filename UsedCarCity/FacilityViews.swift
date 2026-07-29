@@ -532,6 +532,13 @@ private struct AuctionBidRow: View {
     private var marketForecast: ClosedRange<Int> {
         game.auctionMarketForecast(for: listing, storeID: storeID)
     }
+    private var expectedGrossProfit: Int? {
+        game.auctionExpectedGrossProfit(
+            for: listing,
+            storeID: storeID,
+            maxPrice: maxPrice
+        )
+    }
 
     var body: some View {
         VStack(spacing: 7) {
@@ -574,6 +581,16 @@ private struct AuctionBidRow: View {
                 .font(.caption.bold())
                 .foregroundStyle(GameTheme.teal)
             } else {
+                if let expectedGrossProfit {
+                    Label(
+                        "上限落札時の予測粗利 \(expectedGrossProfit.currency)",
+                        systemImage: expectedGrossProfit >= 0
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption.bold())
+                    .foregroundStyle(expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
+                }
                 HStack {
                     Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
                         .font(.caption.bold())
