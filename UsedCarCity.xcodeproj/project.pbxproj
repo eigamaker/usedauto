@@ -19,6 +19,7 @@
 		3F375EFF0B3948430A705E9B /* BuildStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */; };
 		4DF8DE21F0BD17E71F68B779 /* GuideAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38DE7E3A1FBA33E59A6FC7FA /* GuideAvatarView.swift */; };
 		60F1C990E6F86BC93A2EACD1 /* GuideViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CB0160CCC35CF15EF7592A /* GuideViews.swift */; };
+		70CF59CA7503A935AB0354C2 /* Art.scnassets in Resources */ = {isa = PBXBuildFile; fileRef = BD4CC3561EEB8A13D8261E08 /* Art.scnassets */; };
 		8754463E9946EB0A86194E0F /* GameEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDFE7321A72E0E6D51F4DA4 /* GameEngine.swift */; };
 		8A44259A134B8A795274F32D /* FacilityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */; };
 		9040838EF619B02856AC5667 /* CityMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E28EC484C7566BDF62A0D40 /* CityMapView.swift */; };
@@ -72,6 +73,7 @@
 		9818ABA4195147A46D2CA15C /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		B1BC34FACD26F52467A60837 /* LongTermSimulationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongTermSimulationTests.swift; sourceTree = "<group>"; };
 		BD0CBE620733417AC5C421EA /* CityBuildingAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityBuildingAssets.swift; sourceTree = "<group>"; };
+		BD4CC3561EEB8A13D8261E08 /* Art.scnassets */ = {isa = PBXFileReference; lastKnownFileType = wrapper.scnassets; path = Art.scnassets; sourceTree = "<group>"; };
 		CB73E465D918E8A8C86961F0 /* LongTermSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongTermSimulation.swift; sourceTree = "<group>"; };
 		D06844586C7FBAE280FD0BF3 /* FacilityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FacilityViews.swift; sourceTree = "<group>"; };
 		D5835EE83D490DDA8757F0AB /* CityAssetCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityAssetCatalog.swift; sourceTree = "<group>"; };
@@ -113,6 +115,7 @@
 		BD616753CC92466ABB713E48 /* UsedCarCity */ = {
 			isa = PBXGroup;
 			children = (
+				BD4CC3561EEB8A13D8261E08 /* Art.scnassets */,
 				7E05CB3F0B106E864CD5E80A /* Assets.xcassets */,
 				1FA4CC3DEDC94DD77917EFE0 /* BuildStoreView.swift */,
 				D5835EE83D490DDA8757F0AB /* CityAssetCatalog.swift */,
@@ -219,6 +222,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				70CF59CA7503A935AB0354C2 /* Art.scnassets in Resources */,
 				0C54D7A9E882D0BA6C28241F /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

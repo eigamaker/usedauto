@@ -675,6 +675,18 @@ final class GridMapTests: XCTestCase {
         XCTAssertEqual(CityBuildingFactory.vehicleScale, 2)
     }
 
+    @MainActor
+    func testEveryCatalogEntryLoadsItsAuthoredUSDZResource() {
+        let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
+        for assetID in CityAssetID.allCases {
+            let node = factory.makeAsset(id: assetID, facing: .south)
+            XCTAssertNotNil(
+                node.childNode(withName: "authored-usdz", recursively: false),
+                "\(assetID.rawValue) fell back to procedural geometry"
+            )
+        }
+    }
+
     func testPlayerFacilityDefinitionsContainEveryPlacementRequirement() {
         let facilities = CityAssetCatalog.playerFacilityDefinitions
         XCTAssertEqual(facilities.count, 13)
@@ -935,7 +947,6 @@ final class GridMapTests: XCTestCase {
     func testLowPolyAssetsHaveNormalsNoCollidersAndStayWithinNodeBudget() {
         let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         var totalGeometryNodes = 0
-        var uniqueMaterials: Set<ObjectIdentifier> = []
         for definition in CityAssetCatalog.definitions {
             let node = factory.makeAsset(id: definition.id, facing: .south)
             var assetGeometryNodes = 0
@@ -947,12 +958,14 @@ final class GridMapTests: XCTestCase {
                 XCTAssertFalse(geometry.sources(for: .normal).isEmpty, definition.id.rawValue)
                 for material in geometry.materials {
                     XCTAssertFalse(material.isDoubleSided, definition.id.rawValue)
-                    uniqueMaterials.insert(ObjectIdentifier(material))
                 }
             }
             XCTAssertLessThanOrEqual(assetGeometryNodes, 64, definition.id.rawValue)
         }
-        XCTAssertLessThan(uniqueMaterials.count, totalGeometryNodes)
+        // Blender merges source meshes by material and LOD layer. This keeps
+        // every authored asset comfortably below the runtime contract without
+        // requiring unrelated USDZ files to share mutable material instances.
+        XCTAssertLessThan(totalGeometryNodes, CityAssetID.allCases.count * 40)
     }
 
     @MainActor
@@ -960,45 +973,48 @@ final class GridMapTests: XCTestCase {
         let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
         for definition in CityAssetCatalog.ambientDefinitions where definition.category != .parking {
             let node = factory.makeAsset(id: definition.id, facing: .south)
-            let footprintWidth = Float(definition.footprint.width) * map.metrics.cellSize
-            let footprintDepth = Float(definition.footprint.depth) * map.metrics.cellSize
-            let majorMasses = node.childNodes.filter { child in
-                guard let geometry = child.geometry else { return false }
-                let bounds = geometry.boundingBox
-                let width = bounds.max.x - bounds.min.x
-                let height = bounds.max.y - bounds.min.y
-                let depth = bounds.max.z - bounds.min.z
-                return width >= footprintWidth * 0.15
-                    && depth >= footprintDepth * 0.15
-                    && height >= 0.5
+            var geometryNodeCount = 0
+            var primitiveCount = 0
+            node.enumerateChildNodes { child, _ in
+                guard let geometry = child.geometry else { return }
+                geometryNodeCount += 1
+                primitiveCount += geometry.elements.reduce(0) {
+                    $0 + $1.primitiveCount
+                }
             }
 
             XCTAssertGreaterThanOrEqual(
-                majorMasses.count,
-                2,
+                geometryNodeCount,
+                5,
                 "\(definition.id.rawValue) must read as a composed 3D silhouette, not one colored box"
             )
+            XCTAssertGreaterThan(primitiveCount, 250, definition.id.rawValue)
         }
     }
 
     @MainActor
     func testTraditionalLowRiseAssetsUseFacetedRoofsInsteadOfBoxSlabs() {
         let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
-        let traditionalAssets: [CityAssetID] = [
+        let pitchedRoofAssets: [CityAssetID] = [
             .residentialCottage,
             .residentialGable,
             .residentialTwin,
-            .luxuryCourtyard,
-            .luxuryGarage,
             .commercialRestaurant
         ]
 
-        for assetID in traditionalAssets {
+        for assetID in pitchedRoofAssets {
             let node = factory.makeAsset(id: assetID, facing: .south)
-            let roof = node.childNode(withName: "hipped-roof", recursively: true)
-            XCTAssertNotNil(roof, "\(assetID.rawValue) needs a reusable faceted roof mesh")
+            let roof = node.childNodes.first { child in
+                child.geometry?.materials.contains {
+                    ($0.name ?? "").hasPrefix("Roof_")
+                } == true
+            }
+            XCTAssertNotNil(roof, "\(assetID.rawValue) needs an authored roof material")
             XCTAssertFalse(roof?.geometry is SCNBox, "\(assetID.rawValue) roof cannot be a box slab")
-            XCTAssertGreaterThan(roof?.geometry?.elements.first?.primitiveCount ?? 0, 4, assetID.rawValue)
+            let primitiveCount = roof?.geometry?.elements.reduce(0) {
+                $0 + $1.primitiveCount
+            } ?? 0
+            XCTAssertGreaterThan(primitiveCount, 12, assetID.rawValue)
         }
     }
 

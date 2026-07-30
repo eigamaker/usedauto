@@ -1,12 +1,13 @@
 import SceneKit
 import UIKit
 
-/// Procedural building factory for the 2.5D city.
+private final class CityAssetBundleToken: NSObject {}
+
+/// Authored building factory for the 2.5D city.
 ///
-/// Every asset is composed from a small silhouette grammar — plinth, massing
-/// volumes, faceted roofs with real eaves, facade bands with baked window
-/// textures, and LOD-gated props — under one curated palette, so the city
-/// reads as one professionally art-directed set instead of colored boxes.
+/// Production assets are loaded from Blender-authored USDZ files. The
+/// procedural silhouette grammar below remains as a safe development fallback
+/// when an individual resource is unavailable.
 ///
 /// Contract shared with tests and the scene controller:
 /// - assets stay inside their oriented grid footprint and below their
@@ -96,6 +97,12 @@ final class CityBuildingFactory {
         let key = "\(id.rawValue)|\(facing.rawValue)|\(Int((height * 10).rounded()))"
         if let template = assetTemplates[key] { return template.clone() }
 
+        if let authored = loadAuthoredAsset(id: id) {
+            authored.eulerAngles.y = Self.rotation(for: facing, from: definition.frontDirection)
+            assetTemplates[key] = authored
+            return authored.clone()
+        }
+
         // Orthographic 2.5D strongly flattens vertical scale. Keep the catalog
         // and renderer on the same explicit exaggeration policy so every
         // building is at least twice its former rendered height, with the
@@ -123,6 +130,99 @@ final class CityBuildingFactory {
 
         assetTemplates[key] = built
         return built.clone()
+    }
+
+    /// Loads the compact, material-merged runtime USDZ and flattens its export
+    /// wrappers into the node contract used by the map. Main silhouettes remain
+    /// direct children for cheap bounds checks; near facade detail and props
+    /// retain their independent zoom gates.
+    private func loadAuthoredAsset(id: CityAssetID) -> SCNNode? {
+        let bundles = [Bundle.main, Bundle(for: CityAssetBundleToken.self)]
+        let url = bundles.lazy.compactMap {
+            $0.url(
+                forResource: id.rawValue,
+                withExtension: "usdz",
+                subdirectory: "Art.scnassets/CityBuildings"
+            )
+        }.first
+        guard let url, let scene = try? SCNScene(url: url, options: nil) else {
+            return nil
+        }
+
+        let built = SCNNode()
+        built.name = "asset:\(id.rawValue)"
+        let near = SCNNode()
+        near.name = Self.nearDetailNodeName
+        let props = SCNNode()
+        props.name = Self.propDetailNodeName
+
+        enum DetailLayer {
+            case main
+            case near
+            case props
+        }
+
+        func visit(_ source: SCNNode, layer inheritedLayer: DetailLayer) {
+            let normalizedName = (source.name ?? "")
+                .replacingOccurrences(of: "-", with: "_")
+                .lowercased()
+            let layer: DetailLayer
+            if normalizedName == "near_details" || normalizedName.hasPrefix("near_") {
+                layer = .near
+            } else if normalizedName == "prop_details" || normalizedName.hasPrefix("props_") {
+                layer = .props
+            } else {
+                layer = inheritedLayer
+            }
+
+            if let geometry = source.geometry {
+                let node = SCNNode(geometry: geometry)
+                node.name = source.name
+                node.transform = source.worldTransform
+                geometry.materials.forEach {
+                    $0.lightingModel = .physicallyBased
+                    $0.isDoubleSided = false
+                }
+                switch layer {
+                case .main: built.addChildNode(node)
+                case .near: near.addChildNode(node)
+                case .props: props.addChildNode(node)
+                }
+            }
+            source.childNodes.forEach { visit($0, layer: layer) }
+        }
+        scene.rootNode.childNodes.forEach { visit($0, layer: .main) }
+
+        guard built.childNodes.contains(where: { $0.geometry != nil }) else {
+            return nil
+        }
+        let authoredMarker = SCNNode()
+        authoredMarker.name = "authored-usdz"
+        built.addChildNode(authoredMarker)
+        built.addChildNode(near)
+        built.addChildNode(props)
+
+        // USD conversion can leave a sub-millimetre floating-point offset at
+        // ground level. Move each top-level layer, rather than the asset root,
+        // because the scene controller owns the root's world position.
+        let groundOffset = -built.boundingBox.min.y
+        for child in built.childNodes {
+            child.position.y += groundOffset
+        }
+
+        // Retain the public semantic hook used by selection/debug tooling. The
+        // rendered vehicle meshes live in the props layer.
+        if !props.childNodes.isEmpty {
+            let vehicleMarker = SCNNode()
+            vehicleMarker.name = "vehicle:car"
+            vehicleMarker.scale = SCNVector3(
+                Self.vehicleScale,
+                Self.vehicleScale,
+                Self.vehicleScale
+            )
+            props.addChildNode(vehicleMarker)
+        }
+        return built
     }
 
     func makeLotInfill(
