@@ -3999,7 +3999,178 @@ final class GameEngineTests: XCTestCase {
         XCTAssertNotNil(preview)
         XCTAssertEqual(preview?.requiredWork, 2)
         XCTAssertLessThanOrEqual(preview?.estimatedWeeks ?? .max, 4)
-        XCTAssertGreaterThan(preview?.cost ?? 0, minivan.category.purchaseCost)
+        XCTAssertGreaterThan(preview?.cost ?? 0, 0)
+    }
+
+    func testCustomizationValueCoversConversionCostAndRaisesGrossProfit() throws {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 409)
+        startPlayableGame(game, simulationSeed: 409)
+        game.cash = 100_000
+        game.stores[0].autoSales = false
+        game.stores[0].priceIndex = 1.0
+        game.segmentTrends = []
+        let storeID = game.stores[0].id
+
+        let welfareBase = InventoryBatch(
+            modelID: "hoshi-minto",
+            category: .kei,
+            count: 1,
+            averageCost: 42,
+            quality: 0.52,
+            modelYear: game.year - 4,
+            mileage: 80_000,
+            acquiredTurn: game.turn
+        )
+        game.stores[0].inventory = [welfareBase]
+        let welfareBaseline = try XCTUnwrap(game.manualSaleQuote(
+            storeID: storeID,
+            inventoryID: welfareBase.id
+        ))
+        let welfarePreview = try XCTUnwrap(game.workshopProjectPreview(
+            storeID: storeID,
+            inventoryID: welfareBase.id,
+            kind: .liftSeatConversion,
+            fulfillment: .outsourced
+        ))
+        XCTAssertEqual(welfarePreview.cost, 104)
+        XCTAssertGreaterThan(
+            welfarePreview.projectedSalePrice - welfareBase.averageCost - welfarePreview.cost,
+            welfareBaseline.grossProfit,
+            "リフトアップシートの架装後は、改造前より粗利が増える"
+        )
+
+        let camperBase = InventoryBatch(
+            modelID: "koyo-worka",
+            category: .minivan,
+            count: 1,
+            averageCost: 42,
+            quality: 0.52,
+            modelYear: game.year - 4,
+            mileage: 100_000,
+            acquiredTurn: game.turn
+        )
+        game.stores[0].inventory = [camperBase]
+        let camperBaseline = try XCTUnwrap(game.manualSaleQuote(
+            storeID: storeID,
+            inventoryID: camperBase.id
+        ))
+        let camperPreview = try XCTUnwrap(game.workshopProjectPreview(
+            storeID: storeID,
+            inventoryID: camperBase.id,
+            kind: .camperConversion,
+            fulfillment: .outsourced
+        ))
+        XCTAssertEqual(camperPreview.cost, 315)
+        XCTAssertTrue((380...500).contains(camperPreview.projectedSalePrice))
+        XCTAssertGreaterThan(
+            camperPreview.projectedSalePrice - camperBase.averageCost - camperPreview.cost,
+            camperBaseline.grossProfit,
+            "315万円の架装費を回収し、改造前より粗利が増える"
+        )
+
+        XCTAssertTrue(game.startWorkshopProject(
+            storeID: storeID,
+            inventoryID: camperBase.id,
+            kind: .camperConversion,
+            fulfillment: .outsourced
+        ))
+        for _ in 0..<camperPreview.estimatedWeeks { game.advanceWeek() }
+        let completed = try XCTUnwrap(game.stores[0].inventory.first {
+            $0.id == camperBase.id
+        })
+        let completedQuote = try XCTUnwrap(game.manualSaleQuote(
+            storeID: storeID,
+            inventoryID: camperBase.id
+        ))
+        XCTAssertEqual(completed.averageCost, 357)
+        XCTAssertGreaterThan(completedQuote.price, completed.averageCost)
+        XCTAssertGreaterThan(completedQuote.grossProfit, 0)
+
+        let camperBuyer = BuyerLead(
+            id: UUID(),
+            storeID: storeID,
+            preference: .category(.minivan),
+            budget: 2_000,
+            minimumQuality: 0.40,
+            priceSensitivity: 0.80,
+            generatedTurn: game.turn,
+            purpose: .camper,
+            desiredProductKind: .camper,
+            desiredGrade: .low
+        )
+        game.buyerLeads = [camperBuyer]
+        let salePreview = try XCTUnwrap(game.saleNegotiationPreview(
+            storeID: storeID,
+            buyerLeadID: camperBuyer.id,
+            inventoryID: camperBase.id,
+            strategy: .holdPrice
+        ))
+        XCTAssertEqual(salePreview.price, completedQuote.price)
+        XCTAssertGreaterThan(salePreview.grossProfit, 0)
+        let discountedSalePreview = try XCTUnwrap(game.saleNegotiationPreview(
+            storeID: storeID,
+            buyerLeadID: camperBuyer.id,
+            inventoryID: camperBase.id,
+            strategy: .closeDeal
+        ))
+        XCTAssertLessThan(discountedSalePreview.price, salePreview.price)
+        XCTAssertLessThan(discountedSalePreview.grossProfit, salePreview.grossProfit)
+    }
+
+    func testCamperCostsAreHalvedAndEveryCustomizationGradeRaisesGrossProfit() throws {
+        let game = GameEngine()
+        game.resetGame(simulationSeed: 419)
+        startPlayableGame(game, simulationSeed: 419)
+        game.cash = 100_000
+        game.stores[0].priceIndex = 1.0
+        game.segmentTrends = []
+        let storeID = game.stores[0].id
+        let specifications: [(WorkshopProjectKind, String, VehicleCategory)] = [
+            (.camperConversion, "koyo-worka", .minivan),
+            (.workConversion, "yamato-porter", .pickup),
+            (.outdoorConversion, "hokuto-ridge", .suv),
+            (.streetTuning, "aoba-razor-s13", .sports),
+            (.driftTuning, "aoba-razor-s13", .sports),
+            (.circuitTuning, "aoba-razor-s13", .sports),
+            (.liftSeatConversion, "hoshi-minto", .kei),
+            (.wheelchairConversion, "koyo-worka", .minivan),
+            (.mobileSalesConversion, "yamato-porter", .pickup),
+            (.kitchenCarConversion, "yamato-porter", .pickup)
+        ]
+
+        for (kind, modelID, category) in specifications {
+            let batch = InventoryBatch(
+                modelID: modelID,
+                category: category,
+                count: 1,
+                averageCost: 42,
+                quality: 0.65,
+                modelYear: game.year - 4,
+                mileage: 70_000,
+                acquiredTurn: game.turn
+            )
+            game.stores[0].inventory = [batch]
+            let previews = try SpecialtyProductGrade.allCases.map { grade in
+                try XCTUnwrap(game.workshopProjectPreview(
+                    storeID: storeID,
+                    inventoryID: batch.id,
+                    kind: kind,
+                    grade: grade,
+                    fulfillment: .outsourced
+                ), "\(kind.name)・\(grade.rawValue)")
+            }
+            let grossProfits = previews.map {
+                $0.projectedSalePrice - batch.averageCost - $0.cost
+            }
+
+            XCTAssertGreaterThan(grossProfits[1], grossProfits[0], "\(kind.name)のミドル粗利")
+            XCTAssertGreaterThan(grossProfits[2], grossProfits[1], "\(kind.name)のハイ粗利")
+
+            if kind == .camperConversion {
+                XCTAssertEqual(previews.map(\.cost), [315, 504, 819])
+            }
+        }
     }
 
     func testConversionValueDependsOnBuyerPurposeWhileRefurbishmentAddsEightPercent() {
@@ -4595,7 +4766,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(VehicleCatalog.rareClassics.allSatisfy { !$0.isSportTuningBase || $0.isRareClassic })
     }
 
-    func testNewSpecialtyPackagesExposePlannedCostsWorkAndPriceCaps() throws {
+    func testNewSpecialtyPackagesExposePlannedCostsWorkAndProfitableValue() throws {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -4607,17 +4778,17 @@ final class GameEngineTests: XCTestCase {
             monthlySalary: 55, assignment: .service
         ))
         let storeID = game.stores[0].id
-        let specifications: [(WorkshopProjectKind, VehicleCategory, Double, Int, Double)] = [
-            (.streetTuning, .sports, 0.22, 5, 1.45),
-            (.driftTuning, .sports, 0.38, 7, 1.75),
-            (.circuitTuning, .sports, 0.55, 9, 2.00),
-            (.liftSeatConversion, .compact, 0.22, 5, 1.30),
-            (.wheelchairConversion, .minivan, 0.40, 8, 1.60),
-            (.mobileSalesConversion, .pickup, 0.30, 6, 1.45),
-            (.kitchenCarConversion, .pickup, 0.60, 10, 1.90)
+        let specifications: [(WorkshopProjectKind, VehicleCategory, Double, Int)] = [
+            (.streetTuning, .sports, 0.22, 5),
+            (.driftTuning, .sports, 0.38, 7),
+            (.circuitTuning, .sports, 0.55, 9),
+            (.liftSeatConversion, .compact, 0.22, 5),
+            (.wheelchairConversion, .minivan, 0.40, 8),
+            (.mobileSalesConversion, .pickup, 0.30, 6),
+            (.kitchenCarConversion, .pickup, 0.60, 10)
         ]
 
-        for (kind, category, costRate, _, priceCap) in specifications {
+        for (kind, category, costRate, _) in specifications {
             let model = try XCTUnwrap(VehicleCatalog.all.first {
                 $0.category == category && !$0.isRareClassic
             })
@@ -4670,9 +4841,9 @@ final class GameEngineTests: XCTestCase {
                 4,
                 kind.name
             )
-            XCTAssertLessThanOrEqual(
+            XCTAssertGreaterThan(
                 preview.projectedSalePrice,
-                Int(Double(model.referenceRetailPrice) * priceCap),
+                batch.averageCost + preview.cost,
                 kind.name
             )
             XCTAssertEqual(kind.productState?.purpose, MarketProductKind.resolve(

@@ -1359,6 +1359,22 @@ enum SpecialtyProductGrade: String, Codable, CaseIterable, Identifiable, Compara
         }
     }
 
+    var customizationBaseGrossProfitGrowthRate: Double {
+        switch self {
+        case .low: 0.10
+        case .middle: 0.20
+        case .high: 0.35
+        }
+    }
+
+    var customizationInvestmentMarginRate: Double {
+        switch self {
+        case .low: 0.02
+        case .middle: 0.06
+        case .high: 0.12
+        }
+    }
+
     func name(for productKind: MarketProductKind) -> String {
         switch (productKind, self) {
         case (.camper, .low): "ベーシック"

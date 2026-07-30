@@ -1336,18 +1336,43 @@ final class GameEngine: ObservableObject {
         case .serviced: 0.30
         case .repaired: 0.50
         case .refurbished: 0.65
-        case .camper: 1.45
-        case .workCargo: 0.60
-        case .outdoor: 0.55
-        case .sportStreet: 1.15
-        case .sportDrift: 1.30
-        case .sportCircuit: 1.45
-        case .welfareLiftSeat: 1.15
-        case .welfareWheelchair: 1.30
-        case .mobileSales: 1.20
-        case .kitchenCar: 1.45
+        case .camper, .workCargo, .outdoor,
+             .sportStreet, .sportDrift, .sportCircuit,
+             .welfareLiftSeat, .welfareWheelchair,
+             .mobileSales, .kitchenCar:
+            // 用途改装はまず架装費を全額回収する。付加価値による粗利の増加は
+            // customizationValueSupportedPrice で、改造前の車両粗利を基準に加える。
+            1.0
         }
         return Int((Double(batch.valueAddedInvestment) * recoveryRate).rounded())
+    }
+
+    private func customizationValueSupportedPrice(
+        for batch: InventoryBatch,
+        baseVehiclePrice: Int
+    ) -> Int? {
+        guard batch.valueAddedInvestment > 0 else { return nil }
+        switch batch.productState {
+        case .camper, .workCargo, .outdoor,
+             .sportStreet, .sportDrift, .sportCircuit,
+             .welfareLiftSeat, .welfareWheelchair,
+             .mobileSales, .kitchenCar:
+            break
+        case .stock, .serviced, .repaired, .refurbished:
+            return nil
+        }
+
+        let originalVehicleCost = max(0, batch.averageCost - batch.valueAddedInvestment)
+        let baseGrossProfit = max(0, baseVehiclePrice - originalVehicleCost)
+        let grade = batch.productGrade ?? .low
+        let valueAddedProfit = max(
+            5,
+            max(
+                Int((Double(baseGrossProfit) * grade.customizationBaseGrossProfitGrowthRate).rounded()),
+                Int((Double(batch.valueAddedInvestment) * grade.customizationInvestmentMarginRate).rounded())
+            )
+        )
+        return baseVehiclePrice + batch.valueAddedInvestment + valueAddedProfit
     }
 
     func specialtyCloseAdjustment(for batch: InventoryBatch, purpose: CustomerPurpose, in district: DistrictKind) -> Double {
@@ -3934,14 +3959,15 @@ final class GameEngine: ObservableObject {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID),
               let batch = store.inventory.first(where: { $0.id == inventoryID && $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }) else { return nil }
-        let ordinaryMarketValue = vehicleRetailValue(
+        let baseVehicleMarketValue = vehicleRetailValue(
             modelID: batch.modelID,
             category: batch.category,
             modelYear: batch.modelYear,
             mileage: batch.mileage,
             quality: batch.quality,
             in: plot.district
-        ) + productizationMarketValueAddition(for: batch)
+        )
+        let ordinaryMarketValue = baseVehicleMarketValue + productizationMarketValueAddition(for: batch)
         let specialistReferenceFloor: Int
         if let model = VehicleCatalog.entry(id: batch.modelID),
            [.sportStreet, .sportDrift, .sportCircuit,
@@ -3957,7 +3983,18 @@ final class GameEngine: ObservableObject {
         let agingFactor = inventoryAgingValueFactor(for: batch)
         let specialtyFactor = specialtyMarketFactor(for: batch, in: plot.district)
         let disclosedIssueFactor = batch.disclosedIssue?.disclosedValueFactor ?? 1.0
-        let price = max(25, Int(Double(marketValue) * store.priceIndex * agingFactor * specialtyFactor * disclosedIssueFactor * competitivePriceFactor(in: plot.district)))
+        let pricingFactor = store.priceIndex
+            * agingFactor
+            * specialtyFactor
+            * disclosedIssueFactor
+            * competitivePriceFactor(in: plot.district)
+        let rawPrice = max(25, Int(Double(marketValue) * pricingFactor))
+        let baseVehiclePrice = max(25, Int(Double(baseVehicleMarketValue) * pricingFactor))
+        let valueSupportedPrice = customizationValueSupportedPrice(
+            for: batch,
+            baseVehiclePrice: baseVehiclePrice
+        ) ?? 0
+        let price = max(rawPrice, valueSupportedPrice)
         return (price, price - batch.averageCost)
     }
 
@@ -4003,14 +4040,16 @@ final class GameEngine: ObservableObject {
         let offer: Int
         if let model = VehicleCatalog.entry(id: batch.modelID),
            marketProductKind(for: batch).supportsGrades {
-            let cap = specialtyReferenceRetail(for: model)
+            let referenceCap = specialtyReferenceRetail(for: model)
                 * specialtyPriceCeiling(
                     for: marketProductKind(for: batch),
                     productState: batch.productState,
                     grade: batch.productGrade
                 )
-                * (1 - campaignDiscount) * (1 - strategy.discountRate)
-            offer = min(rawOffer, Int(cap))
+            let valueSupportedCap = Double(max(Int(referenceCap), quote.price))
+                * (1 - campaignDiscount)
+                * (1 - strategy.discountRate)
+            offer = min(rawOffer, Int(valueSupportedCap))
         } else {
             offer = rawOffer
         }
@@ -4897,7 +4936,7 @@ final class GameEngine: ObservableObject {
             baseCost = max(80, Int(Double(model.baseWholesalePrice) * (model.isRareClassic ? 0.52 : 0.28)))
             requiredWork = 6; requestedGain = currentQuality < 65 ? 15 : 10; targetState = .refurbished
         case .camperConversion:
-            baseCost = max(360, Int(Double(model.baseWholesalePrice) * 1.80)); requiredWork = 10; requestedGain = 3; targetState = .camper
+            baseCost = max(180, Int(Double(model.baseWholesalePrice) * 0.90)); requiredWork = 10; requestedGain = 3; targetState = .camper
         case .workConversion:
             baseCost = max(45, Int(Double(batch.category.purchaseCost) * 0.22)); requiredWork = 5; requestedGain = 2; targetState = .workCargo
         case .outdoorConversion:
@@ -4953,14 +4992,15 @@ final class GameEngine: ObservableObject {
         projected.productState = targetState
         projected.productGrade = resolvedGrade
         projected.workshopProject = nil
-        let marketValue = vehicleRetailValue(
+        let baseVehicleMarketValue = vehicleRetailValue(
             modelID: projected.modelID,
             category: projected.category,
             modelYear: projected.modelYear,
             mileage: projected.mileage,
             quality: projected.quality,
             in: plot.district
-        ) + productizationMarketValueAddition(for: projected)
+        )
+        let marketValue = baseVehicleMarketValue + productizationMarketValueAddition(for: projected)
         let disclosedIssueFactor = projected.disclosedIssue?.disclosedValueFactor ?? 1.0
         let projectedPurpose = targetState.purpose ?? store.marketPolicy.targetPurpose
         let purposeValue = productPurposeValueFactor(for: projected, purpose: projectedPurpose)
@@ -4970,11 +5010,22 @@ final class GameEngine: ObservableObject {
             purpose: projectedPurpose,
             productKind: proposedProductKind
         )
+        let listPricingFactor = store.priceIndex
+            * inventoryAgingValueFactor(for: projected)
+            * specialtyMarketFactor(for: projected, in: plot.district)
+            * disclosedIssueFactor
+        let rawListPrice = max(25, Int(Double(marketValue) * listPricingFactor))
+        let baseVehiclePrice = max(25, Int(Double(baseVehicleMarketValue) * listPricingFactor))
+        let valueSupportedPrice = max(
+            rawListPrice,
+            customizationValueSupportedPrice(
+                for: projected,
+                baseVehiclePrice: baseVehiclePrice
+            ) ?? 0
+        )
         let uncappedProjectedPrice = max(25, Int(
             Double(marketValue)
-                * store.priceIndex
-                * inventoryAgingValueFactor(for: projected)
-                * specialtyMarketFactor(for: projected, in: plot.district)
+                * listPricingFactor
                 * purposeValue
                 * segmentWillingnessFactor(
                     for: projectedKey,
@@ -4982,16 +5033,21 @@ final class GameEngine: ObservableObject {
                     productState: targetState,
                     grade: resolvedGrade
                 )
-                * disclosedIssueFactor
         ))
         let specialtyPriceCap = resolvedGrade != nil
-            ? Int(specialtyReferenceRetail(for: model) * specialtyPriceCeiling(
-                for: proposedProductKind,
-                productState: targetState,
-                grade: resolvedGrade
-            ))
+            ? max(
+                valueSupportedPrice,
+                Int(specialtyReferenceRetail(for: model) * specialtyPriceCeiling(
+                    for: proposedProductKind,
+                    productState: targetState,
+                    grade: resolvedGrade
+                ))
+            )
             : nil
-        let projectedPrice = specialtyPriceCap.map { min(uncappedProjectedPrice, $0) } ?? uncappedProjectedPrice
+        let projectedPrice = max(
+            valueSupportedPrice,
+            specialtyPriceCap.map { min(uncappedProjectedPrice, $0) } ?? uncappedProjectedPrice
+        )
         let labor = max(1, store.weeklyWorkshopLabor)
         let effectiveExpertise = min(100, store.expertise.project(kind) + companyExpertise.project(kind) * 0.25)
         let expertiseEfficiency = 1 + min(0.20, effectiveExpertise / 500)
