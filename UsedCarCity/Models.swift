@@ -2086,7 +2086,17 @@ enum AuctionVenue: String, Codable, CaseIterable, Identifiable {
         }
     }
     var fee: Int { switch self { case .east: 7; case .port: 9; case .premium: 16 } }
-    var shippingCost: Int { switch self { case .east: 5; case .port: 12; case .premium: 18 } }
+    /// 落札後に実際に支払う陸送費。従来値のおよそ3分の1。
+    var shippingCost: Int { switch self { case .east: 2; case .port: 4; case .premium: 6 } }
+    /// 出品価格の生成に使う従来相当の物流余力。
+    /// 陸送費の値下げ分で開始価格そのものが上がり、仕入改善が相殺されるのを防ぐ。
+    var listingPricingShippingAllowance: Int {
+        switch self {
+        case .east: 5
+        case .port: 12
+        case .premium: 18
+        }
+    }
     var shippingMonths: Int { switch self { case .east: 1; case .port: 1; case .premium: 2 } }
     var tint: Color { switch self { case .east: .indigo; case .port: .teal; case .premium: .purple } }
 }
@@ -2730,15 +2740,15 @@ enum EmployeeCompensationType: String, Codable, CaseIterable, Identifiable {
     var salaryFactor: Double {
         switch self {
         case .fixed: 1.0
-        case .balanced: 0.9
-        case .performance: 0.8
+        case .balanced: 0.92
+        case .performance: 0.84
         }
     }
     var commissionRate: Int {
         switch self {
-        case .fixed: 0
-        case .balanced: 5
-        case .performance: 10
+        case .fixed: 2
+        case .balanced: 4
+        case .performance: 8
         }
     }
 }
@@ -2814,7 +2824,7 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         researchSkill: Int,
         serviceSkill: Int,
         monthlySalary: Int,
-        commissionRate: Int = 0,
+        commissionRate: Int = 2,
         assignment: EmployeeAssignment = .unassigned,
         salesExperience: Int = 0,
         procurementExperience: Int = 0,
@@ -2837,7 +2847,7 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         self.researchExperience = researchExperience
         self.serviceExperience = serviceExperience
         self.monthlySalary = monthlySalary
-        self.commissionRate = commissionRate
+        self.commissionRate = min(8, max(2, commissionRate))
         self.assignment = assignment
         self.recentCommissions = Array(recentCommissions.suffix(4))
         self.currentWeekPerformance = currentWeekPerformance
@@ -2856,7 +2866,7 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         serviceSkill: Int? = nil,
         marketResearchSkill: Int? = nil,
         monthlySalary: Int,
-        commissionRate: Int = 0,
+        commissionRate: Int = 2,
         assignment: EmployeeAssignment = .unassigned,
         recentCommissions: [Int] = [],
         currentWeekPerformance: EmployeeWeeklyPerformance = EmployeeWeeklyPerformance(),
@@ -2888,19 +2898,21 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         assignment: EmployeeAssignment = .unassigned,
         recentCommissions: [Int] = []
     ) {
-        let values = [salesSkill, appraisalSkill, procurementSkill, marketingSkill, serviceSkill, marketResearchSkill]
-        let topTwo = values.sorted(by: >).prefix(2)
-        let topAverage = topTwo.reduce(0, +) / max(1, topTwo.count)
-        let totalAverage = values.reduce(0, +) / values.count
-        let marketValue = Double(topAverage) * 0.6 + Double(totalAverage) * 0.4
-        let marketSalary = min(68, max(28, Int((12 + marketValue * 0.52).rounded())))
+        let resolvedResearch = (marketingSkill + marketResearchSkill) / 2
+        let resolvedService = (appraisalSkill + serviceSkill) / 2
+        let marketSalary = Self.marketSalary(
+            sales: salesSkill,
+            procurement: procurementSkill,
+            research: resolvedResearch,
+            service: resolvedService
+        )
         self.init(
             id: id,
             name: name,
             salesSkill: salesSkill,
             procurementSkill: procurementSkill,
-            researchSkill: (marketingSkill + marketResearchSkill) / 2,
-            serviceSkill: (appraisalSkill + serviceSkill) / 2,
+            researchSkill: resolvedResearch,
+            serviceSkill: resolvedService,
             monthlySalary: Int((Double(marketSalary) * compensation.salaryFactor).rounded()),
             commissionRate: compensation.commissionRate,
             assignment: assignment,
@@ -2910,15 +2922,24 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
 
     var skills: [Int] { [salesSkill, procurementSkill, researchSkill, serviceSkill] }
     var marketValueSkill: Int {
-        let topTwo = skills.sorted(by: >).prefix(2)
-        let topAverage = topTwo.reduce(0, +) / max(1, topTwo.count)
-        let totalAverage = skills.reduce(0, +) / skills.count
-        return Int((Double(topAverage) * 0.6 + Double(totalAverage) * 0.4).rounded())
+        let sorted = skills.sorted(by: >)
+        let average = Double(skills.reduce(0, +)) / Double(skills.count)
+        return Int(
+            (Double(sorted[0]) * 0.65 + Double(sorted[1]) * 0.20 + average * 0.15)
+                .rounded()
+        )
     }
     var overallSkill: Int { marketValueSkill }
-    var marketMonthlySalary: Int { min(68, max(28, Int((12 + Double(marketValueSkill) * 0.52).rounded()))) }
+    var marketMonthlySalary: Int {
+        Self.marketSalary(
+            sales: salesSkill,
+            procurement: procurementSkill,
+            research: researchSkill,
+            service: serviceSkill
+        )
+    }
     var compensationType: EmployeeCompensationType {
-        commissionRate >= 10 ? .performance : commissionRate >= 5 ? .balanced : .fixed
+        commissionRate >= 8 ? .performance : commissionRate >= 4 ? .balanced : .fixed
     }
     var recentTotalCompensation: Int { monthlySalary + recentCommissions.reduce(0, +) }
     var salesComposite: Double { Double(salesSkill) * 0.8 + Double(researchSkill) * 0.2 }
@@ -2956,12 +2977,25 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         set { researchExperience = newValue }
     }
     var rankName: String {
-        switch overallSkill {
-        case 82...: "エース"
-        case 70...: "シニア"
-        case 58...: "中堅"
-        default: "新人"
-        }
+        let best = skills.max() ?? 0
+        if best >= 92 && overallSkill >= 76 { return "エース" }
+        if best >= 84 { return "スペシャリスト" }
+        if overallSkill >= 66 { return "中堅" }
+        return "新人"
+    }
+
+    private static func marketSalary(
+        sales: Int,
+        procurement: Int,
+        research: Int,
+        service: Int
+    ) -> Int {
+        let values = [sales, procurement, research, service]
+        let sorted = values.sorted(by: >)
+        let average = Double(values.reduce(0, +)) / Double(values.count)
+        let marketValue = Double(sorted[0]) * 0.65 + Double(sorted[1]) * 0.20 + average * 0.15
+        let specialistPremium = Double(max(0, sorted[0] - sorted[1] - 15)) * 0.35
+        return min(130, max(24, Int((10 + marketValue * 0.95 + specialistPremium).rounded())))
     }
 }
 
@@ -3153,7 +3187,7 @@ struct Store: Identifiable, Codable, Hashable {
     }
     var weeklyWorkshopLabor: Int {
         employees.filter { $0.assignment == .service }.reduce(0) {
-            $0 + min(4, max(1, Int((Double($1.serviceSkill) / 25).rounded())))
+            $0 + min(4, max(2, Int((Double($1.serviceSkill) / 25).rounded())))
         }
     }
     var derivedBusinessName: String {

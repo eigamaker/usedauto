@@ -549,10 +549,13 @@ struct StoreSettingsView: View {
                             HStack {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
-                                MetricView(title: "営業枠", value: "1人週\(game.employeeWeeklyCaseCapacity)回")
+                                MetricView(
+                                    title: "営業枠",
+                                    value: "1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)回"
+                                )
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は1人週\(game.employeeWeeklyCaseCapacity)件まで、登録した指示を4経路で処理します。")
+                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は能力に応じて1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件、登録した指示を4経路で処理します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

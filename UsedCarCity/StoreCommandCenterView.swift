@@ -442,7 +442,7 @@ private struct ManualSalesPanel: View {
             }
 
             if isAutomated {
-                Label("販売担当1人につき週\(game.employeeWeeklyCaseCapacity)件まで自動対応します。希望在庫がなくても代替車を提案し、販売能力が高いほど希望外の車でも成約しやすくなります。", systemImage: "person.crop.circle.badge.checkmark")
+                Label("販売担当1人につき能力に応じて週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件を自動対応します。販売能力が高いほど成約率・代替提案・売価が改善します。", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.caption).foregroundStyle(GameTheme.teal)
             }
             if leads.isEmpty {
@@ -1686,6 +1686,13 @@ private struct ManagerPanel: View {
 
     private var candidate: StoreManager? { game.managerCandidate(for: store.id) }
     private var employeeCandidates: [StoreEmployee] { game.employeeCandidates(for: store.id) }
+    private var employeeAutomationCapacity: Int {
+        store.employees
+            .filter { [.sales, .procurement].contains($0.assignment) }
+            .reduce(0) {
+                $0 + game.employeeWeeklyCaseCapacity(for: $1)
+            }
+    }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -1735,7 +1742,7 @@ private struct ManagerPanel: View {
                         .frame(width: 96, alignment: .trailing)
                 }
                 .padding(.vertical, 4)
-                Label("オーナーの営業枠とは別に、販売・仕入担当は1人週\(game.employeeWeeklyCaseCapacity)件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
+                Label("オーナーの営業枠とは別に、販売・仕入担当は能力に応じて1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .gameCard()
@@ -1753,7 +1760,7 @@ private struct ManagerPanel: View {
                     MetricView(title: "営業枠", value: "週\(game.weeklyOpportunityCapacity(storeID: store.id))回", detail: "オーナー")
                     MetricView(
                         title: "社員営業枠",
-                        value: "週\(store.employees.filter { [.sales, .procurement].contains($0.assignment) }.count * game.employeeWeeklyCaseCapacity)回",
+                        value: "週\(employeeAutomationCapacity)回",
                         detail: "担当社員"
                     )
                 }
@@ -1784,10 +1791,10 @@ private struct ManagerPanel: View {
                                         Button("\(focus.name)研修・\(game.employeeTrainingCost.currency)") {
                                             _ = game.trainEmployee(employee.id, at: store.id, focus: focus)
                                         }
-                                        .disabled(employee.lastTrainingTurn == game.turn || ability(employee, focus: focus) >= 95 || game.cash < game.employeeTrainingCost)
+                                        .disabled(employee.lastTrainingTurn == game.turn || ability(employee, focus: focus) >= 99 || game.cash < game.employeeTrainingCost)
                                     }
                                     Button("月給を2万円昇給") { _ = game.raiseEmployeeSalary(employee.id, at: store.id) }
-                                        .disabled(employee.monthlySalary >= 70)
+                                        .disabled(employee.monthlySalary >= 130)
                                     Divider()
                                     Button("解雇", role: .destructive) { _ = game.fireEmployee(employee.id, from: store.id) }
                                 } label: {
@@ -1826,7 +1833,7 @@ private struct ManagerPanel: View {
             .gameCard()
 
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "今週の店員候補")
+                SectionTitle(title: "今週の店員候補", subtitle: "毎週6枠を独立抽選。タイプ構成は保証されません")
                 if employeeCandidates.isEmpty {
                     Label("現在紹介できる候補者はいません", systemImage: "person.crop.circle.badge.clock")
                         .font(.subheadline).foregroundStyle(.secondary)
@@ -1839,7 +1846,7 @@ private struct ManagerPanel: View {
                                 size: 48
                             )
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(employee.name).font(.subheadline.bold())
+                                Text("\(employee.name)・\(employee.rankName)").font(.subheadline.bold())
                                 Text("販売\(employee.salesSkill) 仕入\(employee.procurementSkill) 調査\(employee.researchSkill) 査定・整備\(employee.serviceSkill)")
                                     .font(.caption2).foregroundStyle(.secondary)
                                 Text("\(employee.compensationType.name)・月給\(employee.monthlySalary.currency)\(employee.commissionRate > 0 ? "＋成約粗利\(employee.commissionRate)%" : "")")
@@ -1946,14 +1953,15 @@ private struct ManagerPanel: View {
         switch employee.assignment {
         case .sales:
             let effect = Int((game.employeeSalesCloseAdjustment(employee) * 100).rounded())
-            return "成約率 \(effect >= 0 ? "+" : "")\(effect)pt"
+            let price = Int((game.employeeSalesPriceRealization(employee) * 100).rounded())
+            return "週\(game.employeeWeeklyCaseCapacity(for: employee))件・成約\(effect >= 0 ? "+" : "")\(effect)pt・売価\(price >= 0 ? "+" : "")\(price)%"
         case .procurement:
             let close = Int((game.employeeProcurementCloseAdjustment(employee) * 100).rounded())
-            return "仕入成約率 \(close >= 0 ? "+" : "")\(close)pt"
+            return "週\(game.employeeWeeklyCaseCapacity(for: employee))件・仕入成約\(close >= 0 ? "+" : "")\(close)pt"
         case .research:
-            return "広告効率と市場予測を改善"
+            return "広告効率とトレンド先読み精度を改善"
         case .service:
-            return "査定確度 \(employee.serviceSkill)%・週\(employee.serviceComposite >= 80 ? 3 : employee.serviceComposite >= 60 ? 2 : 1)台整備"
+            return "査定確度 \(employee.serviceSkill)%・修理原価を最大\(game.employeeServiceCostDiscount(for: store.id))%削減"
         case .unassigned:
             return "担当を設定してください"
         }
