@@ -6,7 +6,7 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
-        case .auction: "東部オートオークション"
+        case .auction: "翠浜オートオークション"
         case .bank: "翠浜銀行"
         case .realEstate: "まち不動産"
         case .workshop: "臨海整備センター"
@@ -63,7 +63,7 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     @MainActor func status(game: GameEngine) -> String {
         switch self {
-        case .auction: "3会場・出品\(game.auctionListings.count)台・予約\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
+        case .auction: "1会場・3レーン・出品\(game.auctionListings.count)台・予約\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
         case .bank: "借入 \(game.debt.currency)"
         case .realEstate: "売地 \(game.plots.filter { if case .available = $0.occupant { true } else { false } }.count)件"
         case .workshop: "整備提携受付中"
@@ -384,29 +384,80 @@ private struct StoreNetworkContent: View {
 
 private struct AuctionContent: View {
     @EnvironmentObject private var game: GameEngine
-    @State private var venue: AuctionVenue = .east
     @State private var selectedStoreID: UUID?
     @State private var message: String?
+    @State private var searchText = ""
+    @State private var category: VehicleCategory?
+    @State private var origin: VehicleOrigin?
+    @State private var modelID: String?
+    @State private var lane: AuctionLane?
+    @State private var unreservedOnly = false
+    @State private var sort: AuctionListingSort = .reservePrice
+
+    private enum AuctionListingSort: String, CaseIterable, Identifiable {
+        case reservePrice, expectedProfit, winChance, newest
+        var id: String { rawValue }
+        var name: String {
+            switch self {
+            case .reservePrice: "開始価格"
+            case .expectedProfit: "予測粗利"
+            case .winChance: "落札見込"
+            case .newest: "新着"
+            }
+        }
+    }
 
     private var selectedStore: Store? {
         game.stores.first(where: { $0.id == selectedStoreID }) ?? game.stores.first
     }
     private var listings: [AuctionListing] {
-        game.auctionListings.filter { $0.venue == venue }.sorted { $0.reservePrice < $1.reservePrice }
+        let storeID = selectedStore?.id
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return game.auctionListings.filter { listing in
+            let model = VehicleCatalog.entry(id: listing.modelID)
+            return (lane == nil || listing.lane == lane)
+                && (category == nil || listing.category == category)
+                && (origin == nil || model?.origin == origin)
+                && (modelID == nil || listing.modelID == modelID)
+                && (!unreservedOnly || !game.bidReservations.contains { $0.listingID == listing.id })
+                && (query.isEmpty
+                    || listing.vehicleName.lowercased().contains(query)
+                    || listing.seller.lowercased().contains(query)
+                    || listing.category.name.lowercased().contains(query))
+        }.sorted { left, right in
+            switch sort {
+            case .reservePrice:
+                return left.reservePrice < right.reservePrice
+            case .expectedProfit:
+                guard let storeID else { return left.reservePrice < right.reservePrice }
+                let leftProfit = game.auctionExpectedGrossProfit(for: left, storeID: storeID, maxPrice: left.marketPrice) ?? Int.min
+                let rightProfit = game.auctionExpectedGrossProfit(for: right, storeID: storeID, maxPrice: right.marketPrice) ?? Int.min
+                return leftProfit > rightProfit
+            case .winChance:
+                return game.auctionBidWinChance(for: left, maxPrice: left.marketPrice)
+                    > game.auctionBidWinChance(for: right, maxPrice: right.marketPrice)
+            case .newest:
+                return left.createdTurn > right.createdTurn
+            }
+        }
     }
     private var bidResults: [AuctionBidResult] {
         game.auctionBidResults.filter { result in
-            result.venue == venue && (selectedStore == nil || result.storeID == selectedStore?.id)
+            selectedStore == nil || result.storeID == selectedStore?.id
         }
+    }
+    private var availableModels: [VehicleCatalogEntry] {
+        let ids = Set(game.auctionListings.filter {
+            (category == nil || $0.category == category)
+                && (origin == nil || VehicleCatalog.entry(id: $0.modelID)?.origin == origin)
+        }.map(\.modelID))
+        return ids.compactMap(VehicleCatalog.entry(id:)).sorted { $0.fullName < $1.fullName }
     }
 
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "オークション会場", subtitle: "常時30台規模。競合3社も実際に入札し、会場費と輸送費が加算されます")
-                Picker("会場", selection: $venue) {
-                    ForEach(AuctionVenue.allCases) { item in Text(item.name.replacingOccurrences(of: "オートオークション", with: "AA")).tag(item) }
-                }.pickerStyle(.segmented)
+                SectionTitle(title: "翠浜オートオークション", subtitle: "ひとつの大規模会場を、カテゴリ・車種・出品レーンから横断検索できます")
                 if game.stores.count > 1 {
                     Picker("入庫店舗", selection: Binding(get: { selectedStore?.id }, set: { selectedStoreID = $0 })) {
                         ForEach(game.stores) { store in Text(store.name).tag(Optional(store.id)) }
@@ -414,10 +465,10 @@ private struct AuctionContent: View {
                 }
             }.gameCard()
             HStack {
-                MetricView(title: "得意車種", value: venue.specialty)
-                MetricView(title: "手数料", value: venue.fee.currency)
-                MetricView(title: "陸送", value: venue.shippingCost.currency)
-                MetricView(title: "入庫", value: "\(venue.shippingMonths)週間後", tint: venue.tint)
+                MetricView(title: "全出品", value: "\(game.auctionListings.count)台")
+                MetricView(title: "検索結果", value: "\(listings.count)台")
+                MetricView(title: "レーン", value: "3種")
+                MetricView(title: "予約", value: "\(game.bidReservations.count)件", tint: .indigo)
             }.gameCard()
             if let store = selectedStore {
                 VStack(alignment: .leading, spacing: 10) {
@@ -444,10 +495,38 @@ private struct AuctionContent: View {
                 Label("業者間落札相場はAAでの落札目安、店頭販売参考は選択店舗の立地で販売する場合の目安です。", systemImage: "info.circle.fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                TextField("車名・カテゴリ・出品者を検索", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Picker("カテゴリ", selection: $category) {
+                        Text("全カテゴリ").tag(Optional<VehicleCategory>.none)
+                        ForEach(VehicleCategory.allCases) { Text($0.name).tag(Optional($0)) }
+                    }
+                    Picker("生産国", selection: $origin) {
+                        Text("国内外すべて").tag(Optional<VehicleOrigin>.none)
+                        ForEach(VehicleOrigin.allCases, id: \.self) { Text($0.name).tag(Optional($0)) }
+                    }
+                    Picker("レーン", selection: $lane) {
+                        Text("全レーン").tag(Optional<AuctionLane>.none)
+                        ForEach(AuctionLane.allCases) { Text($0.name).tag(Optional($0)) }
+                    }
+                }
+                HStack {
+                    Picker("車種", selection: $modelID) {
+                        Text("全車種").tag(Optional<String>.none)
+                        ForEach(availableModels, id: \.id) { Text($0.fullName).tag(Optional($0.id)) }
+                    }
+                    Picker("並び順", selection: $sort) {
+                        ForEach(AuctionListingSort.allCases) { Text($0.name).tag($0) }
+                    }
+                    Toggle("未予約のみ", isOn: $unreservedOnly).toggleStyle(.switch)
+                }
                 if let store = selectedStore {
-                    ForEach(listings.prefix(10)) { listing in
-                        AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
-                        if listing.id != listings.prefix(10).last?.id { Divider() }
+                    LazyVStack(spacing: 0) {
+                        ForEach(listings) { listing in
+                            AuctionBidRow(listing: listing, storeID: store.id) { message = $0 }
+                            if listing.id != listings.last?.id { Divider() }
+                        }
                     }
                 }
             }.gameCard()
@@ -462,7 +541,7 @@ private struct AuctionContent: View {
             }
             if let store = selectedStore {
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionTitle(title: "自社在庫を出品", subtitle: "\(venue.name)の買い手へ販売")
+                    SectionTitle(title: "自社在庫を出品", subtitle: "車両特性に合うレーンへ自動で割り当てます")
                     ForEach(store.inventory.filter { $0.count > 0 && !$0.isInWorkshop }) { batch in
                         HStack {
                             VStack(alignment: .leading) {
@@ -471,8 +550,8 @@ private struct AuctionContent: View {
                             }
                             Spacer()
                             Button("1台出品") {
-                                message = game.consignInventory(storeID: store.id, inventoryID: batch.id, venue: venue) ? "\(venue.name)へ1台出品しました" : "出品できませんでした"
-                            }.buttonStyle(.bordered).tint(venue.tint)
+                                message = game.consignInventory(storeID: store.id, inventoryID: batch.id) ? "翠浜AAへ1台出品しました" : "出品できませんでした"
+                            }.buttonStyle(.bordered).tint(.indigo)
                         }
                     }
                 }.gameCard()
@@ -484,7 +563,7 @@ private struct AuctionContent: View {
                         FacilityRow("\(shipment.source.name)・\(shipment.vehicleName) \(shipment.count)台", "あと\(shipment.monthsRemaining)週間", tint: .blue)
                     }
                     ForEach(game.auctionConsignments) { order in
-                        FacilityRow("出品中・\(order.vehicleName) \(order.count)台", "成約まで\(order.monthsRemaining)週間", tint: venue.tint)
+                        FacilityRow("出品中・\(order.vehicleName) \(order.count)台", "\(order.lane.name)・成約まで\(order.monthsRemaining)週間", tint: order.lane.tint)
                     }
                 }.gameCard()
             }
@@ -543,20 +622,27 @@ private struct AuctionBidRow: View {
     var body: some View {
         VStack(spacing: 7) {
             HStack(spacing: 9) {
-                Image(systemName: listing.category.icon).foregroundStyle(listing.venue.tint).frame(width: 30, height: 30).background(listing.venue.tint.opacity(0.1)).clipShape(Circle())
+                Image(systemName: listing.category.icon).foregroundStyle(listing.lane.tint).frame(width: 30, height: 30).background(listing.lane.tint.opacity(0.1)).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
                         Text(listing.vehicleName).font(.subheadline.bold())
+                        Text(listing.lane.name)
+                            .font(.caption2.bold())
+                            .foregroundStyle(listing.lane.tint)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(listing.lane.tint.opacity(0.12))
+                            .clipShape(Capsule())
                         if VehicleCatalog.entry(id: listing.modelID)?.isRareClassic == true {
                             Text("希少旧車").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(GameTheme.orange).clipShape(Capsule())
                         }
                         if let model = VehicleCatalog.entry(id: listing.modelID), model.origin == .imported {
                             Text("指名需要 \(Int((model.customerDemandIndex * 100).rounded()))")
                                 .font(.caption2.bold())
-                                .foregroundStyle(listing.venue.tint)
+                                .foregroundStyle(listing.lane.tint)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(listing.venue.tint.opacity(0.12))
+                                .background(listing.lane.tint.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                     }
@@ -570,7 +656,7 @@ private struct AuctionBidRow: View {
                     if let retailReferencePrice {
                         Text("店頭販売参考 \(retailReferencePrice.currency)").font(.caption2).foregroundStyle(GameTheme.teal)
                     }
-                    Text("諸費用 +\((listing.venue.fee + listing.venue.shippingCost).currency)").font(.caption2).foregroundStyle(GameTheme.orange)
+                    Text("諸費用 +\((listing.lane.fee + listing.lane.shippingCost).currency)").font(.caption2).foregroundStyle(GameTheme.orange)
                 }
             }
             if let automaticInstruction {
@@ -599,10 +685,10 @@ private struct AuctionBidRow: View {
                     Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
                         .font(.caption.bold())
                     Text("落札見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
-                        .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.venue.tint)
+                        .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.lane.tint)
                     Button(reserved ? "更新" : "予約") {
                         result(game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice) ? "上限\(maxPrice.currency)で入札を予約しました。結果は翌週に確定します" : "入庫枠を確保できません")
-                    }.buttonStyle(.borderedProminent).tint(listing.venue.tint)
+                    }.buttonStyle(.borderedProminent).tint(listing.lane.tint)
                     if reserved {
                         Button("取消") {
                             game.cancelBid(listingID: listing.id)

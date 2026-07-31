@@ -2083,43 +2083,43 @@ struct InventoryBatch: Identifiable, Codable, Hashable {
     }
 }
 
-enum AuctionVenue: String, Codable, CaseIterable, Identifiable {
-    case east, port, premium
+enum AuctionLane: String, Codable, CaseIterable, Identifiable {
+    case standard, logistics, premium
     var id: String { rawValue }
 
     var name: String {
         switch self {
-        case .east: "東部オートオークション"
-        case .port: "湾岸業販センター"
-        case .premium: "都心プレミアAA"
+        case .standard: "標準レーン"
+        case .logistics: "物流レーン"
+        case .premium: "プレミアレーン"
         }
     }
     var specialty: String {
         switch self {
-        case .east: "軽・コンパクト・ミニバン"
-        case .port: "ピックアップ・SUV・ミニバン"
+        case .standard: "軽・コンパクト・ミニバン"
+        case .logistics: "ピックアップ・SUV・ミニバン"
         case .premium: "スポーツ・輸入高級車"
         }
     }
-    var fee: Int { switch self { case .east: 7; case .port: 9; case .premium: 16 } }
+    var fee: Int { switch self { case .standard: 7; case .logistics: 9; case .premium: 16 } }
     /// 落札後に実際に支払う陸送費。従来値のおよそ3分の1。
-    var shippingCost: Int { switch self { case .east: 2; case .port: 4; case .premium: 6 } }
+    var shippingCost: Int { switch self { case .standard: 2; case .logistics: 4; case .premium: 6 } }
     /// 出品価格の生成に使う従来相当の物流余力。
     /// 陸送費の値下げ分で開始価格そのものが上がり、仕入改善が相殺されるのを防ぐ。
     var listingPricingShippingAllowance: Int {
         switch self {
-        case .east: 5
-        case .port: 12
+        case .standard: 5
+        case .logistics: 12
         case .premium: 18
         }
     }
-    var shippingMonths: Int { switch self { case .east: 1; case .port: 1; case .premium: 2 } }
-    var tint: Color { switch self { case .east: .indigo; case .port: .teal; case .premium: .purple } }
+    var shippingMonths: Int { switch self { case .standard: 1; case .logistics: 1; case .premium: 2 } }
+    var tint: Color { switch self { case .standard: .indigo; case .logistics: .teal; case .premium: .purple } }
 }
 
 struct AuctionListing: Identifiable, Codable, Hashable {
     let id: UUID
-    let venue: AuctionVenue
+    let lane: AuctionLane
     let modelID: String
     let category: VehicleCategory
     let modelYear: Int
@@ -2145,6 +2145,8 @@ struct BidReservation: Identifiable, Codable, Hashable {
     var committedCost: Int
     let resultTurn: Int
     let instructionID: UUID?
+    let handlerEmployeeID: UUID?
+    let targetTurn: Int
 }
 
 enum AuctionBidResultStatus: String, Codable, Hashable {
@@ -2165,7 +2167,7 @@ struct AuctionBidResult: Identifiable, Codable, Hashable {
     let id: UUID
     let listingID: UUID
     let storeID: UUID
-    let venue: AuctionVenue
+    let lane: AuctionLane
     let modelID: String
     let category: VehicleCategory
     let modelYear: Int
@@ -2199,22 +2201,21 @@ struct CompetitorAuctionPurchase: Identifiable, Codable, Hashable {
 }
 
 enum ProcurementSource: String, Codable, Hashable, CaseIterable, Identifiable {
-    case storePurchase, tradeIn, auction, dealerTrade, corporateLot, online
+    case storePurchase, tradeIn, auction, corporateLot, networkAuction
     var id: String { rawValue }
     var name: String {
         switch self {
         case .storePurchase: "店舗買取"
         case .tradeIn: "下取り"
         case .auction: "オークション"
-        case .dealerTrade: "業者間取引"
         case .corporateLot: "法人一括"
-        case .online: "オンライン"
+        case .networkAuction: "社員専用ネットAA"
         }
     }
     var isConditionVerified: Bool {
         switch self {
-        case .auction, .dealerTrade, .corporateLot: true
-        case .storePurchase, .tradeIn, .online: false
+        case .auction, .corporateLot: true
+        case .storePurchase, .tradeIn, .networkAuction: false
         }
     }
     var baselineGrossMarginLabel: String {
@@ -2222,9 +2223,8 @@ enum ProcurementSource: String, Codable, Hashable, CaseIterable, Identifiable {
         case .storePurchase: "12〜28%"
         case .tradeIn: "8〜20%"
         case .auction: "-5〜25%"
-        case .dealerTrade: "2〜6%"
         case .corporateLot: "5〜10%"
-        case .online: "-10〜25%"
+        case .networkAuction: "2〜10%中心"
         }
     }
 }
@@ -2303,7 +2303,21 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     }
 }
 
-struct OnlineListing: Identifiable, Codable, Hashable {
+enum NetworkAuctionListingKind: String, Codable, Hashable, CaseIterable {
+    case flowStock
+    case opportunity
+
+    var name: String {
+        switch self {
+        case .flowStock: "流通補充枠"
+        case .opportunity: "機会枠"
+        }
+    }
+
+    var isConditionVerified: Bool { self == .flowStock }
+}
+
+struct NetworkAuctionListing: Identifiable, Codable, Hashable {
     let id: UUID
     let modelID: String
     let category: VehicleCategory
@@ -2318,6 +2332,7 @@ struct OnlineListing: Identifiable, Codable, Hashable {
     let fee: Int
     let shippingCost: Int
     let shippingWeeks: Int
+    let kind: NetworkAuctionListingKind
     let createdTurn: Int
 
     var vehicleName: String {
@@ -2325,7 +2340,7 @@ struct OnlineListing: Identifiable, Codable, Hashable {
     }
 }
 
-struct OnlineBidReservation: Identifiable, Codable, Hashable {
+struct NetworkAuctionBidReservation: Identifiable, Codable, Hashable {
     let id: UUID
     let listingID: UUID
     let storeID: UUID
@@ -2333,9 +2348,11 @@ struct OnlineBidReservation: Identifiable, Codable, Hashable {
     var committedCost: Int
     let resultTurn: Int
     let instructionID: UUID?
+    let handlerEmployeeID: UUID?
+    let targetTurn: Int
 }
 
-struct OnlineBidResult: Identifiable, Codable, Hashable {
+struct NetworkAuctionBidResult: Identifiable, Codable, Hashable {
     let id: UUID
     let listingID: UUID
     let storeID: UUID
@@ -2370,10 +2387,12 @@ enum ProcurementInstructionStatus: String, Codable, Hashable, CaseIterable, Iden
 enum ProcurementFinancialRule: Codable, Hashable {
     case minimumGrossProfit(Int)
     case maximumOffer(Int)
+    case replenishment(targetUnits: Int, minimumGrossMarginPercent: Int)
 
     var amount: Int {
         switch self {
         case .minimumGrossProfit(let amount), .maximumOffer(let amount): amount
+        case .replenishment(_, let minimumGrossMarginPercent): minimumGrossMarginPercent
         }
     }
 
@@ -2381,6 +2400,24 @@ enum ProcurementFinancialRule: Codable, Hashable {
         switch self {
         case .minimumGrossProfit: "最低粗利"
         case .maximumOffer: "入札・提示上限"
+        case .replenishment: "台数確保"
+        }
+    }
+
+    var targetUnits: Int {
+        guard case .replenishment(let targetUnits, _) = self else { return 0 }
+        return targetUnits
+    }
+
+    var minimumGrossMarginPercent: Int? {
+        guard case .replenishment(_, let percent) = self else { return nil }
+        return percent
+    }
+
+    var isValid: Bool {
+        switch self {
+        case .minimumGrossProfit(let amount), .maximumOffer(let amount): amount >= 0
+        case .replenishment(let targetUnits, let percent): targetUnits > 0 && (0...10).contains(percent)
         }
     }
 }
@@ -2449,28 +2486,6 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
         if let category { return category.name }
         if let origin { return origin.name }
         return "車種指定なし"
-    }
-}
-
-struct ProcurementQuote: Hashable {
-    let source: ProcurementSource
-    let modelID: String?
-    let category: VehicleCategory
-    let count: Int
-    let unitCost: Int
-    let fee: Int
-    let weeks: Int
-    let quality: Double
-    let availabilityLabel: String
-    let modelYear: Int?
-    let mileage: Int?
-    let expectedRetailPrice: Int
-    let expectedGrossProfit: Int
-
-    var totalCost: Int { unitCost * count + fee }
-    var vehicleName: String {
-        guard let modelID else { return category.name }
-        return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
     }
 }
 
@@ -2646,7 +2661,7 @@ struct CorporateOpportunity: Identifiable, Codable, Hashable {
 struct AuctionConsignment: Identifiable, Codable, Hashable {
     let id: UUID
     let storeID: UUID
-    let venue: AuctionVenue
+    let lane: AuctionLane
     let modelID: String?
     let category: VehicleCategory
     let count: Int

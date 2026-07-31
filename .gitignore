@@ -73,3 +73,8 @@ playground.xcworkspace
 .idea/
 *.swp
 *~.nib
+
+# Generated source-tool artifacts
+__pycache__/
+*.py[cod]
+*.blend1

@@ -1999,7 +1999,9 @@ private struct ProcurementInstructionPanel: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(instruction.targetName)
                                     .font(.subheadline.bold())
-                                Text("\(instruction.financialRule.name) \(instruction.financialRule.amount.currency)／台\(instruction.faultOnly ? "・故障車のみ" : "")")
+                                Text(instruction.financialRule.targetUnits > 0
+                                    ? "台数確保 \(instruction.financialRule.targetUnits)台・最低粗利率\(instruction.financialRule.minimumGrossMarginPercent ?? 0)%\(instruction.faultOnly ? "・故障車のみ" : "")"
+                                    : "\(instruction.financialRule.name) \(instruction.financialRule.amount.currency)／台\(instruction.faultOnly ? "・故障車のみ" : "")")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -2068,6 +2070,19 @@ private struct ProcurementInstructionPanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: 11))
                 }
             }
+            let procurementEmployees = store.employees.filter { $0.assignment == .procurement }
+            if !procurementEmployees.isEmpty {
+                Divider()
+                Label(
+                    "社員専用ネットAA：\(procurementEmployees.map(\.name).joined(separator: "、"))",
+                    systemImage: "network.badge.shield.half.filled"
+                )
+                .font(.caption.bold())
+                .foregroundStyle(GameTheme.teal)
+                Text("出品一覧は非公開です。担当者の仕入力に応じて案件発見数・査定確度・落札判断が向上します。予約\(game.networkAuctionBidReservations.filter { $0.storeID == store.id }.count)件、直近成約\(game.networkAuctionBidResults.filter { $0.storeID == store.id && $0.status == .won }.prefix(5).count)件")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .gameCard()
         .sheet(isPresented: $showCreate) {
@@ -2080,10 +2095,11 @@ private struct ProcurementInstructionPanel: View {
 }
 
 private enum ProcurementRuleSelection: String, CaseIterable, Identifiable {
-    case minimumGrossProfit, maximumOffer
+    case replenishment, minimumGrossProfit, maximumOffer
     var id: String { rawValue }
     var name: String {
         switch self {
+        case .replenishment: "台数確保"
         case .minimumGrossProfit: "最低粗利額"
         case .maximumOffer: "入札・提示上限"
         }
@@ -2098,6 +2114,8 @@ private struct ProcurementInstructionEditor: View {
     @State private var totalBudget: Int
     @State private var ruleSelection: ProcurementRuleSelection
     @State private var ruleAmount: Int
+    @State private var targetUnits: Int
+    @State private var minimumGrossMarginPercent: Int
     @State private var category: VehicleCategory?
     @State private var origin: VehicleOrigin?
     @State private var modelID: String?
@@ -2108,6 +2126,8 @@ private struct ProcurementInstructionEditor: View {
         self.storeID = storeID
         self.instruction = instruction
         _totalBudget = State(initialValue: instruction?.totalBudget ?? 800)
+        _targetUnits = State(initialValue: 3)
+        _minimumGrossMarginPercent = State(initialValue: 5)
         switch instruction?.financialRule {
         case .maximumOffer(let amount):
             _ruleSelection = State(initialValue: .maximumOffer)
@@ -2115,6 +2135,11 @@ private struct ProcurementInstructionEditor: View {
         case .minimumGrossProfit(let amount):
             _ruleSelection = State(initialValue: .minimumGrossProfit)
             _ruleAmount = State(initialValue: amount)
+        case .replenishment(let units, let percent):
+            _ruleSelection = State(initialValue: .replenishment)
+            _ruleAmount = State(initialValue: 40)
+            _targetUnits = State(initialValue: units)
+            _minimumGrossMarginPercent = State(initialValue: percent)
         case nil:
             _ruleSelection = State(initialValue: .minimumGrossProfit)
             _ruleAmount = State(initialValue: 40)
@@ -2135,6 +2160,25 @@ private struct ProcurementInstructionEditor: View {
 
     private var minimumBudget: Int {
         max(10, (instruction?.spentBudget ?? 0) + (instruction?.reservedBudget ?? 0))
+    }
+
+    private var selectableSources: [ProcurementSource] {
+        ruleSelection == .replenishment
+            ? [.auction, .networkAuction]
+            : [.storePurchase, .auction, .networkAuction]
+    }
+
+    private func sourceBinding(_ source: ProcurementSource) -> Binding<Bool> {
+        Binding(
+            get: { allowedSources.contains(source) },
+            set: { enabled in
+                if enabled {
+                    allowedSources.insert(source)
+                } else if allowedSources.count > 1 {
+                    allowedSources.remove(source)
+                }
+            }
+        )
     }
 
     var body: some View {
@@ -2171,22 +2215,23 @@ private struct ProcurementInstructionEditor: View {
                     Picker("判定方法", selection: $ruleSelection) {
                         ForEach(ProcurementRuleSelection.allCases) { Text($0.name).tag($0) }
                     }
-                    Stepper("\(ruleSelection.name) \(ruleAmount.currency)／台", value: $ruleAmount, in: 0...20_000, step: 5)
+                    if ruleSelection == .replenishment {
+                        Stepper("最低仕入台数 \(targetUnits)台", value: $targetUnits, in: 1...20)
+                        Stepper("最低粗利率 \(minimumGrossMarginPercent)%", value: $minimumGrossMarginPercent, in: 0...10)
+                        Text("粗利率は0〜10%の固定上限です。候補不足でも条件を自動緩和せず、未達理由を週次結果に残します。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        Stepper("\(ruleSelection.name) \(ruleAmount.currency)／台", value: $ruleAmount, in: 0...20_000, step: 5)
+                    }
                     Text("週間予算は毎週更新され、車両価格・手数料・輸送費を含みます。未決済の入札予約は翌週の予算枠にも引き継がれます。最低粗利は予測修理費も差し引いて判定します。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Section("仕入先") {
-                    ForEach(ProcurementSource.allCases) { source in
+                    ForEach(selectableSources) { source in
                         Toggle(
                             "\(source.name)（目安\(source.baselineGrossMarginLabel)・\(source.isConditionVerified ? "状態確認済" : "査定が必要")）",
-                            isOn: Binding(
-                                get: { allowedSources.contains(source) },
-                                set: { enabled in
-                                    if enabled { allowedSources.insert(source) }
-                                    else if allowedSources.count > 1 { allowedSources.remove(source) }
-                                }
-                            )
+                            isOn: sourceBinding(source)
                         )
                     }
                     Text("粗利率は販売価格方針100を基準にした仕入れ時点の目安です。値付け、値引き、相場変動、修理費によって実績はレンジ外になります。")
@@ -2224,15 +2269,26 @@ private struct ProcurementInstructionEditor: View {
                     origin = model?.origin
                 }
             }
+            .onChange(of: ruleSelection) { _, selection in
+                if selection == .replenishment {
+                    allowedSources = allowedSources.intersection([.auction, .networkAuction])
+                    if allowedSources.isEmpty { allowedSources = [.auction, .networkAuction] }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        let rule: ProcurementFinancialRule = ruleSelection == .minimumGrossProfit
-                            ? .minimumGrossProfit(ruleAmount)
-                            : .maximumOffer(ruleAmount)
+                        let rule: ProcurementFinancialRule = switch ruleSelection {
+                        case .replenishment: .replenishment(
+                            targetUnits: targetUnits,
+                            minimumGrossMarginPercent: minimumGrossMarginPercent
+                        )
+                        case .minimumGrossProfit: .minimumGrossProfit(ruleAmount)
+                        case .maximumOffer: .maximumOffer(ruleAmount)
+                        }
                         if var changed = instruction {
                             changed.totalBudget = totalBudget
                             changed.financialRule = rule
@@ -2348,7 +2404,6 @@ private struct MarketPanel: View {
                 MarketConditionsPanel(store: store, plot: plot, campaign: campaign)
             case .procurement:
                 ProcurementPanel(store: store, plot: plot)
-                OnlineMarketPanel(store: store, plot: plot)
             case .vehicles:
                 VehicleCatalogPanel(store: store, district: plot.district)
             }
@@ -2680,307 +2735,17 @@ private struct MarketConditionsPanel: View {
     }
 }
 
-private struct OnlineMarketPanel: View {
-    @EnvironmentObject private var game: GameEngine
-    let store: Store
-    let plot: LandPlot
-    @State private var category: VehicleCategory?
-    @State private var message: String?
-
-    private var listings: [OnlineListing] {
-        game.onlineListings
-            .filter { category == nil || $0.category == category }
-            .sorted { $0.reservePrice < $1.reservePrice }
-    }
-
-    private var canOperateManually: Bool {
-        game.hasProcurementEmployee(storeID: store.id) && !store.autoProcurement
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "全国オンライン仕入れ")
-            Picker("カテゴリ", selection: $category) {
-                Text("すべて").tag(VehicleCategory?.none)
-                ForEach(VehicleCategory.allCases) { item in
-                    Text(item.name).tag(Optional(item))
-                }
-            }
-            .pickerStyle(.menu)
-
-            if !game.hasProcurementEmployee(storeID: store.id) {
-                Label("閲覧のみ：社員を「仕入」に配置すると入札できます", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(GameTheme.orange)
-            } else if store.autoProcurement {
-                Label("自動仕入れON：有効な仕入れ指示が条件一致した出品へ入札します", systemImage: "gearshape.2.fill")
-                    .font(.caption)
-                    .foregroundStyle(GameTheme.teal)
-            } else {
-                Label("手動入札可能：この操作はオーナーの週間商談枠を消費しません", systemImage: "hand.tap.fill")
-                    .font(.caption)
-                    .foregroundStyle(GameTheme.teal)
-            }
-
-            ForEach(listings) { listing in
-                OnlineListingRow(
-                    listing: listing,
-                    store: store,
-                    plot: plot,
-                    manualEnabled: canOperateManually
-                ) { message = $0 }
-                if listing.id != listings.last?.id { Divider() }
-            }
-
-            let results = game.onlineBidResults.filter { $0.storeID == store.id }
-            if !results.isEmpty {
-                Divider()
-                Text("直近の入札結果").font(.subheadline.bold())
-                ForEach(results.prefix(5)) { result in
-                    HStack {
-                        Image(systemName: result.status == .won ? "checkmark.circle.fill" : "xmark.circle")
-                            .foregroundStyle(result.status == .won ? GameTheme.teal : .secondary)
-                        Text(result.vehicleName).font(.caption.bold())
-                        Spacer()
-                        Text("\(result.status.name)・\(result.totalCost.currency)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .gameCard()
-        .alert("オンライン仕入れ", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("OK") { message = nil }
-        } message: {
-            Text(message ?? "")
-        }
-    }
-}
-
-private struct OnlineListingRow: View {
-    @EnvironmentObject private var game: GameEngine
-    let listing: OnlineListing
-    let store: Store
-    let plot: LandPlot
-    let manualEnabled: Bool
-    let result: (String) -> Void
-    @State private var maxPrice: Int
-
-    init(
-        listing: OnlineListing,
-        store: Store,
-        plot: LandPlot,
-        manualEnabled: Bool,
-        result: @escaping (String) -> Void
-    ) {
-        self.listing = listing
-        self.store = store
-        self.plot = plot
-        self.manualEnabled = manualEnabled
-        self.result = result
-        _maxPrice = State(initialValue: max(listing.reservePrice, listing.marketPrice))
-    }
-
-    private var reservation: OnlineBidReservation? {
-        game.onlineBidReservations.first { $0.listingID == listing.id }
-    }
-
-    private var automaticInstruction: ProcurementInstruction? {
-        reservation?.instructionID.flatMap { id in game.procurementInstructions.first { $0.id == id } }
-    }
-
-    private var retailRange: ClosedRange<Int> {
-        let assessment = game.onlineAssessment(for: listing, storeID: store.id)
-        let retail = game.vehicleRetailValue(
-            modelID: listing.modelID,
-            category: listing.category,
-            modelYear: listing.modelYear,
-            mileage: listing.mileage,
-            quality: Double(assessment.estimatedCondition) / 100,
-            in: plot.district
-        )
-        return game.marketForecastRange(value: retail, storeID: store.id)
-    }
-
-    private var upperBound: Int {
-        max(listing.marketPrice * 8 / 5, retailRange.upperBound)
-    }
-
-    private var assessment: VehicleAssessment {
-        game.onlineAssessment(for: listing, storeID: store.id)
-    }
-    private var expectedGrossProfit: Int? {
-        game.onlineExpectedGrossProfit(
-            for: listing,
-            storeID: store.id,
-            maxPrice: maxPrice
-        )
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: listing.category.icon)
-                    .foregroundStyle(assessment.detectedFault == MechanicalFaultSeverity.none ? GameTheme.teal : GameTheme.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(listing.vehicleName).font(.subheadline.bold())
-                    Text("\(listing.category.name)・\(listing.modelYear)年・\(listing.mileage.formatted())km・状態\(assessment.conditionRange.lowerBound)〜\(assessment.conditionRange.upperBound)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("開始 \(listing.reservePrice.currency)").font(.caption.bold())
-                    Text("相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
-                    Text("諸費用 \((listing.fee + listing.shippingCost).currency)")
-                        .font(.caption2)
-                        .foregroundStyle(GameTheme.orange)
-                }
-            }
-            HStack {
-                Text(assessment.detectedFault?.name ?? "故障判定に不確実性あり")
-                    .font(.caption2.bold())
-                    .foregroundStyle(assessment.detectedFault == MechanicalFaultSeverity.none ? GameTheme.teal : GameTheme.orange)
-                Text("査定確度 \(assessment.confidence)%")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Text("販売予測 \(retailRange.lowerBound.currency)〜\(retailRange.upperBound.currency)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(listing.shippingWeeks)週で入庫").font(.caption2).foregroundStyle(.secondary)
-            }
-            if let automaticInstruction {
-                Label("自動予約：\(automaticInstruction.targetName)・上限\(reservation?.maxPrice.currency ?? "—")", systemImage: "gearshape.fill")
-                    .font(.caption2.bold())
-                    .foregroundStyle(GameTheme.teal)
-            } else {
-                if let expectedGrossProfit {
-                    let assessedRetail = expectedGrossProfit
-                        + maxPrice
-                        + listing.fee
-                        + listing.shippingCost
-                        + assessment.repairCostRange.upperBound
-                    let expectedMargin = Int(
-                        (Double(expectedGrossProfit) / Double(max(1, assessedRetail)) * 100).rounded()
-                    )
-                    Label(
-                        "上限落札・価格方針100での予測粗利 \(expectedGrossProfit.currency)（\(expectedMargin)%）",
-                        systemImage: expectedGrossProfit >= 0
-                            ? "checkmark.circle.fill"
-                            : "exclamationmark.triangle.fill"
-                    )
-                    .font(.caption.bold())
-                    .foregroundStyle(expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
-                }
-                HStack {
-                    Stepper(
-                        "上限 \(maxPrice.currency)",
-                        value: $maxPrice,
-                        in: listing.reservePrice...upperBound,
-                        step: game.onlineBidStep(for: listing)
-                    )
-                    .font(.caption.bold())
-                    Text("落札見込 \(Int(game.onlineBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
-                        .font(.caption2.bold())
-                        .foregroundStyle(GameTheme.teal)
-                    Button(reservation == nil ? "予約" : "更新") {
-                        result(game.reserveOnlineBid(listingID: listing.id, storeID: store.id, maxPrice: maxPrice)
-                            ? "上限\(maxPrice.currency)で予約しました"
-                            : "担当者・自動化設定・展示枠を確認してください")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(GameTheme.teal)
-                    .disabled(!manualEnabled)
-                    if reservation != nil {
-                        Button("取消") {
-                            game.cancelOnlineBid(listingID: listing.id)
-                            result("入札を取り消しました")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!manualEnabled)
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 3)
-        .onAppear {
-            if let reservation, reservation.instructionID == nil {
-                maxPrice = reservation.maxPrice
-            }
-        }
-    }
-}
-
 private struct ProcurementPanel: View {
     @EnvironmentObject private var game: GameEngine
     let store: Store
     let plot: LandPlot
-    @State private var category: VehicleCategory = .pickup
-    @State private var origin: VehicleOrigin?
-    @State private var message: String?
-
-    private var dealerQuote: ProcurementQuote? {
-        game.dealerTradeQuote(category: category, count: 3, storeID: store.id, origin: origin)
-    }
-
-    private var freeCapacity: Int {
-        max(0, store.type.capacity - store.inventoryCount - game.incomingCount(for: store.id))
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(
-                title: "業者間取引（仕入れ網）",
-                subtitle: "指定車種を3台確実に補充。価格方針100で粗利2〜6%が目安です"
+                title: "共有法人案件",
+                subtitle: "法人放出は複数台一括。応募には法人窓口が必要です"
             )
-            Picker("探す車種", selection: $category) {
-                ForEach(VehicleCategory.allCases) { item in Text(item.name).tag(item) }
-            }
-            .pickerStyle(.menu)
-            Picker("産地", selection: $origin) {
-                Text("国産・輸入の両方").tag(VehicleOrigin?.none)
-                ForEach(VehicleOrigin.allCases) { item in
-                    Text(item.name).tag(Optional(item))
-                        .disabled(!game.hasAvailableVehicle(category: category, origin: item))
-                }
-            }
-            .pickerStyle(.segmented)
-
-            HStack {
-                let demandRange = game.marketForecastRange(value: Int(game.vehicleDemand(category, in: plot.district) * 100), storeID: store.id)
-                let supplyRange = game.marketForecastRange(value: Int(game.vehicleSupply(category, in: plot.district) * 100), storeID: store.id)
-                ProposalMetric(title: "地域需要予測", value: "\(demandRange.lowerBound)〜\(demandRange.upperBound)")
-                ProposalMetric(title: "地域供給予測", value: "\(supplyRange.lowerBound)〜\(supplyRange.upperBound)")
-                ProposalMetric(title: "空き展示枠", value: "\(freeCapacity)台")
-            }
-
-            if let quote = dealerQuote {
-                ProcurementRouteRow(
-                    title: "業者間取引・\(quote.vehicleName) 3台",
-                    quote: quote,
-                    disabled: game.cash < quote.totalCost || freeCapacity < quote.count
-                ) {
-                    message = game.orderDealerTrade(category: category, count: quote.count, storeID: store.id, origin: origin)
-                        ? "\(quote.vehicleName)3台を手配しました。\(quote.weeks)週間後に入庫します。"
-                        : "現金または展示枠が不足しています。"
-                }
-            } else if let origin {
-                Label(
-                    "\(origin.name)の\(category.name)は市場に存在しません",
-                    systemImage: "exclamationmark.triangle.fill"
-                )
-                .font(.caption.bold())
-                .foregroundStyle(GameTheme.orange)
-            }
-
-            Divider()
-            VStack(alignment: .leading, spacing: 2) {
-                Text("共有法人案件").font(.subheadline.bold())
-                Text("法人放出は複数台一括・価格方針100で粗利5〜10%が目安")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
             if !store.facilities.contains(.corporateDesk) {
                 Label("応募には法人窓口が必要です", systemImage: "building.2.fill")
                     .font(.caption2).foregroundStyle(.secondary)
@@ -2994,24 +2759,6 @@ private struct ProcurementPanel: View {
 
         }
         .gameCard()
-        .onAppear {
-            category = game.recommendedCategories(for: plot.district).first ?? .pickup
-        }
-        .onChange(of: category) { _, newCategory in
-            if let origin,
-               !game.hasAvailableVehicle(category: newCategory, origin: origin) {
-                self.origin = nil
-            }
-        }
-        .onChange(of: origin) { _, newOrigin in
-            if let newOrigin,
-               !game.hasAvailableVehicle(category: category, origin: newOrigin) {
-                origin = nil
-            }
-        }
-        .alert("仕入れ手配", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("OK") { message = nil }
-        } message: { Text(message ?? "") }
     }
 }
 
@@ -3068,45 +2815,6 @@ private struct CorporateOpportunityRow: View {
         .padding(9)
         .background(GameTheme.cream)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-}
-
-private struct ProcurementRouteRow: View {
-    let title: String
-    let quote: ProcurementQuote
-    let disabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            let tint = quote.source == .corporateLot ? GameTheme.orange : GameTheme.teal
-            Image(systemName: quote.source == .corporateLot ? "building.2.fill" : "arrow.triangle.2.circlepath")
-                .foregroundStyle(tint)
-                .frame(width: 34, height: 34)
-                .background(tint.opacity(0.10))
-                .clipShape(Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.bold())
-                Text("\(quote.availabilityLabel)・1台\(quote.unitCost.currency)・\(quote.weeks)週・総額\(quote.totalCost.currency)")
-                    .font(.caption.bold()).foregroundStyle(.secondary)
-                let expectedMargin = Int(
-                    (Double(quote.expectedGrossProfit) / Double(max(1, quote.expectedRetailPrice)) * 100).rounded()
-                )
-                Text(
-                    "価格方針100の販売予測 \(quote.expectedRetailPrice.currency)"
-                        + "・予測粗利 \(quote.expectedGrossProfit.currency)/台（\(expectedMargin)%）"
-                )
-                    .font(.caption2.bold())
-                    .foregroundStyle(quote.expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
-            }
-            Spacer()
-            Button("手配", action: action)
-                .buttonStyle(.borderedProminent).tint(GameTheme.teal)
-                .disabled(disabled)
-        }
-        .padding(10)
-        .background(GameTheme.cream)
-        .clipShape(RoundedRectangle(cornerRadius: 11))
     }
 }
 

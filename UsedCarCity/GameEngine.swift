@@ -72,9 +72,9 @@ final class GameEngine: ObservableObject {
     @Published var auctionListings: [AuctionListing] = []
     @Published var bidReservations: [BidReservation] = []
     @Published var auctionBidResults: [AuctionBidResult] = []
-    @Published var onlineListings: [OnlineListing] = []
-    @Published var onlineBidReservations: [OnlineBidReservation] = []
-    @Published var onlineBidResults: [OnlineBidResult] = []
+    @Published var networkAuctionListings: [NetworkAuctionListing] = []
+    @Published var networkAuctionBidReservations: [NetworkAuctionBidReservation] = []
+    @Published var networkAuctionBidResults: [NetworkAuctionBidResult] = []
     @Published var procurementInstructions: [ProcurementInstruction] = []
     @Published var competitorAuctionPurchases: [CompetitorAuctionPurchase] = []
     @Published var inboundShipments: [InboundShipment] = []
@@ -111,6 +111,8 @@ final class GameEngine: ObservableObject {
     var simulationTransactionHandler: ((SimulationVehicleTransaction) -> Void)?
     private var openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord] = [:]
     private var procurementWeekActivities: [ProcurementActivityKey: ProcurementWeekActivity] = [:]
+    private var competitorAuctionSlotsRemaining: [UUID: Int] = [:]
+    private var competitorAuctionBudgetRemaining: [UUID: Int] = [:]
     private var weeklyPresentationQueue: [WeeklyPresentationStage] = []
     private let persistenceEnabled: Bool
 
@@ -152,9 +154,9 @@ final class GameEngine: ObservableObject {
         let auctionListings: [AuctionListing]
         let bidReservations: [BidReservation]
         let auctionBidResults: [AuctionBidResult]
-        let onlineListings: [OnlineListing]
-        let onlineBidReservations: [OnlineBidReservation]
-        let onlineBidResults: [OnlineBidResult]
+        let networkAuctionListings: [NetworkAuctionListing]
+        let networkAuctionBidReservations: [NetworkAuctionBidReservation]
+        let networkAuctionBidResults: [NetworkAuctionBidResult]
         let procurementInstructions: [ProcurementInstruction]
         let competitorAuctionPurchases: [CompetitorAuctionPurchase]
         let inboundShipments: [InboundShipment]
@@ -224,7 +226,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v48"
+    private static let saveKey = "UsedCarCity.save.v49"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -630,7 +632,7 @@ final class GameEngine: ObservableObject {
             return CityEvent(turn: 0, kind: .development, title: "\(project.title)が計画中", detail: "完成まで\(project.monthsRemaining)週間。周辺人口と交通量が増える見込みです", district: plot.district, plotID: plot.id)
         }
         generateAuctionListings()
-        generateOnlineListings()
+        generateNetworkAuctionListings()
         generateCorporateOpportunities()
         recalculateAssets()
         save()
@@ -665,8 +667,9 @@ final class GameEngine: ObservableObject {
         hasStarted = false
         year = 2026; month = 1; weekOfMonth = 1; turn = 0; cash = 6_500; debt = 3_000; companyValue = 3_500
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
-        stores = []; reports = []; monthlyReports = []; purchaseCases = []; customerCustomizationOrders = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; onlineListings = []; onlineBidReservations = []; onlineBidResults = []; procurementInstructions = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; corporateOpportunities = []
+        stores = []; reports = []; monthlyReports = []; purchaseCases = []; customerCustomizationOrders = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; networkAuctionListings = []; networkAuctionBidReservations = []; networkAuctionBidResults = []; procurementInstructions = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; corporateOpportunities = []
         segmentMarkets = [:]; segmentTrends = []; openSegmentWeek = [:]
+        competitorAuctionSlotsRemaining = [:]; competitorAuctionBudgetRemaining = [:]
         simulationSeed = requestedSeed ?? Int.random(in: 1...Int.max / 4)
         companyExpertise = BusinessExpertise()
         nationalBrandStrength = 0.48
@@ -739,9 +742,9 @@ final class GameEngine: ObservableObject {
         auctionListings = saved.auctionListings
         bidReservations = saved.bidReservations
         auctionBidResults = saved.auctionBidResults
-        onlineListings = saved.onlineListings
-        onlineBidReservations = saved.onlineBidReservations
-        onlineBidResults = saved.onlineBidResults
+        networkAuctionListings = saved.networkAuctionListings
+        networkAuctionBidReservations = saved.networkAuctionBidReservations
+        networkAuctionBidResults = saved.networkAuctionBidResults
         procurementInstructions = saved.procurementInstructions
         competitorAuctionPurchases = saved.competitorAuctionPurchases
         inboundShipments = saved.inboundShipments
@@ -1392,11 +1395,6 @@ final class GameEngine: ObservableObject {
         return 0
     }
 
-    @available(*, deprecated, message: "Pass the buyer purpose")
-    func specialtyCloseAdjustment(for batch: InventoryBatch, in district: DistrictKind) -> Double {
-        specialtyCloseAdjustment(for: batch, purpose: .general, in: district)
-    }
-
     func averageInventoryWeeks(storeID: UUID? = nil) -> Double {
         let inventory = stores
             .filter { storeID == nil || $0.id == storeID }
@@ -1797,14 +1795,14 @@ final class GameEngine: ObservableObject {
             turn: turn,
             kind: .acquired,
             storeID: storeID,
-            source: .dealerTrade,
+            source: .auction,
             category: category,
             count: count,
             revenue: 0,
             cost: totalCost
         ))
-        stores[index].expertise.add(category: category, purpose: stores[index].marketPolicy.targetPurpose, source: .dealerTrade, points: 1)
-        companyExpertise.add(category: category, purpose: stores[index].marketPolicy.targetPurpose, source: .dealerTrade, points: 1)
+        stores[index].expertise.add(category: category, purpose: stores[index].marketPolicy.targetPurpose, source: .auction, points: 1)
+        companyExpertise.add(category: category, purpose: stores[index].marketPolicy.targetPurpose, source: .auction, points: 1)
         if tutorialStep == .purchaseInventory {
             tutorialStep = .runFirstMonth
         }
@@ -1815,7 +1813,7 @@ final class GameEngine: ObservableObject {
 
     private func inventoryPurchaseBatches(category: VehicleCategory, count: Int, store: Store) -> [InventoryBatch]? {
         guard count > 0, let plot = plot(id: store.plotID) else { return nil }
-        let sourceEfficiency = 1 - min(0.15, effectiveSourceExpertise(for: store, source: .dealerTrade) * 0.0015)
+        let sourceEfficiency = 1 - min(0.15, effectiveSourceExpertise(for: store, source: .auction) * 0.0015)
         return (0..<count).map { offset in
             let model = vehicleModel(for: category, seed: turn * 101 + store.plotID * 17 + offset * 29)
             let profile = usedVehicleProfile(for: model, seed: turn * 131 + store.plotID * 23 + offset * 31, maximumAge: 8)
@@ -1999,7 +1997,7 @@ final class GameEngine: ObservableObject {
         }
         guard stores.contains(where: { $0.id == storeID }),
               totalBudget > 0,
-              financialRule.amount >= 0 else { return nil }
+              financialRule.isValid else { return nil }
         let priority = (procurementInstructions(for: storeID).map(\.priority).max() ?? -1) + 1
         let instruction = ProcurementInstruction(
             storeID: storeID,
@@ -2010,7 +2008,7 @@ final class GameEngine: ObservableObject {
             origin: origin,
             modelID: modelID,
             faultOnly: faultOnly,
-            allowedSources: allowedSources,
+            allowedSources: normalizedInstructionSources(allowedSources, for: financialRule),
             createdTurn: turn
         )
         procurementInstructions.append(instruction)
@@ -2028,14 +2026,29 @@ final class GameEngine: ObservableObject {
               stores.contains(where: { $0.id == changed.storeID }),
               changed.totalBudget >= changed.spentBudget + changed.reservedBudget,
               changed.totalBudget > 0,
-              changed.financialRule.amount >= 0 else { return false }
+              changed.financialRule.isValid else { return false }
         var normalized = changed
         if let modelID = normalized.modelID {
             normalized.category = VehicleCatalog.entry(id: modelID)?.category
         }
+        normalized.allowedSources = normalizedInstructionSources(
+            normalized.allowedSources,
+            for: normalized.financialRule
+        )
         procurementInstructions[index] = normalized
         save()
         return true
+    }
+
+    private func normalizedInstructionSources(
+        _ sources: Set<ProcurementSource>,
+        for rule: ProcurementFinancialRule
+    ) -> Set<ProcurementSource> {
+        let executable: Set<ProcurementSource> = rule.targetUnits > 0
+            ? [.auction, .networkAuction]
+            : [.storePurchase, .auction, .networkAuction]
+        let normalized = sources.intersection(executable)
+        return normalized.isEmpty ? executable : normalized
     }
 
     @discardableResult
@@ -2078,7 +2091,7 @@ final class GameEngine: ObservableObject {
 
     private func cancelAutomaticReservations(instructionID: UUID) {
         bidReservations.removeAll { $0.instructionID == instructionID }
-        onlineBidReservations.removeAll { $0.instructionID == instructionID }
+        networkAuctionBidReservations.removeAll { $0.instructionID == instructionID }
     }
 
     func auctionBidWinChance(for listing: AuctionListing, maxPrice: Int) -> Double {
@@ -2105,27 +2118,35 @@ final class GameEngine: ObservableObject {
     }
 
     @discardableResult
-    func reserveBid(listingID: UUID, storeID: UUID, maxPrice: Int, instructionID: UUID? = nil) -> Bool {
+    func reserveBid(
+        listingID: UUID,
+        storeID: UUID,
+        maxPrice: Int,
+        instructionID: UUID? = nil,
+        handlerEmployeeID: UUID? = nil
+    ) -> Bool {
         guard let listing = auctionListings.first(where: { $0.id == listingID }),
               let store = stores.first(where: { $0.id == storeID }),
               maxPrice >= listing.reservePrice else { return false }
         let otherReservedSlots = bidReservations.filter { $0.storeID == storeID && $0.listingID != listingID }.count
-            + onlineBidReservations.filter { $0.storeID == storeID }.count
+            + networkAuctionBidReservations.filter { $0.storeID == storeID }.count
         guard store.inventoryCount + incomingCount(for: storeID) + otherReservedSlots + 1 <= store.type.capacity else { return false }
         if let index = bidReservations.firstIndex(where: { $0.listingID == listingID }) {
             guard bidReservations[index].instructionID == instructionID else { return false }
             bidReservations[index].storeID = storeID
             bidReservations[index].maxPrice = maxPrice
-            bidReservations[index].committedCost = maxPrice + listing.venue.fee + listing.venue.shippingCost
+            bidReservations[index].committedCost = maxPrice + listing.lane.fee + listing.lane.shippingCost
         } else {
             bidReservations.append(BidReservation(
                 id: UUID(),
                 listingID: listingID,
                 storeID: storeID,
                 maxPrice: maxPrice,
-                committedCost: maxPrice + listing.venue.fee + listing.venue.shippingCost,
+                committedCost: maxPrice + listing.lane.fee + listing.lane.shippingCost,
                 resultTurn: turn + 1,
-                instructionID: instructionID
+                instructionID: instructionID,
+                handlerEmployeeID: handlerEmployeeID,
+                targetTurn: turn + 1
             ))
         }
         save()
@@ -2137,225 +2158,69 @@ final class GameEngine: ObservableObject {
         save()
     }
 
-    func onlineBidWinChance(for listing: OnlineListing, maxPrice: Int) -> Double {
-        onlineBidWinChance(for: listing, maxPrice: maxPrice, sampleCount: 120)
+    func networkAuctionBidWinChance(for listing: NetworkAuctionListing, maxPrice: Int) -> Double {
+        networkAuctionBidWinChance(for: listing, maxPrice: maxPrice, sampleCount: 120)
     }
 
-    private func onlineBidWinChance(
-        for listing: OnlineListing,
+    private func networkAuctionBidWinChance(
+        for listing: NetworkAuctionListing,
         maxPrice: Int,
         sampleCount: Int
     ) -> Double {
         var wins = 0
         let baseSeed = turn * 311 + listing.modelYear * 17 + listing.mileage / 500 + categoryIndex(listing.category) * 61
         for sample in 0..<sampleCount {
-            let rival = competitorOnlineBid(for: listing, seed: baseSeed + sample * 7_919)
+            let rival = competitorNetworkAuctionBid(for: listing, seed: baseSeed + sample * 7_919)
             if maxPrice >= (rival?.maxPrice ?? listing.reservePrice) { wins += 1 }
         }
         return Double(wins) / Double(sampleCount)
     }
 
-    func onlineBidStep(for listing: OnlineListing) -> Int {
+    func networkAuctionBidStep(for listing: NetworkAuctionListing) -> Int {
         let rawStep = max(5, listing.marketPrice / 40)
         return max(5, Int((Double(rawStep) / 5).rounded()) * 5)
     }
 
     @discardableResult
-    func reserveOnlineBid(
+    func reserveNetworkAuctionBid(
         listingID: UUID,
         storeID: UUID,
         maxPrice: Int,
-        instructionID: UUID? = nil
+        instructionID: UUID? = nil,
+        handlerEmployeeID: UUID? = nil
     ) -> Bool {
-        guard let listing = onlineListings.first(where: { $0.id == listingID }),
+        guard let listing = networkAuctionListings.first(where: { $0.id == listingID }),
               let store = stores.first(where: { $0.id == storeID && $0.isOperational }),
               hasProcurementEmployee(storeID: storeID),
               maxPrice >= listing.reservePrice else { return false }
         if instructionID == nil, store.autoProcurement { return false }
-        let otherReservedSlots = onlineBidReservations.filter { $0.storeID == storeID && $0.listingID != listingID }.count
+        let otherReservedSlots = networkAuctionBidReservations.filter { $0.storeID == storeID && $0.listingID != listingID }.count
             + bidReservations.filter { $0.storeID == storeID }.count
         guard store.inventoryCount + incomingCount(for: storeID) + otherReservedSlots + 1 <= store.type.capacity else { return false }
-        if let index = onlineBidReservations.firstIndex(where: { $0.listingID == listingID }) {
-            guard onlineBidReservations[index].instructionID == instructionID else { return false }
-            onlineBidReservations[index].maxPrice = maxPrice
-            onlineBidReservations[index].committedCost = maxPrice + listing.fee + listing.shippingCost
+        if let index = networkAuctionBidReservations.firstIndex(where: { $0.listingID == listingID }) {
+            guard networkAuctionBidReservations[index].instructionID == instructionID else { return false }
+            networkAuctionBidReservations[index].maxPrice = maxPrice
+            networkAuctionBidReservations[index].committedCost = maxPrice + listing.fee + listing.shippingCost
         } else {
-            onlineBidReservations.append(OnlineBidReservation(
+            networkAuctionBidReservations.append(NetworkAuctionBidReservation(
                 id: UUID(),
                 listingID: listingID,
                 storeID: storeID,
                 maxPrice: maxPrice,
                 committedCost: maxPrice + listing.fee + listing.shippingCost,
                 resultTurn: turn + 1,
-                instructionID: instructionID
+                instructionID: instructionID,
+                handlerEmployeeID: handlerEmployeeID,
+                targetTurn: turn + 1
             ))
         }
         save()
         return true
     }
 
-    func cancelOnlineBid(listingID: UUID) {
-        onlineBidReservations.removeAll { $0.listingID == listingID && $0.instructionID == nil }
+    func cancelNetworkAuctionBid(listingID: UUID) {
+        networkAuctionBidReservations.removeAll { $0.listingID == listingID && $0.instructionID == nil }
         save()
-    }
-
-    @discardableResult
-    func orderDealerTrade(
-        category: VehicleCategory,
-        count: Int,
-        storeID: UUID,
-        modelID: String? = nil,
-        origin: VehicleOrigin? = nil
-    ) -> Bool {
-        guard let quote = dealerTradeQuote(category: category, count: count, storeID: storeID, modelID: modelID, origin: origin),
-              let store = stores.first(where: { $0.id == storeID }),
-              store.inventoryCount + incomingCount(for: storeID) + count <= store.type.capacity else { return false }
-        guard cash >= quote.totalCost else { return false }
-        cash -= quote.totalCost
-        inboundShipments.append(InboundShipment(
-            id: UUID(),
-            storeID: storeID,
-            source: .dealerTrade,
-            modelID: quote.modelID,
-            category: category,
-            count: count,
-            unitCost: quote.unitCost + quote.fee / count,
-            quality: quote.quality,
-            modelYear: quote.modelYear,
-            mileage: quote.mileage,
-            acquiredTurn: turn,
-            monthsRemaining: quote.weeks
-        ))
-        simulationTransactionHandler?(SimulationVehicleTransaction(
-            turn: turn,
-            kind: .acquired,
-            storeID: storeID,
-            source: .dealerTrade,
-            category: category,
-            count: count,
-            revenue: 0,
-            cost: quote.totalCost
-        ))
-        save()
-        return true
-    }
-
-    func dealerTradeQuote(
-        category: VehicleCategory,
-        count: Int,
-        storeID: UUID,
-        modelID: String? = nil,
-        origin: VehicleOrigin? = nil
-    ) -> ProcurementQuote? {
-        guard count > 0,
-              let store = stores.first(where: { $0.id == storeID }),
-              let plot = plot(id: store.plotID) else { return nil }
-        let networkBonus = store.facilities.contains(.corporateDesk) && [.minivan, .pickup].contains(category) ? 0.18 : 0
-        let availability = vehicleSupply(category, in: plot.district) + networkBonus
-        let model: VehicleCatalogEntry
-        if let modelID,
-           let selected = VehicleCatalog.entry(id: modelID),
-           selected.category == category,
-           origin == nil || selected.origin == origin,
-           selected.usedMarketTurn <= turn {
-            model = selected
-        } else {
-            guard let selected = vehicleModelIfAvailable(
-                for: category,
-                origin: origin,
-                seed: turn * 193 + categoryIndex(category) * 47
-            ) else { return nil }
-            model = selected
-        }
-        let profile = usedVehicleProfile(
-            for: model,
-            seed: turn * 211 + categoryIndex(category) * 53,
-            maximumAge: model.origin == .imported ? 6 : 10
-        )
-        let calculatedWholesale = vehicleWholesaleValue(
-            modelID: model.id,
-            category: category,
-            modelYear: profile.modelYear,
-            mileage: profile.mileage,
-            quality: profile.quality,
-            in: plot.district
-        )
-        let multiplier: Double
-        let weeks: Int
-        let label: String
-        switch availability {
-        case 1.25...:
-            multiplier = 1.04; weeks = 1; label = "地域流通が豊富"
-        case 0.85...:
-            multiplier = 1.08; weeks = 1; label = "通常流通"
-        case 0.55...:
-            multiplier = 1.14; weeks = 2; label = "取り寄せ"
-        default:
-            multiplier = 1.22; weeks = 2; label = "希少・広域探索"
-        }
-        // 車種と台数を確約する探索の利便性を、需給が逼迫した車種ほど価格へ反映する。
-        let demand = vehicleDemand(category, in: plot.district)
-        let scarcityPremium = min(0.12, max(0, demand - availability) * 0.10)
-        let categorySearchPremium: Double = [.suv, .sports, .sedan].contains(category) || model.origin == .imported ? 0.04 : 0.02
-        let sourcingMultiplier = multiplier + scarcityPremium + categorySearchPremium
-        let sourceEfficiency = 1 - min(0.15, effectiveSourceExpertise(for: store, source: .dealerTrade) * 0.0015)
-        let fee = 8 + max(0, count - 3) * 2
-        let expectedRetail = vehicleRetailValue(
-            modelID: model.id,
-            category: category,
-            modelYear: profile.modelYear,
-            mileage: profile.mileage,
-            quality: profile.quality,
-            in: plot.district
-        )
-        let feePerVehicle = Int(ceil(Double(fee) / Double(count)))
-        // 業者間取引は指定車種を確実に確保できる緊急補充ルート。
-        // 需給と仕入技能で差は出るが、価格方針100での粗利率は2〜6%を目安にする。
-        let availabilityMargin = min(0.06, max(0.02, 0.045 + (availability - demand) * 0.025))
-        let expertiseMargin = min(
-            0.01,
-            effectiveSourceExpertise(for: store, source: .dealerTrade) * 0.0001
-        )
-        let targetMargin = min(0.06, availabilityMargin + expertiseMargin)
-        let marketUnitCost = Int(
-            (Double(calculatedWholesale) * sourcingMultiplier * sourceEfficiency).rounded()
-        )
-        let targetUnitCost = expectedRetail
-            - Int((Double(expectedRetail) * targetMargin).rounded())
-            - feePerVehicle
-        // レンジは保証ではない。地域相場の差を一部残すため、目標価格へ寄せつつ
-        // 市場原価との乖離も反映する。
-        let marketDeviation = min(
-            expectedRetail / 50,
-            max(-expectedRetail / 50, (marketUnitCost - targetUnitCost) / 4)
-        )
-        let unitCost = max(1, targetUnitCost + marketDeviation)
-        return ProcurementQuote(
-            source: .dealerTrade,
-            modelID: model.id,
-            category: category,
-            count: count,
-            unitCost: unitCost,
-            fee: fee,
-            weeks: weeks,
-            quality: profile.quality,
-            availabilityLabel: label,
-            modelYear: profile.modelYear,
-            mileage: profile.mileage,
-            expectedRetailPrice: expectedRetail,
-            expectedGrossProfit: expectedRetail - unitCost - feePerVehicle
-        )
-    }
-
-    @discardableResult
-    @available(*, deprecated, message: "Use finite CorporateOpportunity bids")
-    func orderFleetPurchase(category: VehicleCategory, count: Int, storeID: UUID) -> Bool {
-        false
-    }
-
-    @available(*, deprecated, message: "Use finite CorporateOpportunity bids")
-    func fleetPurchaseQuote(category: VehicleCategory, count: Int, storeID: UUID) -> ProcurementQuote? {
-        nil
     }
 
     @discardableResult
@@ -2661,37 +2526,40 @@ final class GameEngine: ObservableObject {
     }
 
     @discardableResult
-    func consignInventory(storeID: UUID, category: VehicleCategory, count: Int, venue: AuctionVenue) -> Bool {
+    func consignInventory(storeID: UUID, category: VehicleCategory, count: Int) -> Bool {
         guard count > 0, let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               let removed = removeInventory(category: category, count: count, from: storeIndex) else { return false }
+        let lane = auctionLane(for: category)
         let specialtyBonus: Double
-        switch (venue, category) {
-        case (.premium, .sports), (.premium, .sedan), (.premium, .suv), (.port, .minivan), (.port, .pickup), (.port, .suv), (.east, .kei), (.east, .compact): specialtyBonus = 1.08
+        switch (lane, category) {
+        case (.premium, .sports), (.premium, .sedan), (.premium, .suv), (.logistics, .minivan), (.logistics, .pickup), (.logistics, .suv), (.standard, .kei), (.standard, .compact): specialtyBonus = 1.08
         default: specialtyBonus = 0.98
         }
         let expected = Int(Double(max(removed.averageCost, category.purchaseCost)) * (1.06 + removed.quality * 0.08) * specialtyBonus)
-        auctionConsignments.append(AuctionConsignment(id: UUID(), storeID: storeID, venue: venue, modelID: nil, category: category, count: count, expectedUnitPrice: expected, monthsRemaining: 1))
+        auctionConsignments.append(AuctionConsignment(id: UUID(), storeID: storeID, lane: lane, modelID: nil, category: category, count: count, expectedUnitPrice: expected, monthsRemaining: 1))
         recalculateAssets()
         save()
         return true
     }
 
     @discardableResult
-    func consignInventory(storeID: UUID, inventoryID: UUID, venue: AuctionVenue) -> Bool {
+    func consignInventory(storeID: UUID, inventoryID: UUID) -> Bool {
         guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               let batchIndex = stores[storeIndex].inventory.firstIndex(where: { $0.id == inventoryID && $0.count > 0 && !$0.isInWorkshop && !$0.isReserved }) else { return false }
         let unit = stores[storeIndex].inventory[batchIndex]
+        let lane = VehicleCatalog.entry(id: unit.modelID).map { auctionLane(for: $0) }
+            ?? auctionLane(for: unit.category)
         stores[storeIndex].inventory[batchIndex].count -= 1
         if stores[storeIndex].inventory[batchIndex].count == 0 {
             stores[storeIndex].inventory.remove(at: batchIndex)
         }
         let specialtyBonus: Double
-        switch (venue, unit.category) {
-        case (.premium, .sports), (.premium, .sedan), (.premium, .suv), (.port, .minivan), (.port, .pickup), (.port, .suv), (.east, .kei), (.east, .compact): specialtyBonus = 1.08
+        switch (lane, unit.category) {
+        case (.premium, .sports), (.premium, .sedan), (.premium, .suv), (.logistics, .minivan), (.logistics, .pickup), (.logistics, .suv), (.standard, .kei), (.standard, .compact): specialtyBonus = 1.08
         default: specialtyBonus = 0.98
         }
         let expected = Int(Double(max(unit.averageCost, unit.category.purchaseCost)) * (1.06 + unit.quality * 0.08) * specialtyBonus)
-        auctionConsignments.append(AuctionConsignment(id: UUID(), storeID: storeID, venue: venue, modelID: unit.modelID, category: unit.category, count: 1, expectedUnitPrice: expected, monthsRemaining: 1))
+        auctionConsignments.append(AuctionConsignment(id: UUID(), storeID: storeID, lane: lane, modelID: unit.modelID, category: unit.category, count: 1, expectedUnitPrice: expected, monthsRemaining: 1))
         recalculateAssets()
         save()
         return true
@@ -2923,9 +2791,10 @@ final class GameEngine: ObservableObject {
         fault: MechanicalFaultSeverity,
         actualRepairCost: Int,
         storeID: UUID,
-        seed: Int
+        seed: Int,
+        conditionVerified: Bool? = nil
     ) -> VehicleAssessment {
-        if source.isConditionVerified {
+        if conditionVerified ?? source.isConditionVerified {
             return VehicleAssessment(
                 source: source,
                 isVerified: true,
@@ -2972,9 +2841,9 @@ final class GameEngine: ObservableObject {
         )
     }
 
-    func onlineAssessment(for listing: OnlineListing, storeID: UUID) -> VehicleAssessment {
+    func networkAuctionAssessment(for listing: NetworkAuctionListing, storeID: UUID) -> VehicleAssessment {
         vehicleAssessment(
-            source: .online,
+            source: .networkAuction,
             condition: listing.condition,
             fault: listing.fault,
             actualRepairCost: estimatedSourcingRepairCost(
@@ -2984,7 +2853,8 @@ final class GameEngine: ObservableObject {
                 storeID: storeID
             ),
             storeID: storeID,
-            seed: listing.modelYear * 103 + listing.mileage / 100 + categoryIndex(listing.category)
+            seed: listing.modelYear * 103 + listing.mileage / 100 + categoryIndex(listing.category),
+            conditionVerified: listing.kind.isConditionVerified
         )
     }
 
@@ -3009,17 +2879,17 @@ final class GameEngine: ObservableObject {
             condition: listing.condition,
             storeID: storeID
         )
-        return retail - maxPrice - listing.venue.fee - listing.venue.shippingCost - repair
+        return retail - maxPrice - listing.lane.fee - listing.lane.shippingCost - repair
     }
 
-    func onlineExpectedGrossProfit(
-        for listing: OnlineListing,
+    func networkAuctionExpectedGrossProfit(
+        for listing: NetworkAuctionListing,
         storeID: UUID,
         maxPrice: Int
     ) -> Int? {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID) else { return nil }
-        let assessment = onlineAssessment(for: listing, storeID: storeID)
+        let assessment = networkAuctionAssessment(for: listing, storeID: storeID)
         let retail = vehicleRetailValue(
             modelID: listing.modelID,
             category: listing.category,
@@ -5243,8 +5113,9 @@ final class GameEngine: ObservableObject {
         progressWorkshopProjects(notes: &notes)
         progressStoreProjects(notes: &notes)
         settleAuctionConsignments(notes: &notes)
+        prepareCompetitorAuctionPlans()
         resolveAuctionBids(at: turn + 1, notes: &notes)
-        resolveOnlineBids(at: turn + 1, notes: &notes)
+        resolveNetworkAuctionBids(at: turn + 1, notes: &notes)
         resolveCompetitorAuctionPurchases(at: turn + 1, notes: &notes)
         resolveCorporateOpportunities(at: turn + 1, notes: &notes)
         applyDelegatedOperations(notes: &notes)
@@ -5375,7 +5246,7 @@ final class GameEngine: ObservableObject {
         updateSpecialtyCertifications(notes: &notes)
         generateWeeklyCustomerLeads()
         generateAuctionListings()
-        generateOnlineListings()
+        generateNetworkAuctionListings()
         generateCorporateOpportunities()
         unlockTutorial(notes: &notes)
         recalculateAssets()
@@ -7801,9 +7672,8 @@ final class GameEngine: ObservableObject {
 
     private enum AutomaticProcurementCandidateKind {
         case storePurchase(caseID: UUID, offerPercent: Int)
-        case dealerTrade(quote: ProcurementQuote)
         case auction(listingID: UUID, maxPrice: Int)
-        case online(listingID: UUID, maxPrice: Int)
+        case networkAuction(listingID: UUID, maxPrice: Int)
     }
 
     private struct AutomaticProcurementCandidate {
@@ -7943,6 +7813,9 @@ final class GameEngine: ObservableObject {
             financialLimit = predictedRetail - repairCost - fixedCosts - minimum
         case .maximumOffer(let maximum):
             financialLimit = maximum
+        case .replenishment(_, let minimumGrossMarginPercent):
+            let requiredProfit = predictedRetail * minimumGrossMarginPercent / 100
+            financialLimit = predictedRetail - repairCost - fixedCosts - requiredProfit
         }
         return max(0, min(financialLimit, instruction.remainingBudget - fixedCosts))
     }
@@ -7951,7 +7824,7 @@ final class GameEngine: ObservableObject {
         let auction = bidReservations
             .filter { $0.instructionID != nil }
             .reduce(0) { $0 + $1.committedCost }
-        let online = onlineBidReservations
+        let online = networkAuctionBidReservations
             .filter { $0.instructionID != nil }
             .reduce(0) { $0 + $1.committedCost }
         return auction + online
@@ -7969,7 +7842,7 @@ final class GameEngine: ObservableObject {
             - store.inventoryCount
             - incomingCount(for: storeID)
             - bidReservations.filter { $0.storeID == storeID }.count
-            - onlineBidReservations.filter { $0.storeID == storeID }.count
+            - networkAuctionBidReservations.filter { $0.storeID == storeID }.count
         guard freeCapacity > 0 else { return nil }
         let visibility = interpolatedEmployeeEffect(
             score: handler.procurementComposite,
@@ -8033,72 +7906,12 @@ final class GameEngine: ObservableObject {
         }
         }
 
-        let securedInventory = store.inventoryCount
-            + incomingCount(for: storeID)
-            + bidReservations.filter { $0.storeID == storeID }.count
-            + onlineBidReservations.filter { $0.storeID == storeID }.count
-        let dealerTradeIsExplicit = instruction.allowedSources == [.dealerTrade]
-        let dealerTradeIsEmergency = securedInventory <= max(1, store.type.capacity / 4)
-        if instruction.allowedSources.contains(.dealerTrade),
-           !instruction.faultOnly,
-           dealerTradeIsExplicit || dealerTradeIsEmergency {
-            let categories = instruction.category.map { [$0] } ?? VehicleCategory.allCases
-            for category in categories {
-                let modelID = instruction.modelID
-                guard let quote = dealerTradeQuote(
-                    category: category,
-                    count: 1,
-                    storeID: storeID,
-                    modelID: modelID,
-                    origin: instruction.origin
-                ), quote.modelID == modelID || modelID == nil else { continue }
-                let model = quote.modelID.flatMap(VehicleCatalog.entry(id:))
-                let profile = model.map {
-                    usedVehicleProfile(
-                        for: $0,
-                        seed: turn * 211 + categoryIndex(category) * 53,
-                        maximumAge: $0.origin == .imported ? 6 : 10
-                    )
-                }
-                let condition = VehicleConditionProfile(
-                    exterior: Int(quote.quality * 100),
-                    interior: Int(quote.quality * 100),
-                    mechanical: Int(quote.quality * 100)
-                )
-                let predictedRetail = predictedSourcingRetail(
-                    storeID: storeID,
-                    modelID: quote.modelID ?? "",
-                    category: category,
-                    modelYear: profile?.modelYear ?? year - 4,
-                    mileage: profile?.mileage ?? 55_000,
-                    condition: condition
-                )
-                let maxOffer = maximumInstructionOffer(
-                    instruction: instruction,
-                    predictedRetail: predictedRetail,
-                    repairCost: 0,
-                    fixedCosts: quote.fee
-                )
-                guard quote.unitCost <= maxOffer,
-                      quote.totalCost <= instruction.remainingBudget,
-                      quote.totalCost <= cash else { continue }
-                candidates.append(AutomaticProcurementCandidate(
-                    kind: .dealerTrade(quote: quote),
-                    source: .dealerTrade,
-                    vehicleName: quote.vehicleName,
-                    acquisitionCost: quote.totalCost,
-                    predictedUnitGrossProfit: predictedRetail - quote.totalCost,
-                    successProbability: 1
-                ))
-            }
-        }
-
         if instruction.allowedSources.contains(.auction) {
         for listing in auctionListings where !bidReservations.contains(where: { $0.listingID == listing.id }) {
             guard instructionMatches(instruction, category: listing.category, modelID: listing.modelID, fault: listing.fault) else { continue }
             let seed = listing.modelYear * 19 + listing.mileage / 500 + categoryIndex(listing.category) * 43
             guard transactionRoll(seed: seed + instruction.priority * 37) <= visibility else { continue }
-            let fixed = listing.venue.fee + listing.venue.shippingCost
+            let fixed = listing.lane.fee + listing.lane.shippingCost
             let predictedRetail = predictedSourcingRetail(
                 storeID: storeID,
                 modelID: listing.modelID,
@@ -8140,9 +7953,9 @@ final class GameEngine: ObservableObject {
         }
         }
 
-        if instruction.allowedSources.contains(.online) {
-        for listing in onlineListings where !onlineBidReservations.contains(where: { $0.listingID == listing.id }) {
-            let assessment = onlineAssessment(for: listing, storeID: storeID)
+        if instruction.allowedSources.contains(.networkAuction) {
+        for listing in networkAuctionListings where !networkAuctionBidReservations.contains(where: { $0.listingID == listing.id }) {
+            let assessment = networkAuctionAssessment(for: listing, storeID: storeID)
             let assessedFault = assessment.detectedFault ?? .none
             let assessedCondition = VehicleConditionProfile(
                 exterior: assessment.conditionRange.lowerBound,
@@ -8172,15 +7985,15 @@ final class GameEngine: ObservableObject {
             guard maxPrice >= listing.reservePrice,
                   committed <= instruction.remainingBudget,
                   automaticProcurementCashReserved() + committed <= cash else { continue }
-            let successProbability = onlineBidWinChance(
+            let successProbability = networkAuctionBidWinChance(
                 for: listing,
                 maxPrice: maxPrice,
                 sampleCount: competitionSamples
             )
             guard successProbability >= 0.05 else { continue }
             candidates.append(AutomaticProcurementCandidate(
-                kind: .online(listingID: listing.id, maxPrice: maxPrice),
-                source: .online,
+                kind: .networkAuction(listingID: listing.id, maxPrice: maxPrice),
+                source: .networkAuction,
                 vehicleName: listing.vehicleName,
                 acquisitionCost: committed,
                 predictedUnitGrossProfit: predictedRetail - committed - repair,
@@ -8190,6 +8003,14 @@ final class GameEngine: ObservableObject {
         }
 
         return candidates.max {
+            if instruction.financialRule.targetUnits > 0,
+               $0.successProbability != $1.successProbability {
+                return $0.successProbability < $1.successProbability
+            }
+            if instruction.financialRule.targetUnits > 0,
+               $0.acquisitionCost != $1.acquisitionCost {
+                return $0.acquisitionCost > $1.acquisitionCost
+            }
             if $0.expectedGrossProfit != $1.expectedGrossProfit {
                 return $0.expectedGrossProfit < $1.expectedGrossProfit
             }
@@ -8367,58 +8188,11 @@ final class GameEngine: ObservableObject {
             purchaseCases.removeAll { $0.id == caseID }
             return true
 
-        case .dealerTrade(let quote):
-            guard quote.totalCost <= procurementInstructions[instructionIndex].remainingBudget,
-                  cash >= quote.totalCost else { return false }
-            cash -= quote.totalCost
-            inboundShipments.append(InboundShipment(
-                storeID: storeID,
-                source: .dealerTrade,
-                modelID: quote.modelID,
-                category: quote.category,
-                count: quote.count,
-                unitCost: quote.unitCost + quote.fee / quote.count,
-                quality: quote.quality,
-                modelYear: nil,
-                mileage: nil,
-                instructionID: instructionID,
-                acquiredTurn: turn,
-                monthsRemaining: quote.weeks
-            ))
-            simulationTransactionHandler?(SimulationVehicleTransaction(
-                turn: turn,
-                kind: .acquired,
-                storeID: storeID,
-                source: .dealerTrade,
-                category: quote.category,
-                count: quote.count,
-                revenue: 0,
-                cost: quote.totalCost
-            ))
-            procurementInstructions[instructionIndex].spentBudget += quote.totalCost
-            procurementInstructions[instructionIndex].acquiredCount += quote.count
-            procurementInstructions[instructionIndex].lastResult = "業者間で\(quote.vehicleName)\(quote.count)台・\(quote.totalCost.currency)"
-            recordProcurementActivity(
-                instructionID: instructionID,
-                source: .dealerTrade,
-                acquiredCount: quote.count,
-                spent: quote.totalCost,
-                result: "取得"
-            )
-            updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
-                $0.handled += 1
-                $0.successes += 1
-                $0.grossProfit += candidate.predictedUnitGrossProfit * quote.count
-            }
-            awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .procurement, successful: true)
-            notes.append("\(stores[storeIndex].name)仕入指示：業者間で\(quote.vehicleName)\(quote.count)台を手配")
-            return true
-
         case .auction(let listingID, let maxPrice):
             guard let listing = auctionListings.first(where: { $0.id == listingID }) else { return false }
-            let committed = maxPrice + listing.venue.fee + listing.venue.shippingCost
+            let committed = maxPrice + listing.lane.fee + listing.lane.shippingCost
             guard committed <= procurementInstructions[instructionIndex].remainingBudget,
-                  reserveBid(listingID: listingID, storeID: storeID, maxPrice: maxPrice, instructionID: instructionID) else { return false }
+                  reserveBid(listingID: listingID, storeID: storeID, maxPrice: maxPrice, instructionID: instructionID, handlerEmployeeID: handler.id) else { return false }
             procurementInstructions[instructionIndex].reservedBudget += committed
             procurementInstructions[instructionIndex].lastResult = "AAで\(listing.vehicleName)へ上限\(maxPrice.currency)を予約"
             recordProcurementActivity(
@@ -8428,26 +8202,24 @@ final class GameEngine: ObservableObject {
                 result: "入札予約"
             )
             updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) { $0.handled += 1 }
-            awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .procurement, successful: false)
             notes.append("\(stores[storeIndex].name)仕入指示：AAで\(listing.vehicleName)へ入札予約")
             return true
 
-        case .online(let listingID, let maxPrice):
-            guard let listing = onlineListings.first(where: { $0.id == listingID }) else { return false }
+        case .networkAuction(let listingID, let maxPrice):
+            guard let listing = networkAuctionListings.first(where: { $0.id == listingID }) else { return false }
             let committed = maxPrice + listing.fee + listing.shippingCost
             guard committed <= procurementInstructions[instructionIndex].remainingBudget,
-                  reserveOnlineBid(listingID: listingID, storeID: storeID, maxPrice: maxPrice, instructionID: instructionID) else { return false }
+                  reserveNetworkAuctionBid(listingID: listingID, storeID: storeID, maxPrice: maxPrice, instructionID: instructionID, handlerEmployeeID: handler.id) else { return false }
             procurementInstructions[instructionIndex].reservedBudget += committed
             procurementInstructions[instructionIndex].lastResult = "ネットで\(listing.vehicleName)へ上限\(maxPrice.currency)を予約"
             recordProcurementActivity(
                 instructionID: instructionID,
-                source: .online,
+                source: .networkAuction,
                 reserved: committed,
                 result: "入札予約"
             )
             updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) { $0.handled += 1 }
-            awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .procurement, successful: false)
-            notes.append("\(stores[storeIndex].name)仕入指示：ネットで\(listing.vehicleName)へ入札予約")
+            notes.append("\(stores[storeIndex].name)仕入指示：社員専用ネットAAで\(listing.vehicleName)へ入札予約")
             return true
         }
     }
@@ -8471,12 +8243,27 @@ final class GameEngine: ObservableObject {
         }
 
         var performedInstructionIDs: Set<UUID> = []
+        var replenishmentReservations: [UUID: Int] = [:]
+        for reservation in bidReservations where reservation.storeID == storeID && reservation.targetTurn == turn + 1 {
+            if let instructionID = reservation.instructionID {
+                replenishmentReservations[instructionID, default: 0] += 1
+            }
+        }
+        for reservation in networkAuctionBidReservations where reservation.storeID == storeID && reservation.targetTurn == turn + 1 {
+            if let instructionID = reservation.instructionID {
+                replenishmentReservations[instructionID, default: 0] += 1
+            }
+        }
         for handler in handlers {
             let caseCapacity = employeeWeeklyCaseCapacity(for: handler, assignment: .procurement)
             for _ in 0..<caseCapacity {
                 var selected: (ProcurementInstruction, AutomaticProcurementCandidate)?
                 for instruction in procurementInstructions(for: storeID)
                     where instruction.status == .active && instruction.remainingBudget > 0 {
+                    if instruction.financialRule.targetUnits > 0,
+                       replenishmentReservations[instruction.id, default: 0] >= instruction.financialRule.targetUnits {
+                        continue
+                    }
                     if let candidate = automaticProcurementCandidate(
                         for: instruction,
                         handler: handler,
@@ -8496,6 +8283,9 @@ final class GameEngine: ObservableObject {
                 )
                 if !attempted { break }
                 performedInstructionIDs.insert(selected.0.id)
+                if selected.0.financialRule.targetUnits > 0 {
+                    replenishmentReservations[selected.0.id, default: 0] += 1
+                }
             }
         }
         let unmatched = activeInstructions.filter { instruction in
@@ -8514,6 +8304,18 @@ final class GameEngine: ObservableObject {
         }
         if !unmatched.isEmpty {
             notes.append("\(stores[storeIndex].name)仕入指示：今週は予算・車両条件に合う候補なし")
+        }
+        for instruction in activeInstructions where instruction.financialRule.targetUnits > 0 {
+            let reserved = replenishmentReservations[instruction.id, default: 0]
+            let target = instruction.financialRule.targetUnits
+            if reserved < target {
+                let message = "台数確保 \(reserved)/\(target)台：粗利上限・予算・在庫枠の条件は緩和しません"
+                if let index = procurementInstructions.firstIndex(where: { $0.id == instruction.id }) {
+                    procurementInstructions[index].lastResult = message
+                }
+                recordProcurementActivity(instructionID: instruction.id, source: nil, result: message)
+                notes.append("\(stores[storeIndex].name)仕入指示：\(message)")
+            }
         }
     }
 
@@ -8764,9 +8566,9 @@ final class GameEngine: ObservableObject {
                 let appraisalReady = appraisalConfidence(for: storeID) >= 65
                 let hasRepairReadiness = stores[index].serviceBays > 0
                     && stores[index].employees.contains(where: { $0.assignment == .service })
-                var sources: Set<ProcurementSource> = [.auction, .dealerTrade, .corporateLot]
+                var sources: Set<ProcurementSource> = [.auction, .networkAuction]
                 if appraisalReady {
-                    sources.formUnion([.storePurchase, .tradeIn, .online])
+                    sources.insert(.storePurchase)
                 }
                 let demandCategory = VehicleCategory.allCases.max {
                     vehicleDemand($0, in: plot.district) < vehicleDemand($1, in: plot.district)
@@ -8920,7 +8722,7 @@ final class GameEngine: ObservableObject {
                 hammerPrice = rivalPrice.map {
                     min(bid.maxPrice, max(listing.reservePrice, $0 + 1))
                 } ?? listing.reservePrice
-                let playerTotal = hammerPrice + listing.venue.fee + listing.venue.shippingCost
+                let playerTotal = hammerPrice + listing.lane.fee + listing.lane.shippingCost
                 if cash < playerTotal {
                     hammerPrice = rivalPrice ?? listing.reservePrice
                     status = .insufficientFunds
@@ -8954,7 +8756,7 @@ final class GameEngine: ObservableObject {
                         faultRevealed: true,
                         instructionID: bid.instructionID,
                         acquiredTurn: resolvingTurn,
-                        monthsRemaining: listing.venue.shippingMonths
+                        monthsRemaining: listing.lane.shippingMonths
                     ))
                     simulationTransactionHandler?(SimulationVehicleTransaction(
                         turn: resolvingTurn,
@@ -8966,10 +8768,10 @@ final class GameEngine: ObservableObject {
                         revenue: 0,
                         cost: playerTotal
                     ))
-                    notes.append("\(listing.venue.name)で\(listing.vehicleName)を\(hammerPrice.currency)で落札しました（会場費・輸送費込み \(playerTotal.currency)）")
+                    notes.append("翠浜AA・\(listing.lane.name)で\(listing.vehicleName)を\(hammerPrice.currency)で落札しました（会場費・輸送費込み \(playerTotal.currency)）")
                 }
             }
-            let total = hammerPrice + listing.venue.fee + listing.venue.shippingCost
+            let total = hammerPrice + listing.lane.fee + listing.lane.shippingCost
             settleInstructionReservation(
                 instructionID: bid.instructionID,
                 committedCost: committedCost,
@@ -8982,7 +8784,7 @@ final class GameEngine: ObservableObject {
                 id: UUID(),
                 listingID: listing.id,
                 storeID: bid.storeID,
-                venue: listing.venue,
+                lane: listing.lane,
                 modelID: listing.modelID,
                 category: listing.category,
                 modelYear: listing.modelYear,
@@ -8994,12 +8796,40 @@ final class GameEngine: ObservableObject {
                 winningCompetitorID: winningCompetitorID,
                 resolvedTurn: resolvingTurn
             ), at: 0)
+            attributeAuctionResolution(
+                employeeID: bid.handlerEmployeeID,
+                storeID: bid.storeID,
+                succeeded: status == .won,
+                predictedGrossProfit: status == .won ? max(0, listing.marketPrice - total) : 0
+            )
             auctionListings.removeAll { $0.id == listing.id }
             bidReservations.removeAll { $0.id == bid.id }
         }
         if auctionBidResults.count > 20 {
             auctionBidResults.removeLast(auctionBidResults.count - 20)
         }
+    }
+
+    private func attributeAuctionResolution(
+        employeeID: UUID?,
+        storeID: UUID,
+        succeeded: Bool,
+        predictedGrossProfit: Int
+    ) {
+        guard let employeeID,
+              let storeIndex = stores.firstIndex(where: { $0.id == storeID }) else { return }
+        updateEmployeePerformance(employeeID: employeeID, storeIndex: storeIndex) {
+            if succeeded {
+                $0.successes += 1
+                $0.grossProfit += predictedGrossProfit
+            }
+        }
+        awardEmployeeExperience(
+            employeeID: employeeID,
+            storeIndex: storeIndex,
+            focus: .procurement,
+            successful: succeeded
+        )
     }
 
     private func settleInstructionReservation(
@@ -9037,19 +8867,19 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func resolveOnlineBids(at resolvingTurn: Int, notes: inout [String]) {
-        let reservations = onlineBidReservations.filter { $0.resultTurn <= resolvingTurn }
+    private func resolveNetworkAuctionBids(at resolvingTurn: Int, notes: inout [String]) {
+        let reservations = networkAuctionBidReservations.filter { $0.resultTurn <= resolvingTurn }
         for bid in reservations {
-            guard let listing = onlineListings.first(where: { $0.id == bid.listingID }) else {
+            guard let listing = networkAuctionListings.first(where: { $0.id == bid.listingID }) else {
                 settleInstructionReservation(
                     instructionID: bid.instructionID,
                     committedCost: bid.committedCost,
                     actualCost: nil,
                     vehicleName: "ネット出品終了",
-                    source: .online,
+                    source: .networkAuction,
                     failureReason: "出品終了"
                 )
-                onlineBidReservations.removeAll { $0.id == bid.id }
+                networkAuctionBidReservations.removeAll { $0.id == bid.id }
                 continue
             }
             let committedCost = bid.committedCost
@@ -9059,14 +8889,14 @@ final class GameEngine: ObservableObject {
                     committedCost: committedCost,
                     actualCost: nil,
                     vehicleName: listing.vehicleName,
-                    source: .online,
+                    source: .networkAuction,
                     failureReason: "対象店舗なし"
                 )
-                onlineBidReservations.removeAll { $0.id == bid.id }
+                networkAuctionBidReservations.removeAll { $0.id == bid.id }
                 continue
             }
             let seed = turn * 311 + listing.modelYear * 17 + listing.mileage / 500 + categoryIndex(listing.category) * 61
-            let rivalBid = competitorOnlineBid(for: listing, seed: seed)
+            let rivalBid = competitorNetworkAuctionBid(for: listing, seed: seed)
             let rivalPrice = rivalBid?.maxPrice
             let wonCompetition = bid.maxPrice >= (rivalPrice ?? listing.reservePrice)
             let status: AuctionBidResultStatus
@@ -9076,6 +8906,14 @@ final class GameEngine: ObservableObject {
                 hammerPrice = rivalPrice ?? listing.reservePrice
                 status = .exceededLimit
                 winningCompetitorID = rivalBid.map { competitors[$0.competitorIndex].id }
+                if let rivalBid {
+                    recordCompetitorNetworkAuctionPurchase(
+                        listing: listing,
+                        competitorIndex: rivalBid.competitorIndex,
+                        hammerPrice: hammerPrice,
+                        purchasedTurn: resolvingTurn
+                    )
+                }
                 notes.append("\(listing.vehicleName)のネット入札は落札価格\(hammerPrice.currency)が上限を超えました")
             } else {
                 hammerPrice = rivalPrice.map {
@@ -9085,6 +8923,14 @@ final class GameEngine: ObservableObject {
                 if cash < playerTotal {
                     status = .insufficientFunds
                     winningCompetitorID = rivalBid.map { competitors[$0.competitorIndex].id }
+                    if let rivalBid {
+                        recordCompetitorNetworkAuctionPurchase(
+                            listing: listing,
+                            competitorIndex: rivalBid.competitorIndex,
+                            hammerPrice: rivalBid.maxPrice,
+                            purchasedTurn: resolvingTurn
+                        )
+                    }
                     notes.append("\(listing.vehicleName)のネット入札は資金不足で落札できませんでした")
                 } else {
                     status = .won
@@ -9092,7 +8938,7 @@ final class GameEngine: ObservableObject {
                     cash -= playerTotal
                     inboundShipments.append(InboundShipment(
                         storeID: bid.storeID,
-                        source: .online,
+                        source: .networkAuction,
                         modelID: listing.modelID,
                         category: listing.category,
                         count: 1,
@@ -9102,7 +8948,7 @@ final class GameEngine: ObservableObject {
                         mileage: listing.mileage,
                         condition: listing.condition,
                         fault: listing.fault,
-                        faultRevealed: onlineAssessment(
+                        faultRevealed: networkAuctionAssessment(
                             for: listing,
                             storeID: bid.storeID
                         ).detectedFault != nil,
@@ -9114,13 +8960,13 @@ final class GameEngine: ObservableObject {
                         turn: resolvingTurn,
                         kind: .acquired,
                         storeID: bid.storeID,
-                        source: .online,
+                        source: .networkAuction,
                         category: listing.category,
                         count: 1,
                         revenue: 0,
                         cost: playerTotal
                     ))
-                    notes.append("全国ネット市場で\(listing.vehicleName)を\(hammerPrice.currency)で落札しました（諸費用込み \(playerTotal.currency)）")
+                    notes.append("社員専用ネットAAで\(listing.vehicleName)を\(hammerPrice.currency)で落札しました（諸費用込み \(playerTotal.currency)）")
                 }
             }
             let total = hammerPrice + listing.fee + listing.shippingCost
@@ -9129,10 +8975,10 @@ final class GameEngine: ObservableObject {
                 committedCost: committedCost,
                 actualCost: status == .won ? total : nil,
                 vehicleName: listing.vehicleName,
-                source: .online,
+                source: .networkAuction,
                 failureReason: status.name
             )
-            onlineBidResults.insert(OnlineBidResult(
+            networkAuctionBidResults.insert(NetworkAuctionBidResult(
                 id: UUID(),
                 listingID: listing.id,
                 storeID: bid.storeID,
@@ -9147,12 +8993,55 @@ final class GameEngine: ObservableObject {
                 winningCompetitorID: winningCompetitorID,
                 resolvedTurn: resolvingTurn
             ), at: 0)
-            onlineListings.removeAll { $0.id == listing.id }
-            onlineBidReservations.removeAll { $0.id == bid.id }
+            attributeAuctionResolution(
+                employeeID: bid.handlerEmployeeID,
+                storeID: bid.storeID,
+                succeeded: status == .won,
+                predictedGrossProfit: status == .won ? max(0, listing.marketPrice - total) : 0
+            )
+            networkAuctionListings.removeAll { $0.id == listing.id }
+            networkAuctionBidReservations.removeAll { $0.id == bid.id }
         }
-        if onlineBidResults.count > 20 {
-            onlineBidResults.removeLast(onlineBidResults.count - 20)
+        if networkAuctionBidResults.count > 20 {
+            networkAuctionBidResults.removeLast(networkAuctionBidResults.count - 20)
         }
+    }
+
+    private func prepareCompetitorAuctionPlans() {
+        competitorAuctionSlotsRemaining = [:]
+        competitorAuctionBudgetRemaining = [:]
+        for competitor in competitors {
+            let slots = competitor.branches.reduce(0) { total, branch in
+                let target = Int(ceil(Double(branch.capacity) * 0.60))
+                return total + min(2, max(0, target - branch.inventoryCount))
+            }
+            competitorAuctionSlotsRemaining[competitor.id] = slots
+            competitorAuctionBudgetRemaining[competitor.id] = max(0, competitor.cash * 40 / 100)
+        }
+    }
+
+    private func competitorCanUseAuctionPlan(index: Int, totalCost: Int) -> Bool {
+        guard competitors.indices.contains(index) else { return false }
+        let competitor = competitors[index]
+        let fallbackSlots = competitor.branches.reduce(0) { total, branch in
+            let target = Int(ceil(Double(branch.capacity) * 0.60))
+            return total + min(2, max(0, target - branch.inventoryCount))
+        }
+        let slots = competitorAuctionSlotsRemaining[competitor.id] ?? fallbackSlots
+        let budget = competitorAuctionBudgetRemaining[competitor.id] ?? max(0, competitor.cash * 40 / 100)
+        return slots > 0 && budget >= totalCost
+    }
+
+    private func consumeCompetitorAuctionPlan(index: Int, totalCost: Int) {
+        guard competitors.indices.contains(index) else { return }
+        let competitor = competitors[index]
+        let id = competitor.id
+        let fallbackSlots = competitor.branches.reduce(0) { total, branch in
+            let target = Int(ceil(Double(branch.capacity) * 0.60))
+            return total + min(2, max(0, target - branch.inventoryCount))
+        }
+        competitorAuctionSlotsRemaining[id] = max(0, (competitorAuctionSlotsRemaining[id] ?? fallbackSlots) - 1)
+        competitorAuctionBudgetRemaining[id] = max(0, (competitorAuctionBudgetRemaining[id] ?? competitor.cash * 40 / 100) - totalCost)
     }
 
     private func competitorAuctionBid(for listing: AuctionListing, seed: Int) -> (competitorIndex: Int, maxPrice: Int)? {
@@ -9174,8 +9063,12 @@ final class GameEngine: ObservableObject {
         let bids = profiles.compactMap { entry -> (competitorIndex: Int, maxPrice: Int, interest: Double)? in
             let competitorIndex = entry.competitorIndex
             let competitor = competitors[competitorIndex]
-            let availableCash = competitor.cash - listing.venue.fee - listing.venue.shippingCost
+            let availableCash = competitor.cash - listing.lane.fee - listing.lane.shippingCost
             guard availableCash >= listing.reservePrice else { return nil }
+            guard competitorCanUseAuctionPlan(
+                index: competitorIndex,
+                totalCost: listing.reservePrice + listing.lane.fee + listing.lane.shippingCost
+            ) else { return nil }
             let profitCeiling = competitorAuctionProfitCeiling(for: competitor, listing: listing)
             guard profitCeiling >= listing.reservePrice else { return nil }
             let participates = forcedCompetitor == competitorIndex
@@ -9203,7 +9096,7 @@ final class GameEngine: ObservableObject {
         }.map { ($0.competitorIndex, $0.maxPrice) }
     }
 
-    private func competitorOnlineBid(for listing: OnlineListing, seed: Int) -> (competitorIndex: Int, maxPrice: Int)? {
+    private func competitorNetworkAuctionBid(for listing: NetworkAuctionListing, seed: Int) -> (competitorIndex: Int, maxPrice: Int)? {
         let heat = competitorListingHeat(category: listing.category)
         let profiles = competitors.indices.compactMap { competitorIndex in
             competitorBidProfile(
@@ -9224,6 +9117,10 @@ final class GameEngine: ObservableObject {
             let competitor = competitors[competitorIndex]
             let availableCash = competitor.cash - listing.fee - listing.shippingCost
             guard availableCash >= listing.reservePrice else { return nil }
+            guard competitorCanUseAuctionPlan(
+                index: competitorIndex,
+                totalCost: listing.reservePrice + listing.fee + listing.shippingCost
+            ) else { return nil }
             let retail = competitor.plotIDs.compactMap { plot(id: $0)?.district }.map { district in
                 vehicleRetailValue(
                     modelID: listing.modelID,
@@ -9456,7 +9353,7 @@ final class GameEngine: ObservableObject {
         let strategyFit = competitorAuctionStrategyFit(competitor, category: listing.category)
         let targetMargin = max(0.07, 0.15 - (categoryFit ? 0.035 : 0) - max(0, strategyFit) * 0.20 - competitor.strength * 0.015)
         let requiredProfit = Int((Double(bestRetail) * targetMargin).rounded())
-        return max(0, bestRetail - requiredProfit - listing.venue.fee - listing.venue.shippingCost)
+        return max(0, bestRetail - requiredProfit - listing.lane.fee - listing.lane.shippingCost)
     }
 
     private func competitorAuctionStrategyFit(_ competitor: Competitor, category: VehicleCategory) -> Double {
@@ -9476,10 +9373,15 @@ final class GameEngine: ObservableObject {
 
     func recordCompetitorAuctionPurchase(listing: AuctionListing, competitorIndex: Int, hammerPrice: Int, purchasedTurn: Int) {
         guard competitors.indices.contains(competitorIndex) else { return }
-        let totalCost = hammerPrice + listing.venue.fee + listing.venue.shippingCost
-        guard competitors[competitorIndex].cash >= totalCost,
+        let totalCost = hammerPrice + listing.lane.fee + listing.lane.shippingCost
+        guard competitorCanUseAuctionPlan(index: competitorIndex, totalCost: totalCost),
+              competitors[competitorIndex].cash >= totalCost,
               let branchIndex = competitors[competitorIndex].branches.indices
-                .filter({ competitors[competitorIndex].branches[$0].inventoryCount < competitors[competitorIndex].branches[$0].capacity })
+                .filter({ branchIndex in
+                    let branch = competitors[competitorIndex].branches[branchIndex]
+                    let target = Int(ceil(Double(branch.capacity) * 0.60))
+                    return branch.inventoryCount < min(branch.capacity, target)
+                })
                 .max(by: {
                     let left = competitors[competitorIndex].branches[$0].marketPolicy.priorityCategories.contains(listing.category)
                     let right = competitors[competitorIndex].branches[$1].marketPolicy.priorityCategories.contains(listing.category)
@@ -9487,6 +9389,7 @@ final class GameEngine: ObservableObject {
                 }) else { return }
         competitors[competitorIndex].cash -= totalCost
         addCompetitorInventory(competitorIndex: competitorIndex, branchIndex: branchIndex, category: listing.category, purpose: .general, count: 1, unitCost: totalCost, quality: listing.quality, productState: .stock)
+        consumeCompetitorAuctionPlan(index: competitorIndex, totalCost: totalCost)
         competitorAuctionPurchases.insert(CompetitorAuctionPurchase(
             id: UUID(),
             listingID: listing.id,
@@ -9501,6 +9404,52 @@ final class GameEngine: ObservableObject {
         if competitorAuctionPurchases.count > 240 {
             competitorAuctionPurchases.removeLast(competitorAuctionPurchases.count - 240)
         }
+    }
+
+    private func recordCompetitorNetworkAuctionPurchase(
+        listing: NetworkAuctionListing,
+        competitorIndex: Int,
+        hammerPrice: Int,
+        purchasedTurn: Int
+    ) {
+        guard competitors.indices.contains(competitorIndex) else { return }
+        let totalCost = hammerPrice + listing.fee + listing.shippingCost
+        guard competitorCanUseAuctionPlan(index: competitorIndex, totalCost: totalCost),
+              competitors[competitorIndex].cash >= totalCost,
+              let branchIndex = competitors[competitorIndex].branches.indices
+                .filter({ branchIndex in
+                    let branch = competitors[competitorIndex].branches[branchIndex]
+                    let target = Int(ceil(Double(branch.capacity) * 0.60))
+                    return branch.inventoryCount < min(branch.capacity, target)
+                })
+                .max(by: {
+                    let left = competitors[competitorIndex].branches[$0].marketPolicy.priorityCategories.contains(listing.category)
+                    let right = competitors[competitorIndex].branches[$1].marketPolicy.priorityCategories.contains(listing.category)
+                    return !left && right
+                }) else { return }
+        competitors[competitorIndex].cash -= totalCost
+        addCompetitorInventory(
+            competitorIndex: competitorIndex,
+            branchIndex: branchIndex,
+            category: listing.category,
+            purpose: .general,
+            count: 1,
+            unitCost: totalCost,
+            quality: listing.quality,
+            productState: .stock
+        )
+        consumeCompetitorAuctionPlan(index: competitorIndex, totalCost: totalCost)
+        competitorAuctionPurchases.insert(CompetitorAuctionPurchase(
+            id: UUID(),
+            listingID: listing.id,
+            competitorID: competitors[competitorIndex].id,
+            modelID: listing.modelID,
+            category: listing.category,
+            modelYear: listing.modelYear,
+            mileage: listing.mileage,
+            hammerPrice: hammerPrice,
+            purchasedTurn: purchasedTurn
+        ), at: 0)
     }
 
     private func addCompetitorInventory(
@@ -9569,9 +9518,9 @@ final class GameEngine: ObservableObject {
         let settled = auctionConsignments.filter { $0.monthsRemaining <= 0 }
         for order in settled {
             let variation = 94 + ((turn * 13 + order.count * 7 + categoryIndex(order.category)) % 15)
-            let proceeds = max(0, order.expectedUnitPrice * order.count * variation / 100 - order.venue.fee * order.count)
+            let proceeds = max(0, order.expectedUnitPrice * order.count * variation / 100 - order.lane.fee * order.count)
             cash += proceeds
-            notes.append("\(order.venue.name)への出品車 \(order.vehicleName)\(order.count)台が成約し、\(proceeds.currency)を受け取りました")
+            notes.append("\(order.lane.name)への出品車 \(order.vehicleName)\(order.count)台が成約し、\(proceeds.currency)を受け取りました")
             auctionConsignments.removeAll { $0.id == order.id }
         }
     }
@@ -9649,7 +9598,7 @@ final class GameEngine: ObservableObject {
             )
             auctionListings.append(AuctionListing(
                 id: UUID(),
-                venue: .premium,
+                lane: .premium,
                 modelID: model.id,
                 category: model.category,
                 modelYear: profile.modelYear,
@@ -9683,11 +9632,11 @@ final class GameEngine: ObservableObject {
                         && VehicleCatalog.entry(id: $0.modelID)?.isRareClassic == false
                 }
             }
-            var venue = AuctionVenue.allCases[index % AuctionVenue.allCases.count]
+            var lane = AuctionLane.allCases[index % AuctionLane.allCases.count]
             let categories: [VehicleCategory]
-            switch venue {
-            case .east: categories = [.kei, .compact, .minivan]
-            case .port: categories = [.pickup, .suv, .minivan, .sedan]
+            switch lane {
+            case .standard: categories = [.kei, .compact, .minivan]
+            case .logistics: categories = [.pickup, .suv, .minivan, .sedan]
             case .premium: categories = [.sports, .sports, .sedan, .suv]
             }
             let classicCandidates = VehicleCatalog.rareClassics.filter {
@@ -9704,10 +9653,10 @@ final class GameEngine: ObservableObject {
                         seed: index * 43 + turn * 101
                       ) {
                 model = missingModel
-                venue = auctionVenue(for: missingModel)
+                lane = auctionLane(for: missingModel)
             } else {
                 let normalCategory = categories[(index / 2 + turn) % categories.count]
-                let premiumOrigin: VehicleOrigin? = venue == .premium
+                let premiumOrigin: VehicleOrigin? = lane == .premium
                     ? ((index % 5) < 3 ? .imported : .domestic)
                     : nil
                 model = vehicleModel(
@@ -9720,9 +9669,9 @@ final class GameEngine: ObservableObject {
             let profile = usedVehicleProfile(
                 for: model,
                 seed: index * 173 + turn * 109 + 31,
-                maximumAge: venue == .premium ? 6 : 14
+                maximumAge: lane == .premium ? 6 : 14
             )
-            let pricingDistrict: DistrictKind = venue == .premium ? .downtown : venue == .port ? .industrial : .station
+            let pricingDistrict: DistrictKind = lane == .premium ? .downtown : lane == .logistics ? .industrial : .station
             let calculatedMarket = vehicleWholesaleValue(
                 modelID: model.id,
                 category: category,
@@ -9760,7 +9709,7 @@ final class GameEngine: ObservableObject {
                     condition: vehicleState.condition,
                     storeID: nil
                 )
-                let fixedCosts = venue.fee + venue.listingPricingShippingAllowance
+                let fixedCosts = lane.fee + lane.listingPricingShippingAllowance
                 let minimumReserve = 10
                 let minimumGross = Int((Double(retail) * 0.15).rounded())
                 if vehicleState.fault != .none,
@@ -9808,10 +9757,10 @@ final class GameEngine: ObservableObject {
             }
             let seller = isRareClassicListing
                 ? "コレクター放出・現状渡し"
-                : venue == .premium ? "輸入車正規店・下取車" : (index.isMultiple(of: 3) ? "法人リース" : "中古車業者")
+                : lane == .premium ? "輸入車正規店・下取車" : (index.isMultiple(of: 3) ? "法人リース" : "中古車業者")
             auctionListings.append(AuctionListing(
                 id: UUID(),
-                venue: venue,
+                lane: lane,
                 modelID: model.id,
                 category: category,
                 modelYear: profile.modelYear,
@@ -9827,14 +9776,22 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func auctionVenue(for model: VehicleCatalogEntry) -> AuctionVenue {
+    private func auctionLane(for model: VehicleCatalogEntry) -> AuctionLane {
         if model.isRareClassic { return .premium }
         if model.origin == .imported {
-            return [.minivan, .pickup].contains(model.category) ? .port : .premium
+            return [.minivan, .pickup].contains(model.category) ? .logistics : .premium
         }
         return switch model.category {
-        case .kei, .compact, .minivan: .east
-        case .pickup: .port
+        case .kei, .compact, .minivan: .standard
+        case .pickup: .logistics
+        case .sedan, .suv, .sports: .premium
+        }
+    }
+
+    private func auctionLane(for category: VehicleCategory) -> AuctionLane {
+        switch category {
+        case .kei, .compact, .minivan: .standard
+        case .pickup: .logistics
         case .sedan, .suv, .sports: .premium
         }
     }
@@ -9870,25 +9827,25 @@ final class GameEngine: ObservableObject {
         }
     }
 
-    private func generateOnlineListings() {
-        let targetCount = 72
-        let weeklyRefreshCount = 18
+    private func generateNetworkAuctionListings() {
+        let targetCount = 144
+        let weeklyRefreshCount = 36
         if turn > 0 {
-            let stale = onlineListings
-                .filter { listing in !onlineBidReservations.contains(where: { $0.listingID == listing.id }) }
+            let stale = networkAuctionListings
+                .filter { listing in !networkAuctionBidReservations.contains(where: { $0.listingID == listing.id }) }
                 .prefix(weeklyRefreshCount)
                 .map(\.id)
-            onlineListings.removeAll { stale.contains($0.id) }
+            networkAuctionListings.removeAll { stale.contains($0.id) }
         }
-        while onlineListings.count < targetCount {
-            let index = onlineListings.count + turn * 7
+        while networkAuctionListings.count < targetCount {
+            let index = networkAuctionListings.count + turn * 7
             let availableCombinations = VehicleCategory.allCases.flatMap { category in
                 availableOrigins(for: category)
                     .sorted { $0.rawValue < $1.rawValue }
                     .map { (category: category, origin: $0) }
             }
             let missingCombination = availableCombinations.first { combination in
-                !onlineListings.contains {
+                !networkAuctionListings.contains {
                     $0.category == combination.category
                         && VehicleCatalog.entry(id: $0.modelID)?.origin == combination.origin
                 }
@@ -9905,11 +9862,15 @@ final class GameEngine: ObservableObject {
                 seed: index * 181 + turn * 127 + 47,
                 maximumAge: 16
             )
-            let vehicleState = sourcingVehicleState(
+            let kind: NetworkAuctionListingKind = index.isMultiple(of: 4) ? .opportunity : .flowStock
+            var vehicleState = sourcingVehicleState(
                 quality: profile.quality,
                 seed: index * 211 + turn * 157,
-                faultRate: 0.36
+                faultRate: kind == .flowStock ? 0.08 : 0.36
             )
+            if kind == .flowStock {
+                vehicleState = (condition: vehicleState.condition, fault: .none)
+            }
             let premiumShipping = model.origin == .imported || category == .pickup
             let fee = 9
             let shippingCost = premiumShipping ? 6 : 4
@@ -9924,25 +9885,38 @@ final class GameEngine: ObservableObject {
                     in: $0
                 )
             }.min() ?? category.purchaseCost * 13 / 10
-            // ネット市場は現車確認できない。表示価格は故障を織り込まず、
-            // 掘り出し物なら最大25%程度、見落とし時は-10%程度まで振れる。
-            let reserveMargin = 0.12 + transactionRoll(
-                seed: index * 239 + turn * 173 + categoryIndex(category) * 29
-            ) * 0.13
-            let marketMargin = transactionRoll(
-                seed: index * 241 + turn * 179 + categoryIndex(category) * 31
-            ) * 0.12
+            // 流通補充枠は検査済みで、最安地域の想定小売に対して2〜10%の粗利を残す。
+            // 機会枠は従来どおり状態リスクと上振れ余地を併せ持つ。
+            let reserveMargin = kind == .flowStock
+                ? 0.02 + transactionRoll(seed: index * 239 + turn * 173) * 0.08
+                : 0.12 + transactionRoll(seed: index * 239 + turn * 173 + categoryIndex(category) * 29) * 0.13
+            let marketMargin = kind == .flowStock
+                ? reserveMargin
+                : transactionRoll(seed: index * 241 + turn * 179 + categoryIndex(category) * 31) * 0.12
+            let pricingShippingCost = kind == .flowStock
+                ? shippingCost
+                : listingPricingShippingAllowance
+            let pricingRepairCost = kind == .flowStock
+                ? estimatedSourcingRepairCost(
+                    category: category,
+                    fault: vehicleState.fault,
+                    condition: vehicleState.condition,
+                    storeID: nil
+                )
+                : 0
             let reserveTarget = cleanRetail
                 - Int((Double(cleanRetail) * reserveMargin).rounded())
+                - pricingRepairCost
                 - fee
-                - listingPricingShippingAllowance
+                - pricingShippingCost
             let marketTarget = cleanRetail
                 - Int((Double(cleanRetail) * marketMargin).rounded())
+                - pricingRepairCost
                 - fee
-                - listingPricingShippingAllowance
+                - pricingShippingCost
             let reserve = max(10, reserveTarget)
             let market = max(reserve, marketTarget)
-            onlineListings.append(OnlineListing(
+            networkAuctionListings.append(NetworkAuctionListing(
                 id: UUID(),
                 modelID: model.id,
                 category: category,
@@ -9953,10 +9927,11 @@ final class GameEngine: ObservableObject {
                 fault: vehicleState.fault,
                 reservePrice: reserve,
                 marketPrice: market,
-                seller: index.isMultiple(of: 4) ? "全国整備工場・現状車" : "ネット加盟店",
+                seller: kind == .flowStock ? "全国流通センター・検査済" : "全国整備工場・現状車",
                 fee: fee,
                 shippingCost: shippingCost,
                 shippingWeeks: premiumShipping ? 2 : 1,
+                kind: kind,
                 createdTurn: turn
             ))
         }
@@ -9965,7 +9940,7 @@ final class GameEngine: ObservableObject {
     private func save() {
         refreshGuideProgress()
         guard persistenceEnabled else { return }
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, customerCustomizationOrders: customerCustomizationOrders, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, onlineListings: onlineListings, onlineBidReservations: onlineBidReservations, onlineBidResults: onlineBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, classicMarketIndex: classicMarketIndex, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, customerCustomizationOrders: customerCustomizationOrders, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, networkAuctionListings: networkAuctionListings, networkAuctionBidReservations: networkAuctionBidReservations, networkAuctionBidResults: networkAuctionBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, classicMarketIndex: classicMarketIndex, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
