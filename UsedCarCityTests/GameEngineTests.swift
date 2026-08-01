@@ -4479,7 +4479,7 @@ final class GameEngineTests: XCTestCase {
             .collector,
             .sportTuned,
             .welfare,
-            .mobileShop
+            .mobileSales, .kitchenCar
         ])
         XCTAssertFalse(productKinds.contains(.standard))
         XCTAssertFalse(productKinds.contains(.repaired))
@@ -5423,13 +5423,13 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.competitors[0].branches[0].productizationQueue.first?.productGrade, .middle)
     }
 
-    func testVersion48SaveIsNotLoadedAfterVersion49ModelChange() {
+    func testVersion49SaveIsNotLoadedAfterVersion50ModelChange() {
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "UsedCarCity.save.v49")
-        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v48")
+        defaults.removeObject(forKey: "UsedCarCity.save.v50")
+        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v49")
         defer {
-            defaults.removeObject(forKey: "UsedCarCity.save.v48")
             defaults.removeObject(forKey: "UsedCarCity.save.v49")
+            defaults.removeObject(forKey: "UsedCarCity.save.v50")
         }
 
         let game = GameEngine()
@@ -5865,5 +5865,117 @@ final class GameEngineTests: XCTestCase {
                 .reduce(0) { $0 + $1.reserved } ?? 0,
             0
         )
+    }
+
+    func testStartingUsedMarketHasElectricCarsAcrossFivePassengerCategories() {
+        let categories = Set(VehicleCatalog.available(through: 0).filter { $0.powertrain == .electric }.map(\.category))
+        XCTAssertTrue(categories.isSuperset(of: [.kei, .compact, .sedan, .minivan, .suv]))
+
+        let game = GameEngine(persistenceEnabled: false)
+        game.startNewGame(simulationSeed: 120)
+        XCTAssertGreaterThanOrEqual(game.usedMarketEVShare, 10)
+    }
+
+    func testWeeklyAdvanceCreatesStableNaturalLanguageNewspaperWithAllCompetitors() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 121)
+
+        game.advanceWeek()
+
+        let issue = try XCTUnwrap(game.newspaperIssues.first)
+        XCTAssertEqual(issue.turn, game.turn)
+        XCTAssertEqual(issue.articles.filter { $0.section == "競合レポート" }.count, game.competitors.count)
+        let fullText = issue.articles.map { $0.headline + $0.body }.joined(separator: " ")
+        XCTAssertFalse(fullText.contains("開始予測"))
+        XCTAssertFalse(fullText.contains("確度"))
+        XCTAssertFalse(fullText.contains("概況版・事後情報中心"))
+        XCTAssertFalse(fullText.contains("編集：オーナー調査"))
+
+        let snapshot = issue
+        XCTAssertEqual(game.newspaperIssues.first, snapshot)
+    }
+
+    func testNewspaperHistoryIsCappedAtTwelveIssues() {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 122)
+        game.cash = 100_000
+
+        for _ in 0..<13 { game.advanceWeek() }
+
+        XCTAssertEqual(game.newspaperIssues.count, 12)
+        XCTAssertEqual(game.newspaperIssues.first?.turn, game.turn)
+    }
+
+    func testVehicleAcquisitionLedgerFlowsIntoWeeklyReport() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 123)
+        game.cash = 100_000
+        let storeID = try XCTUnwrap(game.stores.first?.id)
+
+        XCTAssertTrue(game.buyInventory(category: .compact, count: 1, storeID: storeID))
+        XCTAssertFalse(game.pendingVehicleTransactions.isEmpty)
+
+        game.advanceWeek()
+
+        let report = try XCTUnwrap(game.lastReport)
+        XCTAssertTrue(report.vehicleTransactions.contains {
+            if case .acquisition = $0 { return true }
+            return false
+        })
+        XCTAssertGreaterThan(report.vehicleCashSummary.acquisitionCashPaid, 0)
+        XCTAssertTrue(game.pendingVehicleTransactions.isEmpty)
+    }
+
+    func testCustomizationPlannedInboundIsProtectedFromAutomaticSales() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 124)
+        game.cash = 100_000
+        let storeID = try XCTUnwrap(game.stores.first?.id)
+        let model = try XCTUnwrap(VehicleCatalog.available(category: .minivan, through: 0).first)
+        game.stores[0].inventory = []
+        game.stores[0].employees = [StoreEmployee(
+            name: "営業担当", salesSkill: 95, procurementSkill: 40,
+            researchSkill: 60, serviceSkill: 40, monthlySalary: 50,
+            assignment: .sales
+        )]
+        game.stores[0].autoSales = true
+        game.inboundShipments = [InboundShipment(
+            storeID: storeID, source: .auction, modelID: model.id,
+            category: model.category, count: 1, unitCost: 120, quality: 0.8,
+            modelYear: 2023, mileage: 20_000, acquiredTurn: game.turn,
+            monthsRemaining: 1,
+            dispositionPlan: .customization(kind: .camperConversion, grade: .middle)
+        )]
+
+        game.advanceWeek()
+
+        let arrived = try XCTUnwrap(game.stores[0].inventory.first { $0.modelID == model.id })
+        XCTAssertTrue(arrived.isProtectedFromAutomaticSales)
+        XCTAssertEqual(arrived.dispositionPlan.plannedProject, .camperConversion)
+    }
+
+    func testManagerCannotChangeStaffWithoutExplicitHumanResourcesAuthority() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 125)
+        game.cash = 100_000
+        let storeID = try XCTUnwrap(game.stores.first?.id)
+        XCTAssertTrue(game.hireManager(for: storeID))
+        game.stores[0].employees = [StoreEmployee(
+            name: "維持対象", salesSkill: 60, procurementSkill: 60,
+            researchSkill: 60, serviceSkill: 60, monthlySalary: 50,
+            assignment: .sales
+        )]
+        game.stores[0].delegateStaff = false
+        let employeeIDs = game.stores[0].employees.map(\.id)
+
+        for _ in 0..<3 { game.advanceWeek() }
+
+        XCTAssertEqual(game.stores[0].employees.map(\.id), employeeIDs)
+    }
+
+    func testMobileSalesAndKitchenCarAreIndependentMarketProducts() {
+        XCTAssertEqual(MarketProductKind.resolve(productState: .mobileSales, isRareClassic: false), .mobileSales)
+        XCTAssertEqual(MarketProductKind.resolve(productState: .kitchenCar, isRareClassic: false), .kitchenCar)
+        XCTAssertNotEqual(MarketProductKind.mobileSales, .kitchenCar)
     }
 }

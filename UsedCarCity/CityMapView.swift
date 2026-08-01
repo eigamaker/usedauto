@@ -82,7 +82,7 @@ struct CityMapView: View {
                     VStack {
                         Spacer()
                         MapHomeControls(
-                            notifications: game.purchaseCases.count + min(3, game.cityEvents.filter { $0.turn >= max(0, game.turn - 1) }.count),
+                            notifications: game.purchaseCases.count,
                             showNotifications: { showNotifications = true },
                             showSearch: { showSearch = true }
                         )
@@ -307,15 +307,6 @@ private struct NotificationCenterView: View {
                     Button { open(.auction) } label: { NotificationRow(icon: "car.2.fill", title: "在庫不足の可能性", detail: "オークションで不足車種を補充できます", color: .indigo) }
                 }
                 Button { open(.bank) } label: { NotificationRow(icon: "calendar.badge.clock", title: "借入返済日", detail: "月末処理で利息を支払います", color: .blue) }
-                if !game.cityEvents.isEmpty {
-                    Section("街の変化") {
-                        ForEach(game.cityEvents.prefix(8)) { event in
-                            Button { openEvent(event) } label: {
-                                NotificationRow(icon: event.kind.icon, title: event.title, detail: event.detail, color: event.isPositive ? GameTheme.teal : GameTheme.orange)
-                            }
-                        }
-                    }
-                }
                 ForEach(game.reports.first?.notes ?? [], id: \.self) { note in NotificationRow(icon: "bell.fill", title: note, detail: "直近の週間レポート", color: GameTheme.teal) }
             }.navigationTitle("未処理案件・通知").toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
         }

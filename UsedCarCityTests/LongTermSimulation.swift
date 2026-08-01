@@ -1026,7 +1026,7 @@ final class LongTermSimulationRunner {
     }
 
     private static func attemptReposition(game: GameEngine, state: inout RunState) {
-        let newSpecialtyKinds: Set<MarketProductKind> = [.sportTuned, .welfare, .mobileShop]
+        let newSpecialtyKinds: Set<MarketProductKind> = [.sportTuned, .welfare, .mobileSales, .kitchenCar]
         guard game.turn >= 192,
               game.careerStatistics.totalOperatingProfit > 2_000,
               rollingProfit(game: game, weeks: 12) > 0 else { return }
@@ -1309,7 +1309,7 @@ final class LongTermSimulationRunner {
 
     private static func specialtyGrossProfit(game: GameEngine) -> [String: Int] {
         let specialtyKinds: Set<MarketProductKind> = [
-            .sportTuned, .welfare, .mobileShop, .camper, .collector
+            .sportTuned, .welfare, .mobileSales, .kitchenCar, .camper, .collector
         ]
         var result: [String: Int] = [:]
         for store in game.stores {
@@ -1407,7 +1407,7 @@ final class LongTermSimulationRunner {
     private static func facility(for productKind: MarketProductKind) -> StoreFacility? {
         switch productKind {
         case .repaired, .refurbished: .serviceWorkshop
-        case .camper, .workCargo, .outdoor, .sportTuned, .welfare, .mobileShop: .customWorkshop
+        case .camper, .workCargo, .outdoor, .sportTuned, .welfare, .mobileSales, .kitchenCar: .customWorkshop
         case .standard, .collector: nil
         }
     }
@@ -1417,7 +1417,7 @@ final class LongTermSimulationRunner {
     ) -> Set<VehicleConditionBand> {
         switch productKind {
         case .repaired, .refurbished: [.normal, .rough, .faulty]
-        case .camper, .workCargo, .outdoor, .sportTuned, .welfare, .mobileShop: [.normal, .rough]
+        case .camper, .workCargo, .outdoor, .sportTuned, .welfare, .mobileSales, .kitchenCar: [.normal, .rough]
         case .standard, .collector: [.normal]
         }
     }

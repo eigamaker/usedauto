@@ -1925,6 +1925,73 @@ private struct ManagerPanel: View {
                             AbilityBar(name: "査定／整備管理", value: manager.serviceAbility, color: GameTheme.teal)
                         }
                     }
+                    Divider()
+                    Text("専門店運営の目標").font(.subheadline.bold())
+                    Picker("専門店方針", selection: Binding(
+                        get: { store.managerMandate.specialty },
+                        set: { specialty in
+                            var mandate = store.managerMandate
+                            mandate.specialty = specialty
+                            _ = game.setManagerMandate(mandate, for: store.id)
+                        }
+                    )) {
+                        ForEach(MarketProductKind.allCases) { kind in
+                            Text(kind.name).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Stepper(
+                        "4週粗利目標 \(store.managerMandate.fourWeekGrossProfitTarget.currency)",
+                        value: Binding(
+                            get: { store.managerMandate.fourWeekGrossProfitTarget },
+                            set: { value in
+                                var mandate = store.managerMandate
+                                mandate.fourWeekGrossProfitTarget = value
+                                _ = game.setManagerMandate(mandate, for: store.id)
+                            }
+                        ),
+                        in: 0...5_000,
+                        step: 100
+                    )
+                    Stepper(
+                        "最低保有現金 \(store.managerMandate.minimumCashReserve.currency)",
+                        value: Binding(
+                            get: { store.managerMandate.minimumCashReserve },
+                            set: { value in
+                                var mandate = store.managerMandate
+                                mandate.minimumCashReserve = value
+                                _ = game.setManagerMandate(mandate, for: store.id)
+                            }
+                        ),
+                        in: 0...10_000,
+                        step: 100
+                    )
+                    Toggle("必要時の外注を許可", isOn: Binding(
+                        get: { store.managerMandate.allowsOutsourcing },
+                        set: { value in
+                            var mandate = store.managerMandate
+                            mandate.allowsOutsourcing = value
+                            _ = game.setManagerMandate(mandate, for: store.id)
+                        }
+                    ))
+                    ForEach(store.managerProposals.filter { $0.status == .pending }) { proposal in
+                        VStack(alignment: .leading, spacing: 7) {
+                            Label(proposal.title, systemImage: "lightbulb.fill")
+                                .font(.subheadline.bold()).foregroundStyle(GameTheme.orange)
+                            Text(proposal.rationale).font(.caption).foregroundStyle(.secondary)
+                            Text("4週想定粗利 \(proposal.expectedFourWeekGrossProfit.currency)・必要投資 \(proposal.requiredInvestment.currency)")
+                                .font(.caption2.bold())
+                            HStack {
+                                Button("採用") { _ = game.respondToManagerProposal(proposal.id, at: store.id, accept: true) }
+                                    .buttonStyle(.borderedProminent).tint(GameTheme.teal)
+                                Button("見送り") { _ = game.respondToManagerProposal(proposal.id, at: store.id, accept: false) }
+                                    .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(10)
+                        .background(GameTheme.orange.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
                     Button(role: .destructive) {
                         confirmFireManager = true
                     } label: {
@@ -2541,7 +2608,8 @@ private struct DistrictSpecialtyPanel: View {
         case .collector: "star.circle.fill"
         case .sportTuned: "flag.checkered"
         case .welfare: "figure.roll"
-        case .mobileShop: "truck.box.fill"
+        case .mobileSales: "truck.box.fill"
+        case .kitchenCar: "fork.knife"
         case .standard, .repaired, .refurbished: "wrench.and.screwdriver.fill"
         }
     }
@@ -3031,6 +3099,7 @@ private struct CampaignCard: View {
 
 private struct StoreFinancePanel: View {
     @EnvironmentObject private var game: GameEngine
+    @State private var confirmHumanResourcesDelegation = false
     let store: Store
     let update: (Store) -> Void
     let openSettings: () -> Void
@@ -3093,10 +3162,24 @@ private struct StoreFinancePanel: View {
                 SectionTitle(title: "店長への指示")
                 if store.hasManager {
                     DelegationToggle(
-                        title: "採用と人員配置",
+                        title: "人事権（採用・配置・解雇）",
                         icon: "person.2.fill",
-                        isOn: binding(\.delegateStaff)
+                        isOn: Binding(
+                            get: { store.delegateStaff },
+                            set: { enabled in
+                                if enabled {
+                                    confirmHumanResourcesDelegation = true
+                                } else {
+                                    var changed = store
+                                    changed.delegateStaff = false
+                                    update(changed)
+                                }
+                            }
+                        )
                     )
+                    Text("OFFの間、店長は採用・配置変更・解雇を一切行いません。ONにすると、余剰人員の解雇も自動判断に含まれます。")
+                        .font(.caption2)
+                        .foregroundStyle(store.delegateStaff ? GameTheme.orange : .secondary)
                     DelegationToggle(
                         title: "販売方針と価格設定",
                         icon: "tag.fill",
@@ -3131,6 +3214,20 @@ private struct StoreFinancePanel: View {
                 }
             }
             .gameCard()
+            .confirmationDialog(
+                "店長へ人事権を渡しますか？",
+                isPresented: $confirmHumanResourcesDelegation,
+                titleVisibility: .visible
+            ) {
+                Button("採用・配置・解雇を委任") {
+                    var changed = store
+                    changed.delegateStaff = true
+                    update(changed)
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("余剰人員と判断した店員の解雇も自動で行われます。OFFのままなら店長は人員を変更しません。")
+            }
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack {

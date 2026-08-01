@@ -309,7 +309,8 @@ private struct BrandDashboardCard: View {
         case .workCargo: "shippingbox.fill"
         case .sportTuned: "flag.checkered"
         case .welfare: "figure.roll"
-        case .mobileShop: "storefront.fill"
+        case .mobileSales: "truck.box.fill"
+        case .kitchenCar: "fork.knife"
         case .refurbished, .repaired: "wrench.and.screwdriver.fill"
         case .standard: "car.side.fill"
         }
@@ -590,7 +591,39 @@ private struct AuctionContent: View {
                 VStack(alignment: .leading, spacing: 9) {
                     SectionTitle(title: "進行中", subtitle: "入庫と出品成約は週間処理で進みます")
                     ForEach(game.inboundShipments) { shipment in
-                        FacilityRow("\(shipment.source.name)・\(shipment.vehicleName) \(shipment.count)台", "あと\(shipment.monthsRemaining)週間", tint: .blue)
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "truck.box.fill")
+                                .foregroundStyle(.blue)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(shipment.source.name)・\(shipment.vehicleName) \(shipment.count)台")
+                                    .font(.subheadline.bold())
+                                Text("あと\(shipment.monthsRemaining)週間・\(shipment.dispositionPlan.name)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Menu {
+                                Button("通常販売") {
+                                    _ = game.setInboundDisposition(shipment.id, plan: .retail)
+                                }
+                                Menu("カスタム予定") {
+                                    ForEach(WorkshopProjectKind.allCases.filter { $0.usesCustomizationBay }) { kind in
+                                        Button(kind.name) {
+                                            _ = game.setInboundDisposition(
+                                                shipment.id,
+                                                plan: .customization(kind: kind, grade: .middle)
+                                            )
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Label("用途", systemImage: "slider.horizontal.3")
+                                    .font(.caption.bold())
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(.vertical, 3)
                     }
                     ForEach(game.auctionConsignments) { order in
                         FacilityRow("出品中・\(order.vehicleName) \(order.count)台", "\(order.lane.name)・成約まで\(order.monthsRemaining)週間", tint: order.lane.tint)
