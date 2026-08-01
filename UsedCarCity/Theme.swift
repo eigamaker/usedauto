@@ -31,6 +31,8 @@ struct CapsuleLabel: View {
         HStack(spacing: 5) {
             if let icon { Image(systemName: icon) }
             Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
         }
         .font(.caption.weight(.bold))
         .foregroundStyle(color)
@@ -49,9 +51,23 @@ struct MetricView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.headline.monospacedDigit()).foregroundStyle(tint)
-            if let detail { Text(detail).font(.caption2).foregroundStyle(.secondary) }
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+            if let detail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -63,10 +79,17 @@ struct SectionTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.title3.bold()).foregroundStyle(GameTheme.ink)
-            if let subtitle { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
+            Text(title)
+                .font(.title3.bold())
+                .foregroundStyle(GameTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
-

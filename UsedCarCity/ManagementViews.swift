@@ -507,7 +507,7 @@ struct MonthlyReportView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionTitle(
                                 title: "仕入れ指示の実績",
-                                subtitle: "指示別・仕入れ先別の取得、支出、次週確定の予約"
+                                subtitle: "指示別・仕入れ先別の取得、支出、入札実績"
                             )
                             ForEach(report.procurement) { line in
                                 VStack(alignment: .leading, spacing: 7) {
@@ -521,7 +521,7 @@ struct MonthlyReportView: View {
                                     HStack {
                                         MetricView(title: "取得", value: "\(line.acquiredCount)台")
                                         MetricView(title: "支出", value: line.spent.currency)
-                                        MetricView(title: "入札予約", value: line.reserved.currency)
+                                        MetricView(title: "入札額", value: line.reserved.currency)
                                     }
                                     Text(line.result)
                                         .font(.caption)
@@ -598,13 +598,15 @@ private struct WeeklyDeltaMetric: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             HStack(spacing: 4) {
                 Image(systemName: favorable ? "arrow.up.right" : "arrow.down.right")
                 Text(value).monospacedDigit()
             }
             .font(.caption.bold())
             .foregroundStyle(favorable ? GameTheme.teal : GameTheme.orange)
+            .lineLimit(1)
+            .minimumScaleFactor(0.68)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1017,9 +1019,9 @@ private struct NewspaperMarketMetric: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-            Text(value).font(.caption.bold().monospacedDigit())
-            Text("予測 \(forecast)").font(.system(size: 8, weight: .medium)).foregroundStyle(GameTheme.teal)
+            Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            Text(value).font(.caption.bold().monospacedDigit()).lineLimit(1).minimumScaleFactor(0.68)
+            Text("予測 \(forecast)").font(.system(size: 8, weight: .medium)).foregroundStyle(GameTheme.teal).lineLimit(1).minimumScaleFactor(0.68)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1088,10 +1090,16 @@ struct GameEndView: View {
     }
 
     private func recordRow(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title).font(.subheadline).foregroundStyle(.secondary)
-            Spacer()
-            Text(value).font(.subheadline.bold().monospacedDigit())
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                Text(title).font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Text(value).font(.subheadline.bold().monospacedDigit()).lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline).foregroundStyle(.secondary)
+                Text(value).font(.subheadline.bold().monospacedDigit())
+            }
         }
     }
 }

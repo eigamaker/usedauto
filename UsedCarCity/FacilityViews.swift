@@ -63,7 +63,7 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     @MainActor func status(game: GameEngine) -> String {
         switch self {
-        case .auction: "1会場・3レーン・出品\(game.auctionListings.count)台・予約\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
+        case .auction: "1会場・3レーン・出品\(game.auctionListings.count)台・入札\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
         case .bank: "借入 \(game.debt.currency)"
         case .realEstate: "売地 \(game.plots.filter { if case .available = $0.occupant { true } else { false } }.count)件"
         case .workshop: "整備提携受付中"
@@ -391,7 +391,7 @@ private struct AuctionContent: View {
     @State private var origin: VehicleOrigin?
     @State private var modelID: String?
     @State private var lane: AuctionLane?
-    @State private var unreservedOnly = false
+    @State private var unbidOnly = false
     @State private var sort: AuctionListingSort = .reservePrice
 
     private enum AuctionListingSort: String, CaseIterable, Identifiable {
@@ -403,6 +403,14 @@ private struct AuctionContent: View {
             case .expectedProfit: "予測粗利"
             case .winChance: "落札見込"
             case .newest: "新着"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .reservePrice: "yensign.circle"
+            case .expectedProfit: "chart.line.uptrend.xyaxis"
+            case .winChance: "percent"
+            case .newest: "clock.badge"
             }
         }
     }
@@ -419,7 +427,7 @@ private struct AuctionContent: View {
                 && (category == nil || listing.category == category)
                 && (origin == nil || model?.origin == origin)
                 && (modelID == nil || listing.modelID == modelID)
-                && (!unreservedOnly || !game.bidReservations.contains { $0.listingID == listing.id })
+                && (!unbidOnly || !game.bidReservations.contains { $0.listingID == listing.id })
                 && (query.isEmpty
                     || listing.vehicleName.lowercased().contains(query)
                     || listing.seller.lowercased().contains(query)
@@ -464,11 +472,11 @@ private struct AuctionContent: View {
                     }
                 }
             }.gameCard()
-            HStack {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), alignment: .leading)], alignment: .leading, spacing: 8) {
                 MetricView(title: "全出品", value: "\(game.auctionListings.count)台")
                 MetricView(title: "検索結果", value: "\(listings.count)台")
                 MetricView(title: "レーン", value: "3種")
-                MetricView(title: "予約", value: "\(game.bidReservations.count)件", tint: .indigo)
+                MetricView(title: "入札", value: "\(game.bidReservations.count)件", tint: .indigo)
             }.gameCard()
             if let store = selectedStore {
                 VStack(alignment: .leading, spacing: 10) {
@@ -491,35 +499,57 @@ private struct AuctionContent: View {
                 }.gameCard()
             }
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "出品車両・上限入札", subtitle: "今週は上限額を予約し、落札結果は翌週に確定します")
+                SectionTitle(title: "出品車両・上限入札", subtitle: "上限額で入札し、結果は次の週間処理で一度だけ確定します")
                 Label("業者間落札相場はAAでの落札目安、店頭販売参考は選択店舗の立地で販売する場合の目安です。", systemImage: "info.circle.fill")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 TextField("車名・カテゴリ・出品者を検索", text: $searchText)
                     .textFieldStyle(.roundedBorder)
-                HStack {
-                    Picker("カテゴリ", selection: $category) {
-                        Text("全カテゴリ").tag(Optional<VehicleCategory>.none)
-                        ForEach(VehicleCategory.allCases) { Text($0.name).tag(Optional($0)) }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], alignment: .leading, spacing: 8) {
+                    Menu {
+                        Button { category = nil } label: { Label("全カテゴリ", systemImage: "square.grid.2x2") }
+                        ForEach(VehicleCategory.allCases) { item in
+                            Button { category = item } label: { Label(item.name, systemImage: item.icon) }
+                        }
+                    } label: {
+                        auctionFilterLabel(category?.name ?? "カテゴリ", icon: category?.icon ?? "square.grid.2x2", active: category != nil)
                     }
-                    Picker("生産国", selection: $origin) {
-                        Text("国内外すべて").tag(Optional<VehicleOrigin>.none)
-                        ForEach(VehicleOrigin.allCases, id: \.self) { Text($0.name).tag(Optional($0)) }
+                    Menu {
+                        Button { origin = nil } label: { Label("国内外すべて", systemImage: "globe.asia.australia.fill") }
+                        ForEach(VehicleOrigin.allCases, id: \.self) { item in
+                            Button { origin = item } label: { Label(item.name, systemImage: item.icon) }
+                        }
+                    } label: {
+                        auctionFilterLabel(origin?.name ?? "生産国", icon: origin?.icon ?? "globe.asia.australia.fill", active: origin != nil)
                     }
-                    Picker("レーン", selection: $lane) {
-                        Text("全レーン").tag(Optional<AuctionLane>.none)
-                        ForEach(AuctionLane.allCases) { Text($0.name).tag(Optional($0)) }
+                    Menu {
+                        Button { lane = nil } label: { Label("全レーン", systemImage: "road.lanes") }
+                        ForEach(AuctionLane.allCases) { item in
+                            Button { lane = item } label: { Label(item.name, systemImage: item.icon) }
+                        }
+                    } label: {
+                        auctionFilterLabel(lane?.name ?? "レーン", icon: lane?.icon ?? "road.lanes", active: lane != nil)
                     }
-                }
-                HStack {
-                    Picker("車種", selection: $modelID) {
-                        Text("全車種").tag(Optional<String>.none)
-                        ForEach(availableModels, id: \.id) { Text($0.fullName).tag(Optional($0.id)) }
+                    Menu {
+                        Button { modelID = nil } label: { Label("全車種", systemImage: "car.side.fill") }
+                        ForEach(availableModels, id: \.id) { model in
+                            Button { modelID = model.id } label: { Label(model.fullName, systemImage: model.category.icon) }
+                        }
+                    } label: {
+                        let model = modelID.flatMap(VehicleCatalog.entry(id:))
+                        auctionFilterLabel(model?.modelName ?? "車種", icon: model?.category.icon ?? "car.side.fill", active: model != nil)
                     }
-                    Picker("並び順", selection: $sort) {
-                        ForEach(AuctionListingSort.allCases) { Text($0.name).tag($0) }
+                    Menu {
+                        ForEach(AuctionListingSort.allCases) { item in
+                            Button { sort = item } label: { Label(item.name, systemImage: item.icon) }
+                        }
+                    } label: {
+                        auctionFilterLabel(sort.name, icon: sort.icon, active: sort != .reservePrice)
                     }
-                    Toggle("未予約のみ", isOn: $unreservedOnly).toggleStyle(.switch)
+                    Toggle(isOn: $unbidOnly) {
+                        auctionFilterLabel("未入札", icon: unbidOnly ? "checkmark.circle.fill" : "circle", active: unbidOnly)
+                    }
+                    .toggleStyle(.button)
                 }
                 if let store = selectedStore {
                     LazyVStack(spacing: 0) {
@@ -570,6 +600,19 @@ private struct AuctionContent: View {
         }
         .onAppear { if selectedStoreID == nil { selectedStoreID = game.stores.first?.id } }
         .alert("仕入れ・出品", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("OK") { message = nil } } message: { Text(message ?? "") }
+    }
+
+    private func auctionFilterLabel(_ text: String, icon: String, active: Bool) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption.bold())
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .foregroundStyle(active ? Color.white : GameTheme.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 34)
+            .background(active ? Color.indigo : GameTheme.cream)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
 
@@ -624,8 +667,10 @@ private struct AuctionBidRow: View {
             HStack(spacing: 9) {
                 Image(systemName: listing.category.icon).foregroundStyle(listing.lane.tint).frame(width: 30, height: 30).background(listing.lane.tint.opacity(0.1)).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
+                    Text(listing.vehicleName)
+                        .font(.subheadline.bold())
+                        .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 5) {
-                        Text(listing.vehicleName).font(.subheadline.bold())
                         Text(listing.lane.name)
                             .font(.caption2.bold())
                             .foregroundStyle(listing.lane.tint)
@@ -637,7 +682,7 @@ private struct AuctionBidRow: View {
                             Text("希少旧車").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(GameTheme.orange).clipShape(Capsule())
                         }
                         if let model = VehicleCatalog.entry(id: listing.modelID), model.origin == .imported {
-                            Text("指名需要 \(Int((model.customerDemandIndex * 100).rounded()))")
+                            Text("需要 \(Int((model.customerDemandIndex * 100).rounded()))")
                                 .font(.caption2.bold())
                                 .foregroundStyle(listing.lane.tint)
                                 .padding(.horizontal, 6)
@@ -646,22 +691,28 @@ private struct AuctionBidRow: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・状態\(listing.condition.score)・\(listing.fault.name)・\(listing.seller)").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・状態\(listing.condition.score)・\(listing.fault.name)・\(listing.seller)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                VStack(alignment: .trailing) {
-                    Text("開始 \(listing.reservePrice.currency)").font(.caption.bold())
-                    Text("業者間落札相場 \(listing.marketPrice.currency)").font(.caption2).foregroundStyle(.secondary)
-                    Text("\(game.marketForecastHorizon(for: storeID))週後AA予測 \(marketForecast.lowerBound.currency)〜\(marketForecast.upperBound.currency)").font(.caption2).foregroundStyle(.blue)
-                    if let retailReferencePrice {
-                        Text("店頭販売参考 \(retailReferencePrice.currency)").font(.caption2).foregroundStyle(GameTheme.teal)
-                    }
-                    Text("諸費用 +\((listing.lane.fee + listing.lane.shippingCost).currency)").font(.caption2).foregroundStyle(GameTheme.orange)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), alignment: .leading)], alignment: .leading, spacing: 4) {
+                auctionPriceMetric("開始", listing.reservePrice.currency, tint: GameTheme.ink)
+                auctionPriceMetric("落札相場", listing.marketPrice.currency, tint: GameTheme.ink.opacity(0.65))
+                auctionPriceMetric(
+                    "\(game.marketForecastHorizon(for: storeID))週後予測",
+                    "\(marketForecast.lowerBound.currency)〜\(marketForecast.upperBound.currency)",
+                    tint: .blue
+                )
+                if let retailReferencePrice {
+                    auctionPriceMetric("店頭参考", retailReferencePrice.currency, tint: GameTheme.teal)
                 }
+                auctionPriceMetric("諸費用", "+\((listing.lane.fee + listing.lane.shippingCost).currency)", tint: GameTheme.orange)
             }
             if let automaticInstruction {
                 Label(
-                    "自動予約：\(automaticInstruction.targetName)・上限\(reservation?.maxPrice.currency ?? "—")",
+                    "自動入札：\(automaticInstruction.targetName)・上限\(reservation?.maxPrice.currency ?? "—")",
                     systemImage: "gearshape.fill"
                 )
                 .font(.caption.bold())
@@ -681,19 +732,26 @@ private struct AuctionBidRow: View {
                     .font(.caption.bold())
                     .foregroundStyle(expectedGrossProfit >= 0 ? GameTheme.teal : GameTheme.danger)
                 }
-                HStack {
-                    Stepper("上限 \(maxPrice.currency)", value: $maxPrice, in: listing.reservePrice...bidUpperBound, step: bidStep)
-                        .font(.caption.bold())
-                    Text("落札見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
-                        .font(.caption2.bold().monospacedDigit()).foregroundStyle(listing.lane.tint)
-                    Button(reserved ? "更新" : "予約") {
-                        result(game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice) ? "上限\(maxPrice.currency)で入札を予約しました。結果は翌週に確定します" : "入庫枠を確保できません")
-                    }.buttonStyle(.borderedProminent).tint(listing.lane.tint)
-                    if reserved {
-                        Button("取消") {
-                            game.cancelBid(listingID: listing.id)
-                            result("入札予約を取り消しました")
-                        }.buttonStyle(.bordered).tint(.gray)
+                VStack(spacing: 6) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            bidLimitControl
+                            winChanceLabel
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            bidLimitControl
+                            winChanceLabel
+                        }
+                    }
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            bidActionButton
+                            if reserved { cancelBidButton }
+                        }
+                        VStack(spacing: 6) {
+                            bidActionButton
+                            if reserved { cancelBidButton }
+                        }
                     }
                 }
             }
@@ -702,6 +760,55 @@ private struct AuctionBidRow: View {
         .onAppear {
             if let reservation { maxPrice = reservation.maxPrice }
         }
+    }
+
+    private var bidLimitControl: some View {
+        Stepper(
+            "上限 \(maxPrice.currency)",
+            value: $maxPrice,
+            in: listing.reservePrice...bidUpperBound,
+            step: bidStep
+        )
+        .font(.caption.bold())
+    }
+
+    private var winChanceLabel: some View {
+        Text("見込 \(Int(game.auctionBidWinChance(for: listing, maxPrice: maxPrice) * 100))%")
+            .font(.caption2.bold().monospacedDigit())
+            .foregroundStyle(listing.lane.tint)
+            .lineLimit(1)
+    }
+
+    private var bidActionButton: some View {
+        Button(reserved ? "入札額を変更" : "この上限で入札") {
+            result(
+                game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice)
+                    ? "上限\(maxPrice.currency)で入札しました。結果は次の週間処理で確定します"
+                    : "入庫枠を確保できません"
+            )
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(listing.lane.tint)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var cancelBidButton: some View {
+        Button("取消") {
+            game.cancelBid(listingID: listing.id)
+            result("入札を取り消しました")
+        }
+        .buttonStyle(.bordered)
+        .tint(.gray)
+    }
+
+    private func auctionPriceMetric(_ title: String, _ value: String, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Text(title).foregroundStyle(.secondary)
+            Text(value).foregroundStyle(tint).bold().monospacedDigit()
+        }
+        .font(.caption2)
+        .lineLimit(1)
+        .minimumScaleFactor(0.72)
     }
 }
 
@@ -1039,5 +1146,18 @@ private struct CityHallContent: View {
 private struct FacilityRow: View {
     let title: String; let value: String; var tint: Color = GameTheme.ink
     init(_ title: String, _ value: String, tint: Color = GameTheme.ink) { self.title = title; self.value = value; self.tint = tint }
-    var body: some View { HStack { Text(title).font(.subheadline); Spacer(); Text(value).font(.subheadline.bold().monospacedDigit()).foregroundStyle(tint) }.padding(.vertical, 3) }
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                Text(title).font(.subheadline)
+                Spacer()
+                Text(value).font(.subheadline.bold().monospacedDigit()).foregroundStyle(tint).lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline)
+                Text(value).font(.subheadline.bold().monospacedDigit()).foregroundStyle(tint)
+            }
+        }
+        .padding(.vertical, 3)
+    }
 }

@@ -414,8 +414,12 @@ private struct PurchaseMetric: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.system(size: 8)).foregroundStyle(.secondary)
-            Text(value).font(.caption2.bold().monospacedDigit()).foregroundStyle(tint)
+            Text(title).font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(2)
+            Text(value)
+                .font(.caption2.bold().monospacedDigit())
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -753,8 +757,11 @@ private struct ProposalMetric: View {
     let value: String
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
-            Text(value).font(.caption.bold().monospacedDigit())
+            Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            Text(value)
+                .font(.caption.bold().monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1833,7 +1840,7 @@ private struct ManagerPanel: View {
             .gameCard()
 
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "今週の店員候補", subtitle: "毎週6枠を独立抽選。タイプ構成は保証されません")
+                SectionTitle(title: "今週の店員候補", subtitle: "販売・仕入・調査・整備の専門家を毎週各1人以上紹介")
                 if employeeCandidates.isEmpty {
                     Label("現在紹介できる候補者はいません", systemImage: "person.crop.circle.badge.clock")
                         .font(.subheadline).foregroundStyle(.secondary)
@@ -1846,7 +1853,7 @@ private struct ManagerPanel: View {
                                 size: 48
                             )
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("\(employee.name)・\(employee.rankName)").font(.subheadline.bold())
+                                Text("\(employee.name)・\(employee.specialtyName)・\(employee.rankName)").font(.subheadline.bold())
                                 Text("販売\(employee.salesSkill) 仕入\(employee.procurementSkill) 調査\(employee.researchSkill) 査定・整備\(employee.serviceSkill)")
                                     .font(.caption2).foregroundStyle(.secondary)
                                 Text("\(employee.compensationType.name)・月給\(employee.monthlySalary.currency)\(employee.commissionRate > 0 ? "＋成約粗利\(employee.commissionRate)%" : "")")
@@ -2033,10 +2040,14 @@ private struct ProcurementInstructionPanel: View {
                                 Image(systemName: "ellipsis.circle")
                             }
                         }
-                        HStack {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 72), alignment: .leading)],
+                            alignment: .leading,
+                            spacing: 8
+                        ) {
                             ProposalMetric(title: "週間予算", value: instruction.totalBudget.currency)
                             ProposalMetric(title: "今週支出", value: instruction.spentBudget.currency)
-                            ProposalMetric(title: "予約", value: instruction.reservedBudget.currency)
+                            ProposalMetric(title: "入札中", value: instruction.reservedBudget.currency)
                             ProposalMetric(title: "今週残り", value: instruction.remainingBudget.currency)
                             ProposalMetric(title: "取得", value: "\(instruction.acquiredCount)台")
                         }
@@ -2049,6 +2060,7 @@ private struct ProcurementInstructionPanel: View {
                             Text(instruction.lastResult)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                             Spacer()
                             Button {
                                 _ = game.moveProcurementInstruction(instruction.id, direction: -1)
@@ -2079,7 +2091,7 @@ private struct ProcurementInstructionPanel: View {
                 )
                 .font(.caption.bold())
                 .foregroundStyle(GameTheme.teal)
-                Text("出品一覧は非公開です。担当者の仕入力に応じて案件発見数・査定確度・落札判断が向上します。予約\(game.networkAuctionBidReservations.filter { $0.storeID == store.id }.count)件、直近成約\(game.networkAuctionBidResults.filter { $0.storeID == store.id && $0.status == .won }.prefix(5).count)件")
+                Text("出品一覧は非公開です。担当者の仕入力に応じて案件発見数・査定確度・落札判断が向上します。入札\(game.networkAuctionBidReservations.filter { $0.storeID == store.id }.count)件、直近成約\(game.networkAuctionBidResults.filter { $0.storeID == store.id && $0.status == .won }.prefix(5).count)件")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -2223,7 +2235,7 @@ private struct ProcurementInstructionEditor: View {
                     } else {
                         Stepper("\(ruleSelection.name) \(ruleAmount.currency)／台", value: $ruleAmount, in: 0...20_000, step: 5)
                     }
-                    Text("週間予算は毎週更新され、車両価格・手数料・輸送費を含みます。未決済の入札予約は翌週の予算枠にも引き継がれます。最低粗利は予測修理費も差し引いて判定します。")
+                    Text("週間予算は毎週更新され、車両価格・手数料・輸送費を含みます。入札は次の週間処理で一度だけ確定します。最低粗利は予測修理費も差し引いて判定します。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

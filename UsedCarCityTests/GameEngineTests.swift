@@ -1038,6 +1038,28 @@ final class GameEngineTests: XCTestCase {
         XCTAssertGreaterThan(largestTickIncrease, 0.02)
     }
 
+    func testAuctionWinChanceStillReflectsCompetitionAfterAdvancingAWeek() {
+        let game = GameEngine(persistenceEnabled: false)
+        game.resetGame(simulationSeed: 17)
+        startPlayableGame(game, simulationSeed: 17)
+
+        game.advanceWeek()
+
+        let minivanChances = game.auctionListings
+            .filter {
+                $0.category == .minivan
+                    && $0.fault != .major
+                    && $0.fault != .immobile
+            }
+            .map { game.auctionBidWinChance(for: $0, maxPrice: $0.reservePrice) }
+        XCTAssertFalse(minivanChances.isEmpty)
+        XCTAssertTrue(
+            minivanChances.allSatisfy { $0 < 1 },
+            "minivan chances: \(minivanChances)"
+        )
+        XCTAssertGreaterThan(Set(minivanChances.map { Int(($0 * 100).rounded()) }).count, 1)
+    }
+
     func testCompetitorAuctionBidsNeverExceedTheirResaleProfitCeiling() {
         let game = GameEngine()
         game.resetGame()
@@ -1723,12 +1745,32 @@ final class GameEngineTests: XCTestCase {
         XCTAssertFalse(game.employeeCandidates(for: storeID).contains { $0.id == candidate.id })
     }
 
-    func testEmployeeCandidatesRefreshEveryWeekAndDoNotGuaranteeATypeMix() {
+    func testEmployeeCandidatesRefreshEveryWeekAndCoverEachSpecialty() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, simulationSeed: 29)
         let storeID = game.stores[0].id
         let firstWeek = game.employeeCandidates(for: storeID)
+
+        let expectedSpecialties = Set(["販売専門", "仕入専門", "調査専門", "整備技術者"])
+        XCTAssertEqual(Set(firstWeek.map(\.specialtyName)), expectedSpecialties)
+        XCTAssertGreaterThanOrEqual(
+            firstWeek.first(where: { $0.specialtyName == "仕入専門" })?.procurementSkill ?? 0,
+            76
+        )
+        XCTAssertGreaterThanOrEqual(
+            firstWeek.first(where: { $0.specialtyName == "調査専門" })?.researchSkill ?? 0,
+            76
+        )
+        for candidate in firstWeek {
+            let commercialSkills = [candidate.salesSkill, candidate.procurementSkill, candidate.researchSkill]
+            XCTAssertFalse(candidate.serviceSkill >= 70 && (commercialSkills.max() ?? 0) >= 70)
+            if candidate.specialtyName == "整備技術者" {
+                XCTAssertLessThanOrEqual(commercialSkills.max() ?? 0, 50)
+            } else {
+                XCTAssertLessThanOrEqual(candidate.serviceSkill, 50)
+            }
+        }
 
         game.turn += 1
         let secondWeek = game.employeeCandidates(for: storeID)
@@ -1736,7 +1778,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(firstWeek.count, 6)
         XCTAssertEqual(secondWeek.count, 6)
         XCTAssertNotEqual(Set(firstWeek.map(\.id)), Set(secondWeek.map(\.id)))
-        XCTAssertLessThan(Set(firstWeek.map(\.rankName)).count, 4)
+        XCTAssertEqual(Set(secondWeek.map(\.specialtyName)), expectedSpecialties)
     }
 
     func testEliteAbilityDoublesAutomationCapacityAndCommandsHigherSalary() {
@@ -3297,6 +3339,49 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 7)
         XCTAssertEqual(game.remainingWeeklyOpportunities(storeID: storeID), 6)
         XCTAssertFalse(game.canSellManually(storeID: storeID))
+    }
+
+    func testAutomaticSalesNeverExceedAvailableInventory() {
+        let game = GameEngine(persistenceEnabled: false)
+        game.resetGame(simulationSeed: 41)
+        startPlayableGame(game, plan: .discount, simulationSeed: 41)
+        let storeID = game.stores[0].id
+        let original = game.stores[0].inventory[0]
+        game.stores[0].inventory = [InventoryBatch(
+            modelID: original.modelID,
+            category: original.category,
+            count: 2,
+            averageCost: original.averageCost,
+            quality: original.quality,
+            modelYear: original.modelYear,
+            mileage: original.mileage,
+            acquiredTurn: original.acquiredTurn
+        )]
+        game.stores[0].employees = [StoreEmployee(
+            name: "在庫整合テスト",
+            salesSkill: 99,
+            procurementSkill: 40,
+            researchSkill: 99,
+            serviceSkill: 30,
+            monthlySalary: 60,
+            assignment: .sales
+        )]
+        game.stores[0].autoSales = true
+        game.stores[0].salesPolicy = .volume
+        game.buyerLeads = (0..<12).map { _ in
+            BuyerLead(
+                id: UUID(), storeID: storeID,
+                preference: .category(original.category),
+                budget: 100_000, minimumQuality: 0.1,
+                minimumModelYear: 1990, maximumMileage: 1_000_000,
+                priceSensitivity: 0, generatedTurn: game.turn
+            )
+        }
+
+        game.advanceWeek()
+
+        XCTAssertLessThanOrEqual(game.stores[0].lastSales, 2)
+        XCTAssertEqual(game.stores[0].inventoryCount, 2 - game.stores[0].lastSales)
     }
 
     func testManagerControlsPoliciesWithoutTakingOwnerCases() {
@@ -5424,7 +5509,7 @@ final class GameEngineTests: XCTestCase {
         ))
     }
 
-    func testAutomaticFaultOnlyOnlineBidReservesAndReleasesInstructionBudget() {
+    func testAutomaticFaultOnlyOnlineBidSettlesAndReleasesInstructionBudgetInWeeklyProcessing() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -5467,37 +5552,19 @@ final class GameEngineTests: XCTestCase {
 
         game.advanceWeek()
 
-        let reservation = try! XCTUnwrap(game.networkAuctionBidReservations.first {
-            $0.instructionID == instructionID
-        })
+        XCTAssertFalse(game.networkAuctionBidReservations.contains { $0.instructionID == instructionID })
         let reservedInstruction = game.procurementInstructions.first { $0.id == instructionID }!
-        XCTAssertEqual(
-            reservedInstruction.reservedBudget,
-            reservation.maxPrice + listing.fee + listing.shippingCost
-        )
+        XCTAssertEqual(reservedInstruction.reservedBudget, 0)
         let reservationReport = try! XCTUnwrap(game.lastReport?.procurement.first {
             $0.instructionID == instructionID && $0.source == .networkAuction
         })
-        XCTAssertEqual(reservationReport.reserved, reservation.committedCost)
-        XCTAssertEqual(reservationReport.result, "入札予約")
+        XCTAssertGreaterThan(reservationReport.reserved, 0)
+        XCTAssertTrue(reservationReport.result.contains("入札"))
         XCTAssertLessThanOrEqual(
             reservedInstruction.spentBudget + reservedInstruction.reservedBudget,
             reservedInstruction.totalBudget
         )
         XCTAssertEqual(listing.fault == .none, false)
-
-        XCTAssertTrue(game.setProcurementInstructionStatus(instructionID, status: .paused))
-        game.stores[0].autoProcurement = false
-        game.stores[0].employees = []
-        game.advanceWeek()
-
-        let settledInstruction = game.procurementInstructions.first { $0.id == instructionID }!
-        XCTAssertEqual(settledInstruction.reservedBudget, 0)
-        XCTAssertLessThanOrEqual(settledInstruction.spentBudget, settledInstruction.totalBudget)
-        XCTAssertFalse(game.networkAuctionBidReservations.contains { $0.instructionID == instructionID })
-        XCTAssertNotNil(game.lastReport?.procurement.first {
-            $0.instructionID == instructionID && $0.source == .networkAuction
-        })
     }
 
     func testMinimumGrossProfitRejectsImportedAuctionAboveActualRetailCeiling() {
@@ -5592,7 +5659,7 @@ final class GameEngineTests: XCTestCase {
 
     func testWeeklyReportNotesAreSeparatedIntoCategories() {
         XCTAssertEqual(
-            WeeklyReportCategory.category(for: "中央店仕入指示：AAでコンパクトへ入札予約"),
+            WeeklyReportCategory.category(for: "中央店仕入指示：AAでコンパクトへ入札"),
             .procurement
         )
         XCTAssertEqual(
@@ -5694,17 +5761,21 @@ final class GameEngineTests: XCTestCase {
         }
     }
 
-    func testNetworkAuctionRefreshesThirtySixListingsPerWeek() {
+    func testBothAuctionMarketsReplaceEveryListingEachWeek() {
         let game = GameEngine(persistenceEnabled: false)
         game.resetGame(simulationSeed: 93)
         game.startNewGame(simulationSeed: 93)
-        let originalIDs = Set(game.networkAuctionListings.map(\.id))
+        let originalVenueIDs = Set(game.auctionListings.map(\.id))
+        let originalNetworkIDs = Set(game.networkAuctionListings.map(\.id))
 
         game.advanceWeek()
 
-        let retained = originalIDs.intersection(game.networkAuctionListings.map(\.id))
+        let retainedVenue = originalVenueIDs.intersection(game.auctionListings.map(\.id))
+        let retainedNetwork = originalNetworkIDs.intersection(game.networkAuctionListings.map(\.id))
+        XCTAssertEqual(game.auctionListings.count, 72)
         XCTAssertEqual(game.networkAuctionListings.count, 144)
-        XCTAssertEqual(retained.count, 108)
+        XCTAssertTrue(retainedVenue.isEmpty)
+        XCTAssertTrue(retainedNetwork.isEmpty)
     }
 
     func testCompetitorAuctionPlanUsesAtMostTwoSlotsPerBranchAndTargetsSixtyPercentStock() {
@@ -5784,10 +5855,15 @@ final class GameEngineTests: XCTestCase {
 
         game.advanceWeek()
 
-        let publicReservations = game.bidReservations.filter { $0.instructionID == id }
-        let networkReservations = game.networkAuctionBidReservations.filter { $0.instructionID == id }
-        XCTAssertEqual(publicReservations.count + networkReservations.count, 3)
-        XCTAssertTrue(publicReservations.allSatisfy { $0.targetTurn == game.turn })
-        XCTAssertTrue(networkReservations.allSatisfy { $0.targetTurn == game.turn })
+        XCTAssertFalse(game.bidReservations.contains { $0.instructionID == id })
+        XCTAssertFalse(game.networkAuctionBidReservations.contains { $0.instructionID == id })
+        let instruction = try XCTUnwrap(game.procurementInstructions.first { $0.id == id })
+        XCTAssertEqual(instruction.reservedBudget, 0)
+        XCTAssertGreaterThan(
+            game.lastReport?.procurement
+                .filter { $0.instructionID == id }
+                .reduce(0) { $0 + $1.reserved } ?? 0,
+            0
+        )
     }
 }

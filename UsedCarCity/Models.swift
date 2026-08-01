@@ -2101,6 +2101,13 @@ enum AuctionLane: String, Codable, CaseIterable, Identifiable {
         case .premium: "スポーツ・輸入高級車"
         }
     }
+    var icon: String {
+        switch self {
+        case .standard: "car.side.fill"
+        case .logistics: "truck.box.fill"
+        case .premium: "sparkles"
+        }
+    }
     var fee: Int { switch self { case .standard: 7; case .logistics: 9; case .premium: 16 } }
     /// 落札後に実際に支払う陸送費。従来値のおよそ3分の1。
     var shippingCost: Int { switch self { case .standard: 2; case .logistics: 4; case .premium: 6 } }
@@ -3013,6 +3020,15 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
         if best >= 84 { return "スペシャリスト" }
         if overallSkill >= 66 { return "中堅" }
         return "新人"
+    }
+    var specialtyName: String {
+        let commercialSkills = [salesSkill, procurementSkill, researchSkill]
+        guard serviceSkill > (commercialSkills.max() ?? 0) else {
+            if procurementSkill > salesSkill && procurementSkill > researchSkill { return "仕入専門" }
+            if researchSkill > salesSkill && researchSkill > procurementSkill { return "調査専門" }
+            return "販売専門"
+        }
+        return "整備技術者"
     }
 
     private static func marketSalary(
