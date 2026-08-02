@@ -232,7 +232,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v50"
+    private static let saveKey = "UsedCarCity.save.v51"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -2865,13 +2865,13 @@ final class GameEngine: ObservableObject {
         source: ProcurementSource = .storePurchase
     ) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }) else { return 35 }
-        let skill = store.employees
+        guard let skill = (store.employees
             .filter { $0.assignment == .service }
             .map(\.serviceSkill)
-            .max() ?? 35
+            .max()) else { return 35 }
         let facilityBonus = store.facilities.contains(.serviceWorkshop)
             && [.storePurchase, .tradeIn].contains(source) ? 5 : 0
-        return min(95, max(20, skill + facilityBonus))
+        return min(95, max(60, skill + facilityBonus))
     }
 
     func vehicleAssessment(
@@ -2888,18 +2888,26 @@ final class GameEngine: ObservableObject {
                 source: source,
                 isVerified: true,
                 confidence: 100,
-                conditionRange: condition.score...condition.score,
+                condition: VehicleConditionEstimate(
+                    exterior: condition.exterior...condition.exterior,
+                    interior: condition.interior...condition.interior,
+                    mechanical: condition.mechanical...condition.mechanical
+                ),
                 repairCostRange: actualRepairCost...actualRepairCost,
                 detectedFault: fault
             )
         }
         let confidence = appraisalConfidence(for: storeID, source: source)
+        let hasTechnician = hasServiceTechnician(storeID: storeID)
         let succeeded = transactionRoll(seed: seed + 701) < Double(confidence) / 100
         let conditionRadius = max(2, Int(ceil(Double(100 - confidence) / 5)))
+        func estimate(_ actual: Int, salt: Int) -> ClosedRange<Int> {
+            let direction = transactionRoll(seed: seed + salt) < 0.5 ? -1 : 1
+            let miss = succeeded ? 0 : direction * max(2, conditionRadius / 2)
+            let center = min(100, max(0, actual + miss))
+            return max(0, center - conditionRadius)...min(100, center + conditionRadius)
+        }
         let direction = transactionRoll(seed: seed + 709) < 0.5 ? -1 : 1
-        let miss = succeeded ? 0 : direction * max(2, conditionRadius / 2)
-        let center = min(100, max(0, condition.score + miss))
-        let conditionRange = max(0, center - conditionRadius)...min(100, center + conditionRadius)
         let repairRadius = max(2, Int(ceil(Double(max(6, actualRepairCost)) * Double(100 - confidence) / 90)))
         let repairMiss = succeeded ? 0 : direction * max(2, repairRadius / 2)
         let repairCenter = max(0, actualRepairCost + repairMiss)
@@ -2907,14 +2915,18 @@ final class GameEngine: ObservableObject {
             source: source,
             isVerified: false,
             confidence: confidence,
-            conditionRange: conditionRange,
+            condition: VehicleConditionEstimate(
+                exterior: estimate(condition.exterior, salt: 709),
+                interior: estimate(condition.interior, salt: 719),
+                mechanical: hasTechnician ? estimate(condition.mechanical, salt: 727) : nil
+            ),
             repairCostRange: max(0, repairCenter - repairRadius)...max(0, repairCenter + repairRadius),
-            detectedFault: succeeded ? fault : nil
+            detectedFault: hasTechnician && succeeded ? fault : nil
         )
     }
 
     func purchaseAssessment(for item: PurchaseCase) -> VehicleAssessment {
-        let requiredFaultRepair = estimatedSourcingRepairCost(
+        let restoration = restorationQuote(
             category: item.category,
             fault: item.fault,
             condition: item.condition,
@@ -2924,23 +2936,24 @@ final class GameEngine: ObservableObject {
             source: .storePurchase,
             condition: item.condition,
             fault: item.fault,
-            actualRepairCost: purchaseRepairCost(for: item) + requiredFaultRepair,
+            actualRepairCost: restoration.finalCost,
             storeID: item.storeID,
             seed: item.modelYear * 101 + item.mileage / 100 + categoryIndex(item.category)
         )
     }
 
     func networkAuctionAssessment(for listing: NetworkAuctionListing, storeID: UUID) -> VehicleAssessment {
-        vehicleAssessment(
+        let restoration = restorationQuote(
+            category: listing.category,
+            fault: listing.fault,
+            condition: listing.condition,
+            storeID: storeID
+        )
+        return vehicleAssessment(
             source: .networkAuction,
             condition: listing.condition,
             fault: listing.fault,
-            actualRepairCost: estimatedSourcingRepairCost(
-                category: listing.category,
-                fault: listing.fault,
-                condition: listing.condition,
-                storeID: storeID
-            ),
+            actualRepairCost: restoration.finalCost,
             storeID: storeID,
             seed: listing.modelYear * 103 + listing.mileage / 100 + categoryIndex(listing.category),
             conditionVerified: listing.kind.isConditionVerified
@@ -2954,20 +2967,21 @@ final class GameEngine: ObservableObject {
     ) -> Int? {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID) else { return nil }
+        let targetCondition = listing.condition.restoredForRetail
         let retail = vehicleRetailValue(
             modelID: listing.modelID,
             category: listing.category,
             modelYear: listing.modelYear,
             mileage: listing.mileage,
-            quality: listing.condition.quality,
+            quality: targetCondition.quality,
             in: plot.district
         )
-        let repair = estimatedSourcingRepairCost(
+        let repair = restorationQuote(
             category: listing.category,
             fault: listing.fault,
             condition: listing.condition,
             storeID: storeID
-        )
+        ).finalCost
         return retail - maxPrice - listing.lane.fee - listing.lane.shippingCost - repair
     }
 
@@ -2979,12 +2993,13 @@ final class GameEngine: ObservableObject {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID) else { return nil }
         let assessment = networkAuctionAssessment(for: listing, storeID: storeID)
+        let targetCondition = assessment.condition.estimatedProfile.restoredForRetail
         let retail = vehicleRetailValue(
             modelID: listing.modelID,
             category: listing.category,
             modelYear: listing.modelYear,
             mileage: listing.mileage,
-            quality: Double(assessment.estimatedCondition) / 100,
+            quality: targetCondition.quality,
             in: plot.district
         )
         return retail
@@ -2995,14 +3010,18 @@ final class GameEngine: ObservableObject {
     }
 
     func tradeInAssessment(for tradeIn: TradeInVehicle, storeID: UUID) -> VehicleAssessment {
-        let score = tradeIn.conditionScore
-        let profile = VehicleConditionProfile(exterior: score, interior: score, mechanical: score)
         let fault: MechanicalFaultSeverity = tradeIn.repairCost > 0 ? .minor : .none
+        let restoration = restorationQuote(
+            category: tradeIn.category,
+            fault: fault,
+            condition: tradeIn.condition,
+            storeID: storeID
+        )
         return vehicleAssessment(
             source: .tradeIn,
-            condition: profile,
+            condition: tradeIn.condition,
             fault: fault,
-            actualRepairCost: tradeInRepairCost(for: tradeIn, storeID: storeID),
+            actualRepairCost: restoration.finalCost,
             storeID: storeID,
             seed: tradeIn.modelYear * 107 + tradeIn.mileage / 100 + categoryIndex(tradeIn.category)
         )
@@ -3027,7 +3046,12 @@ final class GameEngine: ObservableObject {
     }
 
     func purchaseRepairCost(for item: PurchaseCase) -> Int {
-        max(6, item.repairCost)
+        restorationQuote(
+            category: item.category,
+            fault: item.fault,
+            condition: item.condition,
+            storeID: item.storeID
+        ).finalCost
     }
 
     func purchaseExpectedGrossProfit(for item: PurchaseCase) -> Int {
@@ -3035,7 +3059,13 @@ final class GameEngine: ObservableObject {
         let estimatedRepairCost: Int
         if let project = item.suggestedProjectKind,
            let store = stores.first(where: { $0.id == item.storeID }) {
-            let conversionBase = max(0, item.repairCost - item.asIsRepairCost)
+            let standardRestorationCost = restorationQuote(
+                category: item.category,
+                fault: item.fault,
+                condition: item.condition,
+                storeID: item.storeID
+            ).finalCost
+            let conversionBase = max(0, item.repairCost - standardRestorationCost)
             let partner = OutsourcePartnerKind.partner(for: project)
             let activeInventoryProjects = store.inventory.filter {
                 $0.workshopProject?.outsourced == false
@@ -3071,11 +3101,12 @@ final class GameEngine: ObservableObject {
     }
 
     func tradeInRepairCost(for tradeIn: TradeInVehicle, storeID: UUID) -> Int {
-        guard tradeIn.repairCost > 0 else { return 0 }
-        guard let store = stores.first(where: { $0.id == storeID }) else { return tradeIn.repairCost }
-        let staffDiscount = employeeServiceCostDiscount(for: storeID)
-        let facilityDiscount = store.serviceBays > 0 ? 30 : 0
-        return max(1, tradeIn.repairCost * max(30, 100 - staffDiscount - facilityDiscount) / 100)
+        restorationQuote(
+            category: tradeIn.category,
+            fault: tradeIn.repairCost > 0 ? .minor : .none,
+            condition: tradeIn.condition,
+            storeID: storeID
+        ).finalCost
     }
 
     func assignedEmployees(storeID: UUID, assignment: EmployeeAssignment) -> [StoreEmployee] {
@@ -4476,7 +4507,7 @@ final class GameEngine: ObservableObject {
             category: tradeIn.category,
             modelYear: tradeIn.modelYear,
             mileage: tradeIn.mileage,
-            quality: tradeIn.qualityAfterRepair,
+            quality: tradeIn.condition.restoredForRetail.quality,
             in: plot.district
         )
         let expectedTradeInSalePrice = max(25, Int(Double(baseRetail) * store.priceIndex))
@@ -4552,11 +4583,14 @@ final class GameEngine: ObservableObject {
                     modelID: tradeIn.modelID,
                     category: tradeIn.category,
                     count: 1,
-                    averageCost: tradeIn.appraisedValue + tradeInPreview.repairCost,
-                    quality: tradeIn.qualityAfterRepair,
+                    averageCost: tradeIn.appraisedValue,
+                    quality: tradeIn.quality,
                     modelYear: tradeIn.modelYear,
                     mileage: tradeIn.mileage,
-                    acquiredTurn: turn
+                    acquiredTurn: turn,
+                    condition: tradeIn.condition,
+                    fault: tradeIn.repairCost > 0 ? .minor : .none,
+                    faultRevealed: hasServiceTechnician(storeID: storeID)
                 ))
                 acquiredTradeIn = true
             } else {
@@ -4587,9 +4621,9 @@ final class GameEngine: ObservableObject {
                 recordVehicleAcquisition(
                     storeID: storeID, source: .tradeIn, modelID: tradeIn.modelID,
                     category: tradeIn.category, count: 1,
-                    unitCost: tradeIn.appraisedValue + tradeInPreview.repairCost,
+                    unitCost: tradeIn.appraisedValue,
                     cashImpact: 0, modelYear: tradeIn.modelYear, mileage: tradeIn.mileage,
-                    quality: tradeIn.qualityAfterRepair, arrivalTurn: nil, dispositionPlan: .retail
+                    quality: tradeIn.quality, arrivalTurn: nil, dispositionPlan: .retail
                 )
                 simulationTransactionHandler?(SimulationVehicleTransaction(
                     turn: turn,
@@ -4982,8 +5016,7 @@ final class GameEngine: ObservableObject {
               let storeIndex = stores.firstIndex(where: { $0.id == purchaseCases[caseIndex].storeID }),
               let preview = purchaseNegotiationPreview(caseID, offerPercent: offerPercent) else { return .unavailable }
         let item = purchaseCases[caseIndex]
-        let repairCost = item.asIsRepairCost
-        let total = (preview.price + repairCost) * item.lotCount
+        let total = preview.price * item.lotCount
         guard cash >= total,
               stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity,
               remainingWeeklyOpportunities(storeID: item.storeID) > 0 else { return .unavailable }
@@ -5009,8 +5042,8 @@ final class GameEngine: ObservableObject {
             modelID: item.modelID,
             category: item.category,
             count: item.lotCount,
-            averageCost: preview.price + repairCost,
-            quality: Double(item.qualityAfterRepairScore) / 100,
+            averageCost: preview.price,
+            quality: item.condition.quality,
             modelYear: item.modelYear,
             mileage: item.mileage,
             acquiredTurn: turn,
@@ -5025,9 +5058,9 @@ final class GameEngine: ObservableObject {
         recordVehicleAcquisition(
             storeID: item.storeID, source: source, modelID: item.modelID,
             category: item.category, count: item.lotCount,
-            unitCost: preview.price + repairCost, cashImpact: total,
+            unitCost: preview.price, cashImpact: total,
             modelYear: item.modelYear, mileage: item.mileage,
-            quality: Double(item.qualityAfterRepairScore) / 100,
+            quality: item.condition.quality,
             arrivalTurn: nil,
             dispositionPlan: item.suggestedProjectKind.map { .customization(kind: $0, grade: nil) } ?? .retail
         )
@@ -5136,6 +5169,7 @@ final class GameEngine: ObservableObject {
         if kind == .mobileSalesConversion && ![VehicleCategory.minivan, .pickup].contains(batch.category) { return nil }
         if kind == .kitchenCarConversion && ![VehicleCategory.minivan, .pickup].contains(batch.category) { return nil }
         if kind == .repair && batch.fault == .none { return nil }
+        if kind == .basicService && batch.condition.isRetailReady && batch.fault == .none { return nil }
         switch kind {
         case .basicService:
             guard batch.productState == .stock else { return nil }
@@ -5150,17 +5184,26 @@ final class GameEngine: ObservableObject {
             guard [.stock, .serviced, .repaired, .refurbished].contains(batch.productState) || isGradeUpgrade else { return nil }
         }
         let currentQuality = Int((batch.quality * 100).rounded())
+        let retailQuote = restorationQuote(
+            category: batch.category,
+            fault: batch.fault,
+            condition: batch.condition,
+            storeID: nil
+        )
         var baseCost: Int
         var requiredWork: Int
         let requestedGain: Int
         let targetState: VehicleProductState
         switch kind {
         case .basicService:
-            baseCost = max(12, batch.category.purchaseCost / 18); requiredWork = 1; requestedGain = 2; targetState = .serviced
+            baseCost = max(1, retailQuote.baseCost); requiredWork = 1
+            requestedGain = max(0, retailQuote.targetCondition.score - batch.condition.score)
+            targetState = .serviced
         case .repair:
             requiredWork = max(2, batch.fault.requiredWork)
-            baseCost = max(24, batch.category.purchaseCost * requiredWork / 15)
-            requestedGain = min(14, requiredWork + 3); targetState = .repaired
+            baseCost = max(1, retailQuote.baseCost)
+            requestedGain = max(0, retailQuote.targetCondition.score - batch.condition.score)
+            targetState = .repaired
         case .refurbishment:
             baseCost = max(80, Int(Double(model.baseWholesalePrice) * (model.isRareClassic ? 0.52 : 0.28)))
             requiredWork = 6; requestedGain = currentQuality < 65 ? 15 : 10; targetState = .refurbished
@@ -5213,9 +5256,24 @@ final class GameEngine: ObservableObject {
         let bestSkill = serviceEmployees.map(\.serviceSkill).max() ?? 35
         let inHouseCap = min(model.isRareClassic ? 92 : 96, (model.isRareClassic ? 82 : 85) + bestSkill / 8)
         let qualityCap = outsourced ? (model.isRareClassic ? 86 : 90) : inHouseCap
-        let resultingQuality = min(qualityCap, currentQuality + requestedGain)
+        let resultingCondition: VehicleConditionProfile
+        if [.basicService, .repair].contains(kind) {
+            let target = batch.condition.restoredForRetail
+            resultingCondition = VehicleConditionProfile(
+                exterior: min(qualityCap, target.exterior),
+                interior: min(qualityCap, target.interior),
+                mechanical: min(qualityCap, target.mechanical)
+            )
+        } else {
+            resultingCondition = VehicleConditionProfile(
+                exterior: min(qualityCap, batch.condition.exterior + requestedGain),
+                interior: min(qualityCap, batch.condition.interior + requestedGain),
+                mechanical: min(qualityCap, batch.condition.mechanical + requestedGain)
+            )
+        }
+        let resultingQuality = resultingCondition.score
         var projected = batch
-        projected.quality = Double(resultingQuality) / 100.0
+        projected.condition = resultingCondition
         projected.averageCost += cost
         projected.valueAddedInvestment += cost
         projected.productState = targetState
@@ -5299,6 +5357,7 @@ final class GameEngine: ObservableObject {
             estimatedWeeks: estimatedWeeks,
             qualityGain: resultingQuality - currentQuality,
             resultingQuality: resultingQuality,
+            resultingCondition: resultingCondition,
             projectedSalePrice: projectedPrice,
             outsourced: outsourced,
             fulfillmentMode: fulfillment,
@@ -5361,6 +5420,7 @@ final class GameEngine: ObservableObject {
             remainingWork: preview.requiredWork,
             cost: preview.cost,
             qualityGain: preview.qualityGain,
+            targetCondition: preview.resultingCondition,
             startedTurn: turn,
             priority: 0,
             outsourced: preview.outsourced,
@@ -7686,13 +7746,7 @@ final class GameEngine: ObservableObject {
                     stores[storeIndex].inventory[batchIndex].workshopProject = project
                     continue
                 }
-                let before = Int((stores[storeIndex].inventory[batchIndex].quality * 100).rounded())
-                let cap = project.outsourced
-                    ? (stores[storeIndex].inventory[batchIndex].isRareClassic ? 86 : 90)
-                    : (stores[storeIndex].inventory[batchIndex].isRareClassic ? 90 : 94)
-                let after = min(cap, before + project.qualityGain)
-                stores[storeIndex].inventory[batchIndex].quality = Double(after) / 100.0
-                stores[storeIndex].inventory[batchIndex].condition = VehicleConditionProfile(exterior: after, interior: after, mechanical: after)
+                stores[storeIndex].inventory[batchIndex].condition = project.targetCondition
                 if let completedState = project.kind.productState {
                     stores[storeIndex].inventory[batchIndex].productState = completedState
                 }
@@ -7723,7 +7777,7 @@ final class GameEngine: ObservableObject {
                 }
                 let completedProductKind = marketProductKind(for: stores[storeIndex].inventory[batchIndex])
                 let gradeText = project.targetGrade.map { "・\($0.name(for: completedProductKind))" } ?? ""
-                notes.append("\(stores[storeIndex].name)：\(stores[storeIndex].inventory[batchIndex].vehicleName)の\(project.kind.name)\(gradeText)が完成（品質\(after)）")
+                notes.append("\(stores[storeIndex].name)：\(stores[storeIndex].inventory[batchIndex].vehicleName)の\(project.kind.name)\(gradeText)が完成（\(project.targetCondition.displayText)）")
             }
 
             let storeID = stores[storeIndex].id
@@ -8117,11 +8171,14 @@ final class GameEngine: ObservableObject {
                         modelID: tradeIn.modelID,
                         category: tradeIn.category,
                         count: 1,
-                        averageCost: tradeIn.appraisedValue + tradePreview.repairCost,
-                        quality: tradeIn.qualityAfterRepair,
+                        averageCost: tradeIn.appraisedValue,
+                        quality: tradeIn.quality,
                         modelYear: tradeIn.modelYear,
                         mileage: tradeIn.mileage,
-                        acquiredTurn: turn
+                        acquiredTurn: turn,
+                        condition: tradeIn.condition,
+                        fault: tradeIn.repairCost > 0 ? .minor : .none,
+                        faultRevealed: hasServiceTechnician(storeID: storeID)
                     ))
                     result.cashCollected += tradePreview.cashImpact
                     result.tradeIns += 1
@@ -8152,13 +8209,13 @@ final class GameEngine: ObservableObject {
                     revenue: realizedPrice,
                     cost: unitCost
                 ))
-                if acceptTradeIn, let tradeIn = lead.tradeInVehicle, let tradePreview {
+                if acceptTradeIn, let tradeIn = lead.tradeInVehicle, tradePreview != nil {
                     recordVehicleAcquisition(
                         storeID: storeID, source: .tradeIn, modelID: tradeIn.modelID,
                         category: tradeIn.category, count: 1,
-                        unitCost: tradeIn.appraisedValue + tradePreview.repairCost,
+                        unitCost: tradeIn.appraisedValue,
                         cashImpact: 0, modelYear: tradeIn.modelYear, mileage: tradeIn.mileage,
-                        quality: tradeIn.qualityAfterRepair, arrivalTurn: nil, dispositionPlan: .retail
+                        quality: tradeIn.quality, arrivalTurn: nil, dispositionPlan: .retail
                     )
                     simulationTransactionHandler?(SimulationVehicleTransaction(
                         turn: turn,
@@ -8168,7 +8225,7 @@ final class GameEngine: ObservableObject {
                         category: tradeIn.category,
                         count: 1,
                         revenue: 0,
-                        cost: tradeIn.appraisedValue + tradePreview.repairCost
+                        cost: tradeIn.appraisedValue
                     ))
                 }
                 updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
@@ -8361,16 +8418,70 @@ final class GameEngine: ObservableObject {
         condition: VehicleConditionProfile,
         storeID: UUID?
     ) -> Int {
-        guard fault != .none else { return 0 }
-        let requiredWork = max(2, fault.requiredWork)
-        let base = max(24, category.purchaseCost * requiredWork / 15)
-        let baseline = Int((Double(base) * OutsourcePartnerKind.generalRepair.costMultiplier).rounded())
+        restorationQuote(
+            category: category,
+            fault: fault,
+            condition: condition,
+            storeID: storeID
+        ).finalCost
+    }
+
+    func restorationQuote(
+        category: VehicleCategory,
+        fault: MechanicalFaultSeverity,
+        condition: VehicleConditionProfile,
+        storeID: UUID?
+    ) -> VehicleRestorationQuote {
+        let target = condition.restoredForRetail
+        let exteriorDeficit = max(0, VehicleConditionProfile.retailTarget - condition.exterior)
+        let interiorDeficit = max(0, VehicleConditionProfile.retailTarget - condition.interior)
+        let mechanicalDeficit = max(0, VehicleConditionProfile.retailTarget - condition.mechanical)
+        let weightedDeficit = exteriorDeficit + interiorDeficit + mechanicalDeficit * 2
+        let conditionCost = weightedDeficit == 0
+            ? 0
+            : max(6, Int(ceil(Double(category.purchaseCost * weightedDeficit) / 300.0)))
+        let faultCost = fault == .none
+            ? 0
+            : max(24, category.purchaseCost * max(2, fault.requiredWork) / 15)
+        let baseCost = conditionCost + faultCost
+        guard baseCost > 0 else {
+            return VehicleRestorationQuote(
+                currentCondition: condition,
+                targetCondition: target,
+                fault: fault,
+                baseCost: 0,
+                finalCost: 0
+            )
+        }
+        let outsourceBaseline = Int(
+            (Double(baseCost) * OutsourcePartnerKind.generalRepair.costMultiplier).rounded()
+        )
         guard let storeID,
-              let store = stores.first(where: { $0.id == storeID }) else { return baseline }
-        let staffDiscount = employeeServiceCostDiscount(for: storeID)
-        let facilityDiscount = store.serviceBays > 0 ? 30 : 0
-        let finalRate = max(30, 100 - staffDiscount - facilityDiscount)
-        return max(1, Int((Double(baseline) * Double(finalRate) / 100).rounded()))
+              let store = stores.first(where: { $0.id == storeID }),
+              hasServiceTechnician(storeID: storeID),
+              store.serviceBays > store.inventory.filter({
+                  $0.workshopProject?.outsourced == false
+                      && $0.workshopProject?.kind.usesCustomizationBay == false
+              }).count else {
+            return VehicleRestorationQuote(
+                currentCondition: condition,
+                targetCondition: target,
+                fault: fault,
+                baseCost: baseCost,
+                finalCost: max(1, outsourceBaseline)
+            )
+        }
+        let finalRate = max(
+            30,
+            100 - employeeServiceCostDiscount(for: storeID) - 30
+        )
+        return VehicleRestorationQuote(
+            currentCondition: condition,
+            targetCondition: target,
+            fault: fault,
+            baseCost: baseCost,
+            finalCost: max(1, Int((Double(outsourceBaseline) * Double(finalRate) / 100).rounded()))
+        )
     }
 
     private func predictedSourcingRetail(
@@ -8384,14 +8495,15 @@ final class GameEngine: ObservableObject {
         guard let store = stores.first(where: { $0.id == storeID }),
               let plot = plot(id: store.plotID) else { return 0 }
         // 最低粗利は「仕入れ後にそのまま店頭へ出した場合」の価格を基準にする。
-        // 修理後の品質や誤差を含む市場予測を使うと、高額車ほど上振れ額が大きくなり、
+        // 修理後の状態や誤差を含む市場予測を使うと、高額車ほど上振れ額が大きくなり、
         // 実際の店頭価格を超える入札上限を許してしまう。
+        let targetCondition = condition.restoredForRetail
         let retail = vehicleRetailValue(
             modelID: modelID,
             category: category,
             modelYear: modelYear,
             mileage: mileage,
-            quality: condition.quality,
+            quality: targetCondition.quality,
             in: plot.district
         )
         return max(
@@ -8461,11 +8573,7 @@ final class GameEngine: ObservableObject {
         for item in purchaseCases where item.storeID == storeID {
             let assessment = purchaseAssessment(for: item)
             let assessedFault = assessment.detectedFault ?? .none
-            let assessedCondition = VehicleConditionProfile(
-                exterior: assessment.conditionRange.lowerBound,
-                interior: assessment.conditionRange.lowerBound,
-                mechanical: assessment.conditionRange.lowerBound
-            )
+            let assessedCondition = assessment.condition.estimatedProfile
             guard item.lotCount <= freeCapacity,
                   instructionMatches(instruction, category: item.category, modelID: item.modelID, fault: assessedFault) else { continue }
             let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000
@@ -8560,11 +8668,7 @@ final class GameEngine: ObservableObject {
         for listing in networkAuctionListings where !networkAuctionBidReservations.contains(where: { $0.listingID == listing.id }) {
             let assessment = networkAuctionAssessment(for: listing, storeID: storeID)
             let assessedFault = assessment.detectedFault ?? .none
-            let assessedCondition = VehicleConditionProfile(
-                exterior: assessment.conditionRange.lowerBound,
-                interior: assessment.conditionRange.lowerBound,
-                mechanical: assessment.conditionRange.lowerBound
-            )
+            let assessedCondition = assessment.condition.estimatedProfile
             guard instructionMatches(instruction, category: listing.category, modelID: listing.modelID, fault: assessedFault) else { continue }
             let seed = listing.modelYear * 17 + listing.mileage / 500 + categoryIndex(listing.category) * 61
             guard transactionRoll(seed: seed + instruction.priority * 41) <= visibility else { continue }
@@ -10519,7 +10623,7 @@ final class GameEngine: ObservableObject {
                         category: category,
                         modelYear: profile.modelYear,
                         mileage: profile.mileage,
-                        quality: vehicleState.condition.quality,
+                        quality: vehicleState.condition.restoredForRetail.quality,
                         in: $0
                     )
                 }.min() ?? category.purchaseCost * 13 / 10
@@ -10532,23 +10636,27 @@ final class GameEngine: ObservableObject {
                 let fixedCosts = lane.fee + lane.listingPricingShippingAllowance
                 let minimumReserve = 10
                 let minimumGross = Int((Double(retail) * 0.15).rounded())
-                if vehicleState.fault != .none,
-                   retail - repair - fixedCosts - minimumReserve < minimumGross {
+                if retail - repair - fixedCosts - minimumReserve < minimumGross {
                     // 安価な車両に重故障を組み合わせると、開始価格まで下げても
                     // 修理費込みで赤字が確定する。検査済みAAの通常枠では、
                     // そのような車両は出品前検査で除外する。
-                    vehicleState = (condition: vehicleState.condition, fault: .none)
+                    vehicleState = (condition: vehicleState.condition.restoredForRetail, fault: .none)
                     retail = DistrictKind.allCases.map {
                         vehicleRetailValue(
                             modelID: model.id,
                             category: category,
                             modelYear: profile.modelYear,
                             mileage: profile.mileage,
-                            quality: vehicleState.condition.quality,
+                            quality: vehicleState.condition.restoredForRetail.quality,
                             in: $0
                         )
                     }.min() ?? category.purchaseCost * 13 / 10
-                    repair = 0
+                    repair = estimatedSourcingRepairCost(
+                        category: category,
+                        fault: vehicleState.fault,
+                        condition: vehicleState.condition,
+                        storeID: nil
+                    )
                 }
                 // AAは開始価格なら15〜25%程度の上振れ余地を持たせ、
                 // 競り上がった業者間相場では概ね-5〜12%まで振れる。
@@ -10684,7 +10792,7 @@ final class GameEngine: ObservableObject {
                 faultRate: kind == .flowStock ? 0.08 : 0.36
             )
             if kind == .flowStock {
-                vehicleState = (condition: vehicleState.condition, fault: .none)
+                vehicleState = (condition: vehicleState.condition.restoredForRetail, fault: .none)
             }
             let premiumShipping = model.origin == .imported || category == .pickup
             let fee = 9
@@ -10696,7 +10804,7 @@ final class GameEngine: ObservableObject {
                     category: category,
                     modelYear: profile.modelYear,
                     mileage: profile.mileage,
-                    quality: vehicleState.condition.quality,
+                    quality: vehicleState.condition.restoredForRetail.quality,
                     in: $0
                 )
             }.min() ?? category.purchaseCost * 13 / 10
@@ -11722,7 +11830,7 @@ final class GameEngine: ObservableObject {
         case .category(let category):
             let budgetRate = 1.13 + transactionRoll(seed: seed + 3) * 0.42
             budget = max(35, Int(Double(category.purchaseCost) * budgetRate * incomeBudgetFactor))
-            minimumQuality = 0.56 + transactionRoll(seed: seed + 5) * 0.28
+            minimumQuality = 0.80 + transactionRoll(seed: seed + 5) * 0.06
             minimumModelYear = max(2000, year - 12)
             maximumMileage = 140_000
             priceSensitivity = 0.82 + transactionRoll(seed: seed + 7) * 0.36
@@ -11734,7 +11842,7 @@ final class GameEngine: ObservableObject {
                 vehicleRetailValue(modelID: $0.id, category: category, modelYear: year - 3, mileage: 38_000, quality: 0.84, in: localDistrict)
             } ?? Int(Double(category.purchaseCost) * (origin == .imported ? 2.0 : 1.4))
             budget = max(60, Int(Double(reference) * (0.86 + transactionRoll(seed: seed + 3) * 0.30) * incomeBudgetFactor))
-            minimumQuality = 0.70 + transactionRoll(seed: seed + 5) * 0.20
+            minimumQuality = 0.81 + transactionRoll(seed: seed + 5) * 0.07
             minimumModelYear = max(2000, year - 5 - Int(transactionRoll(seed: seed + 9) * 4))
             maximumMileage = 45_000 + Int(transactionRoll(seed: seed + 11) * 65_000)
             priceSensitivity = 0.76 + transactionRoll(seed: seed + 7) * 0.32
@@ -11746,7 +11854,7 @@ final class GameEngine: ObservableObject {
                 vehicleRetailValue(modelID: $0.id, category: category, modelYear: year - 2, mileage: 32_000, quality: 0.86, in: localDistrict)
             } ?? Int(Double(category.purchaseCost) * 1.4)
             budget = max(80, Int(Double(reference) * (0.88 + transactionRoll(seed: seed + 3) * 0.27) * incomeBudgetFactor))
-            minimumQuality = 0.74 + transactionRoll(seed: seed + 5) * 0.18
+            minimumQuality = 0.82 + transactionRoll(seed: seed + 5) * 0.08
             minimumModelYear = max(2000, year - 3 - Int(transactionRoll(seed: seed + 9) * 4))
             maximumMileage = 35_000 + Int(transactionRoll(seed: seed + 11) * 55_000)
             priceSensitivity = 0.72 + transactionRoll(seed: seed + 7) * 0.30
@@ -11757,13 +11865,13 @@ final class GameEngine: ObservableObject {
                 vehicleRetailValue(modelID: $0.id, category: category, modelYear: year - 2, mileage: 28_000, quality: 0.88, in: localDistrict)
             } ?? Int(Double(category.purchaseCost) * 1.5)
             budget = max(80, Int(Double(reference) * (0.94 + transactionRoll(seed: seed + 3) * 0.24) * incomeBudgetFactor))
-            minimumQuality = 0.78 + transactionRoll(seed: seed + 5) * 0.16
+            minimumQuality = 0.84 + transactionRoll(seed: seed + 5) * 0.06
             minimumModelYear = max(2000, year - 2 - Int(transactionRoll(seed: seed + 9) * 4))
             maximumMileage = 25_000 + Int(transactionRoll(seed: seed + 11) * 50_000)
             priceSensitivity = 0.66 + transactionRoll(seed: seed + 7) * 0.28
         case .budgetFirst:
             budget = Int(Double(80 + Int(transactionRoll(seed: seed + 3) * 111)) * incomeBudgetFactor)
-            minimumQuality = 0.50 + transactionRoll(seed: seed + 5) * 0.24
+            minimumQuality = 0.80 + transactionRoll(seed: seed + 5) * 0.03
             minimumModelYear = max(2000, year - 15)
             maximumMileage = 180_000
             priceSensitivity = 1.05 + transactionRoll(seed: seed + 7) * 0.35
@@ -11870,15 +11978,23 @@ final class GameEngine: ObservableObject {
         let profile = usedVehicleProfile(for: model, seed: seed + 7, maximumAge: 14)
         let quality = min(0.90, max(0.50, profile.quality - transactionRoll(seed: seed + 11) * 0.06))
         let conditionScore = Int((quality * 100).rounded())
-        let repairCost = hasServiceTechnician(storeID: storeID)
-            ? 0
-            : max(5, (100 - conditionScore) * category.purchaseCost / 280)
+        let condition = VehicleConditionProfile(
+            exterior: conditionScore,
+            interior: conditionScore,
+            mechanical: conditionScore
+        )
+        let repairCost = restorationQuote(
+            category: category,
+            fault: .none,
+            condition: condition,
+            storeID: storeID
+        ).finalCost
         let expectedRetail = vehicleRetailValue(
             modelID: model.id,
             category: category,
             modelYear: profile.modelYear,
             mileage: profile.mileage,
-            quality: Double(min(94, conditionScore + (conditionScore < 75 ? 4 : 3))) / 100,
+            quality: condition.restoredForRetail.quality,
             in: plot.district
         )
         // 下取りは販売成約を助けるため店舗買取よりやや薄利。
@@ -11893,7 +12009,7 @@ final class GameEngine: ObservableObject {
             category: category,
             modelYear: profile.modelYear,
             mileage: profile.mileage,
-            quality: quality,
+            condition: condition,
             appraisedValue: allowance,
             repairCost: repairCost
         )
@@ -11909,7 +12025,6 @@ final class GameEngine: ObservableObject {
         suggestedProjectKind: WorkshopProjectKind? = nil,
         askingPremium: Double? = nil
     ) -> PurchaseCase {
-        let base = category.purchaseCost
         let model = preferredModel ?? vehicleModel(for: category, seed: seed + 5)
         let profile = usedVehicleProfile(for: model, seed: seed + 7, maximumAge: 14)
         let condition = min(91, max(50, Int((profile.quality * 100).rounded())))
@@ -11933,13 +12048,30 @@ final class GameEngine: ObservableObject {
         let askingFactor = askingPremium
             ?? (0.84 + transactionRoll(seed: seed + 13) * 0.22)
         var asking = max(12, Int(Double(wholesale) * min(1.24, askingFactor) * faultDiscount))
-        // 部品・消耗品・清掃など、内製でも必ず発生する商品化原価。
-        let asIsRepair = max(6, (100 - condition) * base / 230)
-        let repairGain = condition < 75 ? 4 : 3
-        let repairedQuality = Double(min(94, condition + repairGain)) / 100.0
-        let asIsExpectedSale = vehicleRetailValue(modelID: model.id, category: category, modelYear: profile.modelYear, mileage: profile.mileage, quality: repairedQuality, in: plot.district)
-        var repair = asIsRepair
-        var expectedSale = asIsExpectedSale
+        let asIsExpectedSale = vehicleRetailValue(
+            modelID: model.id,
+            category: category,
+            modelYear: profile.modelYear,
+            mileage: profile.mileage,
+            quality: conditionProfile.quality,
+            in: plot.district
+        )
+        let standardRestoration = restorationQuote(
+            category: category,
+            fault: fault,
+            condition: conditionProfile,
+            storeID: storeID
+        )
+        let asIsRepair = 0
+        var repair = standardRestoration.finalCost
+        var expectedSale = vehicleRetailValue(
+            modelID: model.id,
+            category: category,
+            modelYear: profile.modelYear,
+            mileage: profile.mileage,
+            quality: standardRestoration.targetCondition.quality,
+            in: plot.district
+        )
         if let suggestedProjectKind,
            let store = stores.first(where: { $0.id == storeID }),
            let targetState = suggestedProjectKind.productState {
@@ -11977,39 +12109,30 @@ final class GameEngine: ObservableObject {
                 ceiling,
                 max(
                     specialtyReferenceValue,
-                    asIsExpectedSale,
-                    Int(Double(asIsExpectedSale + conversionCost) * trendPrice)
+                    expectedSale,
+                    Int(Double(expectedSale + conversionCost) * trendPrice)
                 )
             )
         }
         if !model.isRareClassic {
-            let faultRepair = estimatedSourcingRepairCost(
-                category: category,
-                fault: fault,
-                condition: conditionProfile,
-                storeID: storeID
-            )
             let targetMargin = 0.12 + transactionRoll(seed: seed + 17) * 0.16
             // 店頭買取の基準価格では12〜28%を狙う。交渉による値下げは
             // プレイヤーの上振れ、未発見の問題歴や故障は下振れとして残す。
             asking = max(
                 12,
-                asIsExpectedSale
-                    - asIsRepair
-                    - faultRepair
-                    - Int((Double(asIsExpectedSale) * targetMargin).rounded())
+                expectedSale
+                    - standardRestoration.finalCost
+                    - Int((Double(expectedSale) * targetMargin).rounded())
             )
+        }
+        if origin == .specialtyReferral {
+            asking = min(asking, Int((Double(wholesale) * 1.24).rounded(.down)))
         }
         let assessment = vehicleAssessment(
             source: .storePurchase,
             condition: conditionProfile,
             fault: fault,
-            actualRepairCost: repair + estimatedSourcingRepairCost(
-                category: category,
-                fault: fault,
-                condition: conditionProfile,
-                storeID: storeID
-            ),
+            actualRepairCost: repair,
             storeID: storeID,
             seed: profile.modelYear * 101 + profile.mileage / 100 + categoryIndex(category)
         )

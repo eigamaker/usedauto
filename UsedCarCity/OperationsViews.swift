@@ -78,7 +78,7 @@ private struct InventoryRow: View {
                     }
                     if let issue = batch.disclosedIssue { Text("告知：\(issue.name)").font(.caption2.bold()).foregroundStyle(GameTheme.danger) }
                 }
-                Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・品質 \(Int((batch.quality * 100).rounded()))/100").font(.caption).foregroundStyle(.secondary)
+                Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・\(batch.condition.displayText)").font(.caption).foregroundStyle(.secondary)
                 if let project = batch.workshopProject {
                     let gradeText = project.targetGrade.map {
                         "・\($0.name(for: MarketProductKind.resolve(productState: project.kind.productState ?? batch.productState, isRareClassic: batch.isRareClassic)))"
@@ -192,7 +192,7 @@ struct InventoryCustomizationSheet: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 13))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(batch.vehicleName).font(.headline)
-                                    Text("\(batch.category.name)・品質\(Int((batch.quality * 100).rounded()))・現在 \(batch.productState.name)")
+                                    Text("\(batch.category.name)・\(batch.condition.displayText)・現在 \(batch.productState.name)")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -256,7 +256,7 @@ struct InventoryCustomizationSheet: View {
                                             }
                                             HStack {
                                                 MetricView(title: "納期", value: "\(preview.estimatedWeeks)週")
-                                                MetricView(title: "完成品質", value: "\(preview.resultingQuality)")
+                                                MetricView(title: "完成状態", value: preview.resultingCondition.displayText)
                                                 MetricView(title: "販売目安", value: preview.projectedSalePrice.currency, tint: GameTheme.teal)
                                             }
                                             Button {

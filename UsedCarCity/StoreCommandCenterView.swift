@@ -1,6 +1,18 @@
 import SwiftUI
 import Charts
 
+private func assessmentRangeText(_ range: ClosedRange<Int>) -> String {
+    range.lowerBound == range.upperBound
+        ? "\(range.lowerBound)"
+        : "\(range.lowerBound)〜\(range.upperBound)"
+}
+
+private func assessmentConditionText(_ estimate: VehicleConditionEstimate) -> String {
+    "外装\(assessmentRangeText(estimate.exterior))・"
+        + "内装\(assessmentRangeText(estimate.interior))・"
+        + "機関\(estimate.mechanical.map(assessmentRangeText) ?? "不明")"
+}
+
 struct StoreCommandCenterView: View {
     @EnvironmentObject private var game: GameEngine
     let storeID: UUID
@@ -269,7 +281,9 @@ private struct PurchaseCasesPanel: View {
                                     * 100
                             ).rounded()
                         )
-                        let conditionText = "\(assessment.conditionRange.lowerBound)〜\(assessment.conditionRange.upperBound)/100"
+                        let exteriorText = assessmentRangeText(assessment.condition.exterior)
+                        let interiorText = assessmentRangeText(assessment.condition.interior)
+                        let mechanicalText = assessment.condition.mechanical.map(assessmentRangeText) ?? "不明"
                         let repairText = "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)"
                         HStack {
                             CharacterAvatarView(
@@ -296,12 +310,14 @@ private struct PurchaseCasesPanel: View {
                                 .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), alignment: .leading, spacing: 8) {
-                            PurchaseMetric(title: "販売予測", value: saleForecastText)
-                            PurchaseMetric(title: "車の状態", value: conditionText)
+                            PurchaseMetric(title: "85仕上げ販売予測", value: saleForecastText)
+                            PurchaseMetric(title: "外装", value: exteriorText)
+                            PurchaseMetric(title: "内装", value: interiorText)
+                            PurchaseMetric(title: "機関", value: mechanicalText)
                             PurchaseMetric(title: "査定見積り", value: item.appraisedPrice.currency)
-                            PurchaseMetric(title: "必要修繕費見積り", value: repairText)
+                            PurchaseMetric(title: "85仕上げ修繕費", value: repairText)
                             PurchaseMetric(
-                                title: item.suggestedProjectKind == nil ? "価格100の想定粗利" : "価格100の改造後粗利",
+                                title: item.suggestedProjectKind == nil ? "85仕上げ想定粗利" : "85仕上げ・改造後粗利",
                                 value: "\(grossProfit.currency)（\(grossMargin)%）",
                                 tint: grossProfit >= 0 ? GameTheme.teal : GameTheme.danger
                             )
@@ -474,7 +490,7 @@ private struct ManualSalesPanel: View {
                                 Text("用途 \(lead.purpose.name)・予算 \(lead.budget.currency)・\(lead.vehicleRequirementDescription)")
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                                 if let rival = lead.competitorOffer {
-                                    Text("比較候補：\(game.competitorName(for: rival.competitorID)) \(rival.price.currency)・品質\(Int(rival.quality * 100))")
+                                    Text("比較候補：\(game.competitorName(for: rival.competitorID)) \(rival.price.currency)・状態目安\(Int(rival.quality * 100))")
                                         .font(.caption2).foregroundStyle(GameTheme.orange)
                                 }
                                 if let tradeIn = lead.tradeInVehicle {
@@ -504,7 +520,7 @@ private struct ManualSalesPanel: View {
                     .background(GameTheme.cream)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                Text("商談すると成否に関係なく営業枠を1回使い、このお客様は帰ります。値引き・予算・希望条件・品質で成約率が変わります。")
+                Text("商談すると成否に関係なく営業枠を1回使い、このお客様は帰ります。値引き・予算・希望条件・車両状態で成約率が変わります。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -612,7 +628,7 @@ private struct VehicleProposalSheet: View {
                         HStack {
                             MetricView(title: "希望条件", value: lead.preference.name, tint: GameTheme.teal)
                             MetricView(title: "予算", value: lead.budget.currency)
-                            MetricView(title: "希望品質", value: "\(Int(lead.minimumQuality * 100))以上")
+                            MetricView(title: "希望状態", value: "3項目の目安 \(Int(lead.minimumQuality * 100))以上")
                         }
                         Text(lead.vehicleRequirementDescription)
                             .font(.caption.bold()).foregroundStyle(.secondary)
@@ -625,7 +641,10 @@ private struct VehicleProposalSheet: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text("下取り車 \(tradeIn.vehicleName)").font(.subheadline.bold())
-                                    Text("\(String(tradeIn.modelYear))年式・\(tradeIn.mileage.formatted())km・状態\(assessment.conditionRange.lowerBound)〜\(assessment.conditionRange.upperBound)")
+                                    Text(
+                                        "\(String(tradeIn.modelYear))年式・\(tradeIn.mileage.formatted())km・"
+                                            + assessmentConditionText(assessment.condition)
+                                    )
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -633,7 +652,7 @@ private struct VehicleProposalSheet: View {
                                     .font(.subheadline.bold().monospacedDigit()).foregroundStyle(GameTheme.teal)
                             }
                             HStack {
-                                ProposalMetric(title: "修繕費見積り", value: "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)")
+                                ProposalMetric(title: "85仕上げ修繕費", value: "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)")
                                 ProposalMetric(title: "査定確度", value: "\(assessment.confidence)%")
                                 ProposalMetric(title: "下取り効果", value: "成約率を改善")
                             }
@@ -666,7 +685,9 @@ private struct VehicleProposalSheet: View {
                             }
 
                             HStack {
-                                ProposalMetric(title: "車両品質", value: "\(Int(batch.quality * 100))/100")
+                                ProposalMetric(title: "外装", value: "\(batch.condition.exterior)")
+                                ProposalMetric(title: "内装", value: "\(batch.condition.interior)")
+                                ProposalMetric(title: "機関", value: "\(batch.condition.mechanical)")
                                 ProposalMetric(title: "在庫期間", value: game.inventoryAgeLabel(for: batch))
                                 ProposalMetric(title: "現在の売価", value: proposalPrice(batch).currency)
                             }
@@ -794,6 +815,9 @@ private struct StoreInventoryPanel: View {
             } else {
                 ForEach(visibleInventory) { batch in
                     VStack(alignment: .leading, spacing: 9) {
+                        let mechanicalDetail = batch.faultRevealed || game.hasServiceTechnician(storeID: store.id)
+                            ? "\(batch.condition.mechanical)"
+                            : "不明"
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: batch.fault == .none ? batch.category.icon : "exclamationmark.triangle.fill")
                                 .foregroundStyle(batch.fault == .none ? GameTheme.teal : GameTheme.danger)
@@ -804,9 +828,9 @@ private struct StoreInventoryPanel: View {
                                 Text(batch.vehicleName)
                                     .font(.subheadline.bold())
                                     .foregroundStyle(batch.fault == .none ? GameTheme.ink : GameTheme.danger)
-                                Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・品質 \(Int((batch.quality * 100).rounded()))/100")
+                                Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km")
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                Text("外装\(batch.condition.exterior)・内装\(batch.condition.interior)・機関\(batch.condition.mechanical)・\(batch.faultRevealed ? batch.fault.name : "故障判定中")")
+                                Text("外装\(batch.condition.exterior)・内装\(batch.condition.interior)・機関\(mechanicalDetail)・\(batch.faultRevealed ? batch.fault.name : "故障判定中")")
                                     .font(.caption2.bold().monospacedDigit())
                                     .foregroundStyle(batch.fault == .none ? .secondary : GameTheme.danger)
                                 HStack(spacing: 5) {
@@ -3044,7 +3068,7 @@ private struct CatalogVehicleRow: View {
                             Text("中古流入").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())
                         }
                     }
-                    Text(model.classicProductionYears.map { "\(model.category.name)・\($0.lowerBound)〜\($0.upperBound)年製・現状品質は低め" } ?? "\(model.category.name)・\(model.powertrain.name)・基準品質 \(Int(model.qualityBaseline * 100))/100")
+                    Text(model.classicProductionYears.map { "\(model.category.name)・\($0.lowerBound)〜\($0.upperBound)年製・現状は要商品化" } ?? "\(model.category.name)・\(model.powertrain.name)・基準状態 \(Int(model.qualityBaseline * 100))/100")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()

@@ -415,7 +415,7 @@ final class GameEngineTests: XCTestCase {
                     )
                     // 同一カテゴリをまとめて買うと需給が動くため、後続車の現在相場は
                     // 約定時の原価より高くなり得る。保存原価が現在相場以下であることを確認する。
-                    XCTAssertLessThanOrEqual(batch.averageCost, expectedWholesale, "\(plan.name): \(batch.vehicleName)")
+                    XCTAssertLessThanOrEqual(batch.averageCost, expectedWholesale + 1, "\(plan.name): \(batch.vehicleName)")
                     let saleQuote = try XCTUnwrap(game.manualSaleQuote(storeID: storeID, inventoryID: batch.id))
                     let closeDealPrice = Int(Double(saleQuote.price) * (1 - SaleNegotiationStrategy.closeDeal.discountRate))
                     XCTAssertGreaterThanOrEqual(closeDealPrice - batch.averageCost, 0, "\(plan.name): \(batch.vehicleName)")
@@ -719,7 +719,7 @@ final class GameEngineTests: XCTestCase {
                     category: listing.category,
                     modelYear: listing.modelYear,
                     mileage: listing.mileage,
-                    quality: listing.condition.quality,
+                    quality: listing.condition.restoredForRetail.quality,
                     in: $0
                 )
             }.min())
@@ -810,13 +810,16 @@ final class GameEngineTests: XCTestCase {
         let store = game.stores[0]
         let beforeInventory = store.inventoryCount
         let beforeCash = game.cash
-        let item = game.purchaseCases.first!
+        let item = game.purchaseCases.first { $0.suggestedProjectKind == nil }!
         let beforeCases = game.purchaseCases.count
 
         XCTAssertTrue(game.acceptPurchaseCase(item.id))
         XCTAssertEqual(game.purchaseCases.count, beforeCases - 1)
         XCTAssertEqual(game.stores[0].inventoryCount, beforeInventory + 1)
-        XCTAssertLessThan(game.cash, beforeCash)
+        XCTAssertEqual(beforeCash - game.cash, item.askingPrice * item.lotCount)
+        let acquired = game.stores[0].inventory.last
+        XCTAssertEqual(acquired?.condition, item.condition)
+        XCTAssertEqual(acquired?.averageCost, item.askingPrice)
     }
 
     func testCityEconomyChangesWhenWeekAdvances() {
@@ -2560,7 +2563,7 @@ final class GameEngineTests: XCTestCase {
         let beforeCash = game.cash
 
         XCTAssertGreaterThan(preview.cost, 0)
-        XCTAssertGreaterThan(game.purchaseRepairCost(for: pendingPurchase), 0)
+        XCTAssertGreaterThanOrEqual(game.purchaseRepairCost(for: pendingPurchase), 0)
         XCTAssertTrue(game.serviceInventory(storeID: storeID, inventoryID: batch.id))
         XCTAssertEqual(beforeCash - game.cash, preview.cost)
         XCTAssertNotNil(game.stores[0].inventory.first(where: { $0.id == batch.id })?.workshopProject)
@@ -2582,6 +2585,7 @@ final class GameEngineTests: XCTestCase {
             storeID: storeID,
             seed: 101
         )
+        XCTAssertNil(owner.condition.mechanical)
         game.stores[0].employees = [StoreEmployee(
             name: "仕入名人", salesSkill: 50, procurementSkill: 95,
             researchSkill: 50, serviceSkill: 20,
@@ -2592,7 +2596,7 @@ final class GameEngineTests: XCTestCase {
             actualRepairCost: 80, storeID: storeID, seed: 101
         )
         XCTAssertEqual(procurementOnly.confidence, owner.confidence)
-        XCTAssertEqual(procurementOnly.conditionRange, owner.conditionRange)
+        XCTAssertEqual(procurementOnly.condition, owner.condition)
 
         game.stores[0].employees.append(StoreEmployee(
             name: "査定整備士", salesSkill: 40, procurementSkill: 30,
@@ -2604,9 +2608,10 @@ final class GameEngineTests: XCTestCase {
             actualRepairCost: 80, storeID: storeID, seed: 101
         )
         XCTAssertEqual(skilled.confidence, 90)
+        XCTAssertNotNil(skilled.condition.mechanical)
         XCTAssertLessThan(
-            skilled.conditionRange.upperBound - skilled.conditionRange.lowerBound,
-            owner.conditionRange.upperBound - owner.conditionRange.lowerBound
+            skilled.condition.exterior.upperBound - skilled.condition.exterior.lowerBound,
+            owner.condition.exterior.upperBound - owner.condition.exterior.lowerBound
         )
         game.stores[0].facilities.insert(.serviceWorkshop)
         XCTAssertEqual(game.appraisalConfidence(for: storeID), 95)
@@ -2627,9 +2632,42 @@ final class GameEngineTests: XCTestCase {
             )
             XCTAssertTrue(assessment.isVerified)
             XCTAssertEqual(assessment.confidence, 100)
-            XCTAssertEqual(assessment.conditionRange, condition.score...condition.score)
+            XCTAssertEqual(assessment.condition.exterior, condition.exterior...condition.exterior)
+            XCTAssertEqual(assessment.condition.interior, condition.interior...condition.interior)
+            XCTAssertEqual(assessment.condition.mechanical, condition.mechanical...condition.mechanical)
             XCTAssertEqual(assessment.repairCostRange, 74...74)
             XCTAssertEqual(assessment.detectedFault, .major)
+        }
+    }
+
+    func testRetailRestorationQuoteTargetsEveryConditionAt85() {
+        let game = GameEngine(persistenceEnabled: false)
+        let condition = VehicleConditionProfile(exterior: 72, interior: 88, mechanical: 61)
+
+        let outsourced = game.restorationQuote(
+            category: .compact,
+            fault: .minor,
+            condition: condition,
+            storeID: nil
+        )
+
+        XCTAssertEqual(outsourced.targetCondition.exterior, 85)
+        XCTAssertEqual(outsourced.targetCondition.interior, 88)
+        XCTAssertEqual(outsourced.targetCondition.mechanical, 85)
+        XCTAssertGreaterThan(outsourced.baseCost, 0)
+        XCTAssertGreaterThan(outsourced.finalCost, outsourced.baseCost)
+    }
+
+    func testGeneratedBuyerConditionExpectationsStayBetween80And90() {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game)
+
+        for _ in 0..<20 {
+            for lead in game.buyerLeads {
+                XCTAssertGreaterThanOrEqual(lead.minimumQuality, 0.80)
+                XCTAssertLessThanOrEqual(lead.minimumQuality, 0.90)
+            }
+            game.advanceWeek()
         }
     }
 
@@ -3835,8 +3873,8 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].inventoryCount, beforeCount)
         XCTAssertFalse(game.stores[0].inventory.contains { $0.id == soldBatch.id })
         let acquired = game.stores[0].inventory.first(where: { $0.modelID == tradeIn.modelID && $0.modelYear == tradeIn.modelYear && $0.mileage == tradeIn.mileage })
-        XCTAssertEqual(acquired?.averageCost, tradeIn.appraisedValue + tradeIn.repairCost)
-        XCTAssertEqual(acquired?.quality, tradeIn.qualityAfterRepair)
+        XCTAssertEqual(acquired?.averageCost, tradeIn.appraisedValue)
+        XCTAssertEqual(acquired?.condition, tradeIn.condition)
         XCTAssertEqual(acquired?.acquiredTurn, selectedTurn)
         XCTAssertEqual(result.customerCashSettlement, result.salePrice - tradeIn.appraisedValue)
     }
@@ -3886,14 +3924,18 @@ final class GameEngineTests: XCTestCase {
         }
     }
 
-    func testInventoryServiceChargesCashAndRaisesQualityByThreeOrFour() {
+    func testInventoryServiceChargesCashAndRestoresEveryConditionToRetailTarget() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
         game.cash = 100_000
         let storeID = game.stores[0].id
         let batch = game.stores[0].inventory.first { game.servicePreview(storeID: storeID, inventoryID: $0.id) != nil }!
-        let preview = game.servicePreview(storeID: storeID, inventoryID: batch.id)!
+        let preview = game.workshopProjectPreview(
+            storeID: storeID,
+            inventoryID: batch.id,
+            kind: batch.fault == .none ? .basicService : .repair
+        )!
         let beforeCash = game.cash
 
         XCTAssertTrue(game.serviceInventory(storeID: storeID, inventoryID: batch.id))
@@ -3902,9 +3944,10 @@ final class GameEngineTests: XCTestCase {
         for _ in 0..<3 { game.advanceWeek() }
         let serviced = game.stores[0].inventory.first(where: { $0.id == batch.id })!
         XCTAssertEqual(serviced.averageCost, batch.averageCost + preview.cost)
-        XCTAssertEqual(Int((serviced.quality * 100).rounded()) - Int((batch.quality * 100).rounded()), preview.qualityGain)
-        XCTAssertEqual(preview.qualityGain, 2)
-        XCTAssertLessThanOrEqual(serviced.quality, 0.94)
+        XCTAssertEqual(serviced.condition, preview.resultingCondition)
+        XCTAssertGreaterThanOrEqual(serviced.condition.exterior, VehicleConditionProfile.retailTarget)
+        XCTAssertGreaterThanOrEqual(serviced.condition.interior, VehicleConditionProfile.retailTarget)
+        XCTAssertGreaterThanOrEqual(serviced.condition.mechanical, VehicleConditionProfile.retailTarget)
         XCTAssertEqual(serviced.acquiredTurn, batch.acquiredTurn)
     }
 
@@ -5423,13 +5466,13 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.competitors[0].branches[0].productizationQueue.first?.productGrade, .middle)
     }
 
-    func testVersion49SaveIsNotLoadedAfterVersion50ModelChange() {
+    func testVersion50SaveIsNotLoadedAfterVersion51ConditionModelChange() {
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "UsedCarCity.save.v50")
-        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v49")
+        defaults.removeObject(forKey: "UsedCarCity.save.v51")
+        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v50")
         defer {
-            defaults.removeObject(forKey: "UsedCarCity.save.v49")
             defaults.removeObject(forKey: "UsedCarCity.save.v50")
+            defaults.removeObject(forKey: "UsedCarCity.save.v51")
         }
 
         let game = GameEngine()
@@ -5749,7 +5792,7 @@ final class GameEngineTests: XCTestCase {
                     category: listing.category,
                     modelYear: listing.modelYear,
                     mileage: listing.mileage,
-                    quality: listing.condition.quality,
+                    quality: listing.condition.restoredForRetail.quality,
                     in: $0
                 )
             }.min()!

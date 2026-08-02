@@ -502,7 +502,7 @@ struct TradeInVehicle: Codable, Hashable {
     let category: VehicleCategory
     let modelYear: Int
     let mileage: Int
-    let quality: Double
+    let condition: VehicleConditionProfile
     let appraisedValue: Int
     let repairCost: Int
 
@@ -510,9 +510,31 @@ struct TradeInVehicle: Codable, Hashable {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
     }
 
-    var conditionScore: Int { Int((quality * 100).rounded()) }
-    var repairQualityGain: Int { conditionScore < 75 ? 4 : 3 }
-    var qualityAfterRepair: Double { Double(min(94, conditionScore + repairQualityGain)) / 100.0 }
+    var quality: Double { condition.quality }
+    var conditionScore: Int { condition.score }
+
+    init(modelID: String, category: VehicleCategory, modelYear: Int, mileage: Int, quality: Double, appraisedValue: Int, repairCost: Int) {
+        let score = Int((quality * 100).rounded())
+        self.init(
+            modelID: modelID,
+            category: category,
+            modelYear: modelYear,
+            mileage: mileage,
+            condition: VehicleConditionProfile(exterior: score, interior: score, mechanical: score),
+            appraisedValue: appraisedValue,
+            repairCost: repairCost
+        )
+    }
+
+    init(modelID: String, category: VehicleCategory, modelYear: Int, mileage: Int, condition: VehicleConditionProfile, appraisedValue: Int, repairCost: Int) {
+        self.modelID = modelID
+        self.category = category
+        self.modelYear = modelYear
+        self.mileage = mileage
+        self.condition = condition
+        self.appraisedValue = appraisedValue
+        self.repairCost = repairCost
+    }
 }
 
 struct TradeInSalePreview {
@@ -525,7 +547,7 @@ struct TradeInSalePreview {
     let expectedTradeInGrossProfit: Int
     let closeChance: Double
 
-    var cashImpact: Int { customerCashSettlement - repairCost }
+    var cashImpact: Int { customerCashSettlement }
     var requiredDealerCash: Int { max(0, -cashImpact) }
 }
 
@@ -639,7 +661,7 @@ struct BuyerLead: Identifiable, Codable, Hashable {
         let yearText = minimumModelYear > 0 ? "\(minimumModelYear)年式以降" : "年式不問"
         let mileageText = maximumMileage < Int.max ? "走行\(maximumMileage.formatted())km以下" : "走行距離不問"
         let gradeText = desiredGrade.map { "・\($0.name(for: desiredProductKind))以上" } ?? ""
-        return "\(yearText)・\(mileageText)・品質\(Int(minimumQuality * 100))以上\(gradeText)"
+        return "\(yearText)・\(mileageText)・3項目の状態目安\(Int(minimumQuality * 100))以上\(gradeText)"
     }
 }
 
@@ -740,7 +762,7 @@ enum VehicleConditionBand: String, Codable, CaseIterable, Identifiable, Hashable
     var name: String {
         switch self {
         case .normal: "通常車"
-        case .rough: "低品質車"
+        case .rough: "要商品化車"
         case .faulty: "故障車"
         }
     }
@@ -1888,6 +1910,7 @@ enum MechanicalFaultSeverity: String, Codable, CaseIterable, Identifiable, Hasha
 }
 
 struct VehicleConditionProfile: Codable, Hashable {
+    static let retailTarget = 85
     var exterior: Int
     var interior: Int
     var mechanical: Int
@@ -1900,8 +1923,50 @@ struct VehicleConditionProfile: Codable, Hashable {
 
     var score: Int { (exterior + interior + mechanical) / 3 }
     var quality: Double { Double(score) / 100 }
+    var isRetailReady: Bool {
+        exterior >= Self.retailTarget
+            && interior >= Self.retailTarget
+            && mechanical >= Self.retailTarget
+    }
+    var restoredForRetail: Self {
+        Self(
+            exterior: max(exterior, Self.retailTarget),
+            interior: max(interior, Self.retailTarget),
+            mechanical: max(mechanical, Self.retailTarget)
+        )
+    }
+    var displayText: String { "外装\(exterior)・内装\(interior)・機関\(mechanical)" }
     var band: VehicleConditionBand {
         score >= 68 ? .normal : score >= 48 ? .rough : .faulty
+    }
+}
+
+struct VehicleConditionEstimate: Codable, Hashable {
+    let exterior: ClosedRange<Int>
+    let interior: ClosedRange<Int>
+    let mechanical: ClosedRange<Int>?
+
+    var estimatedProfile: VehicleConditionProfile {
+        VehicleConditionProfile(
+            exterior: (exterior.lowerBound + exterior.upperBound) / 2,
+            interior: (interior.lowerBound + interior.upperBound) / 2,
+            mechanical: mechanical.map { ($0.lowerBound + $0.upperBound) / 2 }
+                ?? VehicleConditionProfile.retailTarget
+        )
+    }
+}
+
+struct VehicleRestorationQuote: Codable, Hashable {
+    let currentCondition: VehicleConditionProfile
+    let targetCondition: VehicleConditionProfile
+    let fault: MechanicalFaultSeverity
+    let baseCost: Int
+    let finalCost: Int
+
+    var conditionDeficit: Int {
+        max(0, VehicleConditionProfile.retailTarget - currentCondition.exterior)
+            + max(0, VehicleConditionProfile.retailTarget - currentCondition.interior)
+            + max(0, VehicleConditionProfile.retailTarget - currentCondition.mechanical) * 2
     }
 }
 
@@ -1912,6 +1977,7 @@ struct VehicleWorkshopProject: Codable, Hashable {
     var remainingWork: Int
     let cost: Int
     let qualityGain: Int
+    let targetCondition: VehicleConditionProfile
     let startedTurn: Int
     var priority: Int
     let outsourced: Bool
@@ -1926,6 +1992,7 @@ struct VehicleWorkshopProject: Codable, Hashable {
         remainingWork: Int,
         cost: Int,
         qualityGain: Int,
+        targetCondition: VehicleConditionProfile,
         startedTurn: Int,
         priority: Int,
         outsourced: Bool,
@@ -1939,6 +2006,7 @@ struct VehicleWorkshopProject: Codable, Hashable {
         self.remainingWork = remainingWork
         self.cost = cost
         self.qualityGain = qualityGain
+        self.targetCondition = targetCondition
         self.startedTurn = startedTurn
         self.priority = priority
         self.outsourced = outsourced
@@ -1967,6 +2035,7 @@ struct WorkshopProjectPreview: Hashable {
     let estimatedWeeks: Int
     let qualityGain: Int
     let resultingQuality: Int
+    let resultingCondition: VehicleConditionProfile
     let projectedSalePrice: Int
     let outsourced: Bool
     let fulfillmentMode: WorkFulfillmentMode
@@ -2146,7 +2215,6 @@ struct InventoryBatch: Identifiable, Codable, Hashable {
     var category: VehicleCategory
     var count: Int
     var averageCost: Int
-    var quality: Double
     var modelYear: Int
     var mileage: Int
     var acquiredTurn: Int
@@ -2161,13 +2229,20 @@ struct InventoryBatch: Identifiable, Codable, Hashable {
     var corporateReservationID: UUID?
     var dispositionPlan: InventoryDispositionPlan
 
+    var quality: Double {
+        get { condition.quality }
+        set {
+            let score = Int((newValue * 100).rounded())
+            condition = VehicleConditionProfile(exterior: score, interior: score, mechanical: score)
+        }
+    }
+
     init(id: UUID = UUID(), modelID: String, category: VehicleCategory, count: Int, averageCost: Int? = nil, quality: Double = 0.75, modelYear: Int, mileage: Int, acquiredTurn: Int, productState: VehicleProductState = .stock, productGrade: SpecialtyProductGrade? = nil, valueAddedInvestment: Int = 0, workshopProject: VehicleWorkshopProject? = nil, vehicleIssue: VehicleIssueRecord? = nil, condition: VehicleConditionProfile? = nil, fault: MechanicalFaultSeverity = .none, faultRevealed: Bool = true, corporateReservationID: UUID? = nil, dispositionPlan: InventoryDispositionPlan = .retail) {
         self.id = id
         self.modelID = modelID
         self.category = category
         self.count = count
         self.averageCost = averageCost ?? category.purchaseCost
-        self.quality = quality
         self.modelYear = modelYear
         self.mileage = mileage
         self.acquiredTurn = acquiredTurn
@@ -2246,13 +2321,29 @@ struct AuctionListing: Identifiable, Codable, Hashable {
     let category: VehicleCategory
     let modelYear: Int
     let mileage: Int
-    let quality: Double
     let condition: VehicleConditionProfile
     let fault: MechanicalFaultSeverity
     let reservePrice: Int
     let marketPrice: Int
     let seller: String
     let createdTurn: Int
+
+    var quality: Double { condition.quality }
+
+    init(id: UUID, lane: AuctionLane, modelID: String, category: VehicleCategory, modelYear: Int, mileage: Int, quality _: Double, condition: VehicleConditionProfile, fault: MechanicalFaultSeverity, reservePrice: Int, marketPrice: Int, seller: String, createdTurn: Int) {
+        self.id = id
+        self.lane = lane
+        self.modelID = modelID
+        self.category = category
+        self.modelYear = modelYear
+        self.mileage = mileage
+        self.condition = condition
+        self.fault = fault
+        self.reservePrice = reservePrice
+        self.marketPrice = marketPrice
+        self.seller = seller
+        self.createdTurn = createdTurn
+    }
 
     var vehicleName: String {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
@@ -2357,11 +2448,11 @@ struct VehicleAssessment: Codable, Hashable {
     let source: ProcurementSource
     let isVerified: Bool
     let confidence: Int
-    let conditionRange: ClosedRange<Int>
+    let condition: VehicleConditionEstimate
     let repairCostRange: ClosedRange<Int>
     let detectedFault: MechanicalFaultSeverity?
 
-    var estimatedCondition: Int { (conditionRange.lowerBound + conditionRange.upperBound) / 2 }
+    var estimatedCondition: Int { condition.estimatedProfile.score }
     var estimatedRepairCost: Int { (repairCostRange.lowerBound + repairCostRange.upperBound) / 2 }
 }
 
@@ -2373,7 +2464,6 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     let category: VehicleCategory
     let count: Int
     let unitCost: Int
-    let quality: Double
     let modelYear: Int?
     let mileage: Int?
     let condition: VehicleConditionProfile?
@@ -2383,6 +2473,8 @@ struct InboundShipment: Identifiable, Codable, Hashable {
     let acquiredTurn: Int
     var monthsRemaining: Int
     var dispositionPlan: InventoryDispositionPlan
+
+    var quality: Double { condition?.quality ?? 0.75 }
 
     init(
         id: UUID = UUID(),
@@ -2410,10 +2502,14 @@ struct InboundShipment: Identifiable, Codable, Hashable {
         self.category = category
         self.count = count
         self.unitCost = unitCost
-        self.quality = quality
         self.modelYear = modelYear
         self.mileage = mileage
-        self.condition = condition
+        let score = Int((quality * 100).rounded())
+        self.condition = condition ?? VehicleConditionProfile(
+            exterior: score,
+            interior: score,
+            mechanical: score
+        )
         self.fault = fault
         self.faultRevealed = faultRevealed
         self.instructionID = instructionID
@@ -2448,7 +2544,6 @@ struct NetworkAuctionListing: Identifiable, Codable, Hashable {
     let category: VehicleCategory
     let modelYear: Int
     let mileage: Int
-    let quality: Double
     let condition: VehicleConditionProfile
     let fault: MechanicalFaultSeverity
     let reservePrice: Int
@@ -2459,6 +2554,26 @@ struct NetworkAuctionListing: Identifiable, Codable, Hashable {
     let shippingWeeks: Int
     let kind: NetworkAuctionListingKind
     let createdTurn: Int
+
+    var quality: Double { condition.quality }
+
+    init(id: UUID, modelID: String, category: VehicleCategory, modelYear: Int, mileage: Int, quality _: Double, condition: VehicleConditionProfile, fault: MechanicalFaultSeverity, reservePrice: Int, marketPrice: Int, seller: String, fee: Int, shippingCost: Int, shippingWeeks: Int, kind: NetworkAuctionListingKind, createdTurn: Int) {
+        self.id = id
+        self.modelID = modelID
+        self.category = category
+        self.modelYear = modelYear
+        self.mileage = mileage
+        self.condition = condition
+        self.fault = fault
+        self.reservePrice = reservePrice
+        self.marketPrice = marketPrice
+        self.seller = seller
+        self.fee = fee
+        self.shippingCost = shippingCost
+        self.shippingWeeks = shippingWeeks
+        self.kind = kind
+        self.createdTurn = createdTurn
+    }
 
     var vehicleName: String {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
@@ -2998,7 +3113,7 @@ enum ServiceAutomationPolicy: String, Codable, CaseIterable, Identifiable {
     case quality
 
     var id: String { rawValue }
-    var name: String { switch self { case .cost: "コスト重視"; case .balanced: "バランス"; case .quality: "品質重視" } }
+    var name: String { switch self { case .cost: "コスト重視"; case .balanced: "バランス"; case .quality: "仕上がり重視" } }
 }
 
 struct StoreEmployee: Identifiable, Codable, Hashable {
@@ -4082,9 +4197,6 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let lotCount: Int
     let modelYear: Int
     let mileage: Int
-    var exterior: Int
-    var interior: Int
-    var mechanical: Int
     let askingPrice: Int
     let appraisedPrice: Int
     let repairCost: Int
@@ -4104,6 +4216,10 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     let origin: PurchaseCaseOrigin
     let suggestedProjectKind: WorkshopProjectKind?
 
+    var exterior: Int { condition.exterior }
+    var interior: Int { condition.interior }
+    var mechanical: Int { condition.mechanical }
+
     init(id: UUID, storeID: UUID, modelID: String, category: VehicleCategory, lotCount: Int, modelYear: Int, mileage: Int, exterior: Int, interior: Int, mechanical: Int, askingPrice: Int, appraisedPrice: Int, repairCost: Int, expectedSalePrice: Int, asIsExpectedSalePrice: Int? = nil, asIsRepairCost: Int? = nil, expectedDays: Int, demand: Double, appraisalAccuracy: Int, negotiationAttempts: Int, hiddenIssue: VehicleIssueKind?, issueRevealed: Bool, condition: VehicleConditionProfile? = nil, fault: MechanicalFaultSeverity = .none, faultRevealed: Bool = true, competitorOffer: CompetitorOfferBenchmark? = nil, origin: PurchaseCaseOrigin = .walkIn, suggestedProjectKind: WorkshopProjectKind? = nil) {
         self.id = id
         self.storeID = storeID
@@ -4112,9 +4228,6 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
         self.lotCount = lotCount
         self.modelYear = modelYear
         self.mileage = mileage
-        self.exterior = exterior
-        self.interior = interior
-        self.mechanical = mechanical
         self.askingPrice = askingPrice
         self.appraisedPrice = appraisedPrice
         self.repairCost = repairCost
@@ -4142,9 +4255,7 @@ struct PurchaseCase: Identifiable, Codable, Hashable {
     }
     var expectedGrossProfit: Int { (expectedSaleAfterAppraisal - askingPrice - repairCost) * lotCount }
     var asIsExpectedGrossProfit: Int { (asIsExpectedSalePrice - askingPrice - asIsRepairCost) * lotCount }
-    var conditionScore: Int { (exterior + interior + mechanical) / 3 }
-    var repairQualityGain: Int { conditionScore < 75 ? 4 : 3 }
-    var qualityAfterRepairScore: Int { min(94, conditionScore + repairQualityGain) }
+    var conditionScore: Int { condition.score }
     var negotiations: Int { negotiationAttempts }
     var vehicleName: String {
         VehicleCatalog.entry(id: modelID)?.fullName ?? modelID

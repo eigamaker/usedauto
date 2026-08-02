@@ -577,7 +577,7 @@ private struct AuctionContent: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(batch.vehicleName).font(.subheadline.bold())
-                                Text("\(batch.category.name)・簿価\(batch.averageCost.currency)・品質\(Int(batch.quality * 100))・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption).foregroundStyle(.secondary)
+                                Text("\(batch.category.name)・簿価\(batch.averageCost.currency)・\(batch.condition.displayText)・#\(batch.id.uuidString.prefix(4).uppercased())").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("1台出品") {
@@ -694,6 +694,14 @@ private struct AuctionBidRow: View {
             maxPrice: maxPrice
         )
     }
+    private var restorationCost: Int {
+        game.restorationQuote(
+            category: listing.category,
+            fault: listing.fault,
+            condition: listing.condition,
+            storeID: storeID
+        ).finalCost
+    }
 
     var body: some View {
         VStack(spacing: 7) {
@@ -724,7 +732,7 @@ private struct AuctionBidRow: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・状態\(listing.condition.score)・\(listing.fault.name)・\(listing.seller)")
+                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・\(listing.condition.displayText)・\(listing.fault.name)・\(listing.seller)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -742,6 +750,7 @@ private struct AuctionBidRow: View {
                     auctionPriceMetric("店頭参考", retailReferencePrice.currency, tint: GameTheme.teal)
                 }
                 auctionPriceMetric("諸費用", "+\((listing.lane.fee + listing.lane.shippingCost).currency)", tint: GameTheme.orange)
+                auctionPriceMetric("85仕上げ修繕費", restorationCost.currency, tint: GameTheme.orange)
             }
             if let automaticInstruction {
                 Label(
@@ -756,7 +765,7 @@ private struct AuctionBidRow: View {
                         Int((Double(expectedGrossProfit) / Double(max(1, $0)) * 100).rounded())
                     }
                     Label(
-                        "上限落札・価格方針100での予測粗利 \(expectedGrossProfit.currency)"
+                        "上限落札・85仕上げ想定粗利 \(expectedGrossProfit.currency)"
                             + (expectedMargin.map { "（\($0)%）" } ?? ""),
                         systemImage: expectedGrossProfit >= 0
                             ? "checkmark.circle.fill"
@@ -927,7 +936,7 @@ private struct WorkshopContent: View {
     @State private var message: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "整備・商品化キュー", subtitle: "内製と外注を原価・納期・品質上限で比較。外注はベイ・週次件数の制限なし")
+            SectionTitle(title: "整備・商品化キュー", subtitle: "内製と外注を原価・納期・状態上限で比較。外注はベイ・週次件数の制限なし")
             HStack {
                 ForEach(OutsourcePartnerKind.allCases) { partner in
                     MetricView(
@@ -1023,7 +1032,7 @@ private struct WorkshopContent: View {
                                             CapsuleLabel(text: "告知：\(issue.name)", color: GameTheme.danger, icon: "exclamationmark.triangle.fill")
                                         }
                                     }
-                                    Text("\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・品質\(Int((batch.quality * 100).rounded()))")
+                                    Text("\(String(batch.modelYear))年式・\(batch.mileage.formatted())km・\(batch.condition.displayText)")
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -1085,7 +1094,7 @@ private struct WorkshopContent: View {
                                                     + "・\(preview.fulfillmentMode.name)"
                                                     + "｜原価\(preview.cost.currency)・\(preview.estimatedWeeks)週"
                                                     + "・外注基準比\(preview.finalCostRate)%"
-                                                    + "・品質上限\(preview.qualityCap)・売価目安\(preview.projectedSalePrice.currency)"
+                                                    + "・完成\(preview.resultingCondition.displayText)・売価目安\(preview.projectedSalePrice.currency)"
                                             ) {
                                                 message = game.startWorkshopProject(
                                                     storeID: store.id,
