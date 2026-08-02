@@ -9,7 +9,6 @@ struct CityMapView: View {
     @State private var selectedFacility: MapFacility?
     @State private var focusRequest: MapFocusRequest?
     @State private var showSearch = false
-    @State private var showNotifications = false
     @State private var showNationalMap = false
     @State private var showCompanyDashboard = false
     @State private var showMarketNewspaper = false
@@ -82,8 +81,12 @@ struct CityMapView: View {
                     VStack {
                         Spacer()
                         MapHomeControls(
-                            notifications: game.purchaseCases.count,
-                            showNotifications: { showNotifications = true },
+                            openStore: { store in
+                                guard let plot = game.plot(id: store.plotID) else { return }
+                                focusRequest = MapFocusRequest(plotID: plot.id)
+                                selectedPlot = plot
+                            },
+                            openFacility: { selectedFacility = $0 },
                             showSearch: { showSearch = true }
                         )
                         .padding(.horizontal, 14).padding(.bottom, 82)
@@ -108,22 +111,6 @@ struct CityMapView: View {
                 MapSearchView { facility in selectedFacility = facility; showSearch = false } focusDistrict: { kind in
                     focusRequest = MapFocusRequest(district: kind); showSearch = false
                 }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showNotifications) {
-                NotificationCenterView(open: { facility in selectedFacility = facility; showNotifications = false }, openStore: { store in
-                    if let plot = game.plot(id: store.plotID) {
-                        focusRequest = MapFocusRequest(plotID: plot.id); selectedPlot = plot
-                    }
-                    showNotifications = false
-                }, openEvent: { event in
-                    if let plotID = event.plotID, let plot = game.plot(id: plotID) {
-                        focusRequest = MapFocusRequest(plotID: plot.id); selectedPlot = plot
-                    } else if let district = event.district {
-                        focusRequest = MapFocusRequest(district: district)
-                    }
-                    showNotifications = false
-                })
-                    .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showCompanyDashboard) {
                 CompanyDashboardView()
@@ -251,20 +238,65 @@ private struct MapLegendItem: View {
 }
 
 private struct MapHomeControls: View {
-    let notifications: Int
-    let showNotifications: () -> Void
+    @EnvironmentObject private var game: GameEngine
+    let openStore: (Store) -> Void
+    let openFacility: (MapFacility) -> Void
     let showSearch: () -> Void
+
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: showNotifications) {
-                Label("通知 \(notifications)", systemImage: "exclamationmark.bubble.fill")
-                    .font(.caption.bold()).foregroundStyle(.white).padding(.horizontal, 13).padding(.vertical, 11).background(notifications > 0 ? GameTheme.orange : GameTheme.navy).clipShape(Capsule())
+        HStack(spacing: 8) {
+            if game.stores.count == 1, let store = game.stores.first {
+                Button { openStore(store) } label: {
+                    shortcutLabel("店舗", icon: "storefront.fill")
+                }
+                .buttonStyle(.plain)
+            } else {
+                Menu {
+                    ForEach(game.stores) { store in
+                        Button {
+                            openStore(store)
+                        } label: {
+                            Label(store.name, systemImage: "storefront.fill")
+                        }
+                    }
+                } label: {
+                    shortcutLabel("店舗", icon: "storefront.fill")
+                }
+                .disabled(game.stores.isEmpty)
             }
+
+            Button { openFacility(.auction) } label: {
+                shortcutLabel("AA", icon: MapFacility.auction.icon)
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                ForEach(MapFacility.allCases.filter { $0 != .auction }) { facility in
+                    Button { openFacility(facility) } label: {
+                        Label(facility.shortName, systemImage: facility.icon)
+                    }
+                }
+            } label: {
+                shortcutLabel("その他", icon: "ellipsis.circle.fill")
+            }
+
             Spacer()
             Button(action: showSearch) {
                 Image(systemName: "magnifyingglass").font(.headline.bold()).foregroundStyle(.white).frame(width: 44, height: 44).background(GameTheme.navy.opacity(0.9)).clipShape(Circle())
             }
-        }.shadow(color: .black.opacity(0.22), radius: 7, y: 3)
+            .accessibilityLabel("マップ検索")
+        }
+        .shadow(color: .black.opacity(0.22), radius: 7, y: 3)
+    }
+
+    private func shortcutLabel(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 11)
+            .background(GameTheme.navy.opacity(0.92))
+            .clipShape(Capsule())
     }
 }
 
@@ -289,33 +321,6 @@ private struct MapSearchView: View {
             }.searchable(text: $query, prompt: "施設・地区を検索").navigationTitle("マップ検索").toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
         }
     }
-}
-
-private struct NotificationCenterView: View {
-    @EnvironmentObject private var game: GameEngine
-    @Environment(\.dismiss) private var dismiss
-    let open: (MapFacility) -> Void
-    let openStore: (Store) -> Void
-    let openEvent: (CityEvent) -> Void
-    var body: some View {
-        NavigationStack {
-            List {
-                if !game.purchaseCases.isEmpty {
-                    Button { if let store = game.stores.first(where: { $0.id == game.purchaseCases.first?.storeID }) { openStore(store) } } label: { NotificationRow(icon: "wrench.and.screwdriver.fill", title: "買取案件 \(game.purchaseCases.count)件", detail: "自社店舗で査定判断を待っています", color: GameTheme.orange) }
-                }
-                if game.totalInventory < game.stores.count * 8 {
-                    Button { open(.auction) } label: { NotificationRow(icon: "car.2.fill", title: "在庫不足の可能性", detail: "オークションで不足車種を補充できます", color: .indigo) }
-                }
-                Button { open(.bank) } label: { NotificationRow(icon: "calendar.badge.clock", title: "借入返済日", detail: "月末処理で利息を支払います", color: .blue) }
-                ForEach(game.reports.first?.notes ?? [], id: \.self) { note in NotificationRow(icon: "bell.fill", title: note, detail: "直近の週間レポート", color: GameTheme.teal) }
-            }.navigationTitle("未処理案件・通知").toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
-        }
-    }
-}
-
-private struct NotificationRow: View {
-    let icon: String; let title: String; let detail: String; let color: Color
-    var body: some View { HStack(spacing: 11) { Image(systemName: icon).foregroundStyle(.white).frame(width: 38, height: 38).background(color).clipShape(Circle()); VStack(alignment: .leading) { Text(title).font(.subheadline.bold()); Text(detail).font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) }.foregroundStyle(GameTheme.ink).padding(.vertical, 3) }
 }
 
 struct NationalExpansionView: View {

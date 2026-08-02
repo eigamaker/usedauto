@@ -63,7 +63,7 @@ enum MapFacility: String, CaseIterable, Identifiable {
 
     @MainActor func status(game: GameEngine) -> String {
         switch self {
-        case .auction: "1会場・3レーン・出品\(game.auctionListings.count)台・入札\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
+        case .auction: "出品\(game.auctionListings.count)台・入札\(game.bidReservations.count)件・結果\(game.auctionBidResults.filter { $0.resolvedTurn == game.turn }.count)件"
         case .bank: "借入 \(game.debt.currency)"
         case .realEstate: "売地 \(game.plots.filter { if case .available = $0.occupant { true } else { false } }.count)件"
         case .workshop: "整備提携受付中"
@@ -102,7 +102,9 @@ struct FacilityHubSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 15) {
-                    FacilityHeader(facility: facility)
+                    if facility != .auction {
+                        FacilityHeader(facility: facility)
+                    }
                     switch facility {
                     case .auction: AuctionContent()
                     case .bank: BankContent()
@@ -115,7 +117,7 @@ struct FacilityHubSheet: View {
                 }.padding(15)
             }
             .background(GameTheme.cream)
-            .navigationTitle(facility.shortName)
+            .navigationTitle(facility == .auction ? "オークション" : facility.shortName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
         }
@@ -178,7 +180,6 @@ private struct CompanyDashboardContent: View {
     var body: some View {
         VStack(spacing: 14) {
             HStack { MetricView(title: "企業価値", value: game.companyValue.currency, tint: GameTheme.teal); MetricView(title: "店舗", value: "\(game.stores.count)店"); MetricView(title: "在庫", value: "\(game.totalInventory)台") }.gameCard()
-            MarketEnvironmentCard()
             MonthlyReportHistoryCard()
             BrandDashboardCard()
             VStack(alignment: .leading, spacing: 10) {
@@ -317,30 +318,6 @@ private struct BrandDashboardCard: View {
     }
 }
 
-private struct MarketEnvironmentCard: View {
-    @EnvironmentObject private var game: GameEngine
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            SectionTitle(title: "市場環境", subtitle: "通常時は緩やかなトレンド、世界情勢のイベント時は大きく変動")
-            HStack {
-                MetricView(title: "ガソリン", value: "\(game.gasolinePricePerLiter)円/L", detail: "基準155円")
-                MetricView(title: "日経平均", value: "\(game.nikkeiAverageYen.formatted())円", detail: "基準60,000円")
-            }
-            HStack {
-                MetricView(title: "中古車需要", value: "\(game.marketDemandPercentage)%", detail: "100%が平常")
-                MetricView(title: "来店指数", value: "\(game.customerTrafficPercentage)%", detail: "景気と需要を反映", tint: GameTheme.teal)
-            }
-            ForEach(game.activeMarketShocks) { shock in
-                Label("\(shock.kind.title)・残り\(shock.remainingWeeks)週間", systemImage: shock.kind.eventKind.icon)
-                    .font(.caption.bold())
-                    .foregroundStyle(shock.kind.isPositive ? GameTheme.teal : GameTheme.orange)
-            }
-        }
-        .gameCard()
-    }
-}
-
 private struct StoreNetworkContent: View {
     @EnvironmentObject private var game: GameEngine
     @State private var message: String?
@@ -387,11 +364,9 @@ private struct AuctionContent: View {
     @EnvironmentObject private var game: GameEngine
     @State private var selectedStoreID: UUID?
     @State private var message: String?
-    @State private var searchText = ""
     @State private var category: VehicleCategory?
     @State private var origin: VehicleOrigin?
     @State private var modelID: String?
-    @State private var lane: AuctionLane?
     @State private var unbidOnly = false
     @State private var sort: AuctionListingSort = .reservePrice
 
@@ -421,18 +396,12 @@ private struct AuctionContent: View {
     }
     private var listings: [AuctionListing] {
         let storeID = selectedStore?.id
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return game.auctionListings.filter { listing in
             let model = VehicleCatalog.entry(id: listing.modelID)
-            return (lane == nil || listing.lane == lane)
-                && (category == nil || listing.category == category)
+            return (category == nil || listing.category == category)
                 && (origin == nil || model?.origin == origin)
                 && (modelID == nil || listing.modelID == modelID)
                 && (!unbidOnly || !game.bidReservations.contains { $0.listingID == listing.id })
-                && (query.isEmpty
-                    || listing.vehicleName.lowercased().contains(query)
-                    || listing.seller.lowercased().contains(query)
-                    || listing.category.name.lowercased().contains(query))
         }.sorted { left, right in
             switch sort {
             case .reservePrice:
@@ -465,47 +434,22 @@ private struct AuctionContent: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "翠浜オートオークション", subtitle: "ひとつの大規模会場を、カテゴリ・車種・出品レーンから横断検索できます")
-                if game.stores.count > 1 {
+            if game.stores.count > 1 {
+                VStack(alignment: .leading, spacing: 8) {
                     Picker("入庫店舗", selection: Binding(get: { selectedStore?.id }, set: { selectedStoreID = $0 })) {
                         ForEach(game.stores) { store in Text(store.name).tag(Optional(store.id)) }
                     }
                 }
-            }.gameCard()
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), alignment: .leading)], alignment: .leading, spacing: 8) {
-                MetricView(title: "全出品", value: "\(game.auctionListings.count)台")
-                MetricView(title: "検索結果", value: "\(listings.count)台")
-                MetricView(title: "レーン", value: "3種")
-                MetricView(title: "入札", value: "\(game.bidReservations.count)件", tint: .indigo)
-            }.gameCard()
-            if let store = selectedStore {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionTitle(title: "競合のAA仕入れ動向", subtitle: "直近12週間の落札から在庫増加を推定")
-                    if game.hasMarketResearcher(storeID: store.id) {
-                        Label("調査担当：\(game.marketResearcherName(for: store.id))・調査力 \(Int(game.marketResearchScore(for: store.id)))", systemImage: "binoculars.fill")
-                            .font(.caption.bold()).foregroundStyle(GameTheme.teal)
-                        ForEach(game.competitors) { competitor in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(competitor.name).font(.subheadline.bold())
-                                Text(game.competitorAuctionTrend(competitorID: competitor.id, storeID: store.id))
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            if competitor.id != game.competitors.last?.id { Divider() }
-                        }
-                    } else {
-                        Label("社員を「集客・市場調査」に配置すると、競合が増やしているカテゴリ・車種が判明します", systemImage: "eye.slash.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }.gameCard()
+                .gameCard()
             }
             VStack(alignment: .leading, spacing: 11) {
-                SectionTitle(title: "出品車両・上限入札", subtitle: "上限額で入札し、結果は次の週間処理で一度だけ確定します")
-                Label("業者間落札相場はAAでの落札目安、店頭販売参考は選択店舗の立地で販売する場合の目安です。", systemImage: "info.circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                TextField("車名・カテゴリ・出品者を検索", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    SectionTitle(title: "出品車両")
+                    Spacer()
+                    Text("\(listings.count)台・入札\(game.bidReservations.count)件")
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundStyle(.indigo)
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], alignment: .leading, spacing: 8) {
                     Menu {
                         Button { category = nil } label: { Label("全カテゴリ", systemImage: "square.grid.2x2") }
@@ -522,14 +466,6 @@ private struct AuctionContent: View {
                         }
                     } label: {
                         auctionFilterLabel(origin?.name ?? "生産国", icon: origin?.icon ?? "globe.asia.australia.fill", active: origin != nil)
-                    }
-                    Menu {
-                        Button { lane = nil } label: { Label("全レーン", systemImage: "road.lanes") }
-                        ForEach(AuctionLane.allCases) { item in
-                            Button { lane = item } label: { Label(item.name, systemImage: item.icon) }
-                        }
-                    } label: {
-                        auctionFilterLabel(lane?.name ?? "レーン", icon: lane?.icon ?? "road.lanes", active: lane != nil)
                     }
                     Menu {
                         Button { modelID = nil } label: { Label("全車種", systemImage: "car.side.fill") }
@@ -572,7 +508,7 @@ private struct AuctionContent: View {
             }
             if let store = selectedStore {
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionTitle(title: "自社在庫を出品", subtitle: "車両特性に合うレーンへ自動で割り当てます")
+                    SectionTitle(title: "自社在庫を出品")
                     ForEach(store.inventory.filter { $0.count > 0 && !$0.isInWorkshop }) { batch in
                         HStack {
                             VStack(alignment: .leading) {
@@ -626,7 +562,7 @@ private struct AuctionContent: View {
                         .padding(.vertical, 3)
                     }
                     ForEach(game.auctionConsignments) { order in
-                        FacilityRow("出品中・\(order.vehicleName) \(order.count)台", "\(order.lane.name)・成約まで\(order.monthsRemaining)週間", tint: order.lane.tint)
+                        FacilityRow("出品中・\(order.vehicleName) \(order.count)台", "成約まで\(order.monthsRemaining)週間", tint: .indigo)
                     }
                 }.gameCard()
             }
@@ -684,9 +620,6 @@ private struct AuctionBidRow: View {
     private var bidUpperBound: Int {
         max(listing.reservePrice + bidStep, listing.marketPrice * 8 / 5, (retailReferencePrice ?? 0) * 11 / 10)
     }
-    private var marketForecast: ClosedRange<Int> {
-        game.auctionMarketForecast(for: listing, storeID: storeID)
-    }
     private var expectedGrossProfit: Int? {
         game.auctionExpectedGrossProfit(
             for: listing,
@@ -706,33 +639,26 @@ private struct AuctionBidRow: View {
     var body: some View {
         VStack(spacing: 7) {
             HStack(spacing: 9) {
-                Image(systemName: listing.category.icon).foregroundStyle(listing.lane.tint).frame(width: 30, height: 30).background(listing.lane.tint.opacity(0.1)).clipShape(Circle())
+                Image(systemName: listing.category.icon).foregroundStyle(.indigo).frame(width: 30, height: 30).background(Color.indigo.opacity(0.1)).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(listing.vehicleName)
                         .font(.subheadline.bold())
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 5) {
-                        Text(listing.lane.name)
-                            .font(.caption2.bold())
-                            .foregroundStyle(listing.lane.tint)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(listing.lane.tint.opacity(0.12))
-                            .clipShape(Capsule())
                         if VehicleCatalog.entry(id: listing.modelID)?.isRareClassic == true {
                             Text("希少旧車").font(.caption2.bold()).foregroundStyle(.white).padding(.horizontal, 6).padding(.vertical, 2).background(GameTheme.orange).clipShape(Capsule())
                         }
                         if let model = VehicleCatalog.entry(id: listing.modelID), model.origin == .imported {
                             Text("需要 \(Int((model.customerDemandIndex * 100).rounded()))")
                                 .font(.caption2.bold())
-                                .foregroundStyle(listing.lane.tint)
+                                .foregroundStyle(.indigo)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(listing.lane.tint.opacity(0.12))
+                                .background(Color.indigo.opacity(0.12))
                                 .clipShape(Capsule())
                         }
                     }
-                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・\(listing.condition.displayText)・\(listing.fault.name)・\(listing.seller)")
+                    Text("\(listing.category.name)・\(String(listing.modelYear))年・\(listing.mileage.formatted())km・\(listing.condition.displayText)・\(listing.fault.name)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -741,16 +667,11 @@ private struct AuctionBidRow: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), alignment: .leading)], alignment: .leading, spacing: 4) {
                 auctionPriceMetric("開始", listing.reservePrice.currency, tint: GameTheme.ink)
                 auctionPriceMetric("落札相場", listing.marketPrice.currency, tint: GameTheme.ink.opacity(0.65))
-                auctionPriceMetric(
-                    "\(game.marketForecastHorizon(for: storeID))週後予測",
-                    "\(marketForecast.lowerBound.currency)〜\(marketForecast.upperBound.currency)",
-                    tint: .blue
-                )
                 if let retailReferencePrice {
                     auctionPriceMetric("店頭参考", retailReferencePrice.currency, tint: GameTheme.teal)
                 }
                 auctionPriceMetric("諸費用", "+\((listing.lane.fee + listing.lane.shippingCost).currency)", tint: GameTheme.orange)
-                auctionPriceMetric("85仕上げ修繕費", restorationCost.currency, tint: GameTheme.orange)
+                auctionPriceMetric("修繕費", restorationCost.currency, tint: GameTheme.orange)
             }
             if let automaticInstruction {
                 Label(
@@ -761,12 +682,8 @@ private struct AuctionBidRow: View {
                 .foregroundStyle(GameTheme.teal)
             } else {
                 if let expectedGrossProfit {
-                    let expectedMargin = retailReferencePrice.map {
-                        Int((Double(expectedGrossProfit) / Double(max(1, $0)) * 100).rounded())
-                    }
                     Label(
-                        "上限落札・85仕上げ想定粗利 \(expectedGrossProfit.currency)"
-                            + (expectedMargin.map { "（\($0)%）" } ?? ""),
+                        "入札上限価格で落札した場合の推定粗利 \(expectedGrossProfit.currency)",
                         systemImage: expectedGrossProfit >= 0
                             ? "checkmark.circle.fill"
                             : "exclamationmark.triangle.fill"

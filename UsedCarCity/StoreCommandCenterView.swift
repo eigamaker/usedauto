@@ -13,6 +13,14 @@ private func assessmentConditionText(_ estimate: VehicleConditionEstimate) -> St
         + "機関\(estimate.mechanical.map(assessmentRangeText) ?? "不明")"
 }
 
+private func customerFacingRequirementText(_ lead: BuyerLead) -> String {
+    var parts = [lead.minimumModelYear > 0 ? "\(lead.minimumModelYear)年式以降" : "年式不問"]
+    if let grade = lead.desiredGrade {
+        parts.append("\(grade.name(for: lead.desiredProductKind))以上")
+    }
+    return parts.joined(separator: "・")
+}
+
 struct StoreCommandCenterView: View {
     @EnvironmentObject private var game: GameEngine
     let storeID: UUID
@@ -274,17 +282,13 @@ private struct PurchaseCasesPanel: View {
                         let saleRange = game.marketForecastRange(value: item.expectedSaleAfterAppraisal, storeID: storeID)
                         let assessment = game.purchaseAssessment(for: item)
                         let saleForecastText = "\(saleRange.lowerBound.currency)〜\(saleRange.upperBound.currency)"
-                        let grossMargin = Int(
-                            (
-                                Double(grossProfit / max(1, item.lotCount))
-                                    / Double(max(1, item.expectedSaleAfterAppraisal))
-                                    * 100
-                            ).rounded()
-                        )
                         let exteriorText = assessmentRangeText(assessment.condition.exterior)
                         let interiorText = assessmentRangeText(assessment.condition.interior)
                         let mechanicalText = assessment.condition.mechanical.map(assessmentRangeText) ?? "不明"
                         let repairText = "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)"
+                        Text("お客様の車両情報")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
                         HStack {
                             CharacterAvatarView(
                                 role: item.characterAvatarRole,
@@ -310,17 +314,23 @@ private struct PurchaseCasesPanel: View {
                                 .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
                         }
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), alignment: .leading, spacing: 8) {
-                            PurchaseMetric(title: "85仕上げ販売予測", value: saleForecastText)
                             PurchaseMetric(title: "外装", value: exteriorText)
                             PurchaseMetric(title: "内装", value: interiorText)
                             PurchaseMetric(title: "機関", value: mechanicalText)
-                            PurchaseMetric(title: "査定見積り", value: item.appraisedPrice.currency)
-                            PurchaseMetric(title: "85仕上げ修繕費", value: repairText)
+                        }
+                        Divider()
+                        Text("店舗の見積もり")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), alignment: .leading, spacing: 8) {
+                            PurchaseMetric(title: "推定販売価格", value: saleForecastText)
                             PurchaseMetric(
-                                title: item.suggestedProjectKind == nil ? "85仕上げ想定粗利" : "85仕上げ・改造後粗利",
-                                value: "\(grossProfit.currency)（\(grossMargin)%）",
+                                title: item.suggestedProjectKind == nil ? "推定粗利" : "改造後の推定粗利",
+                                value: grossProfit.currency,
                                 tint: grossProfit >= 0 ? GameTheme.teal : GameTheme.danger
                             )
+                            PurchaseMetric(title: "査定見積り", value: item.appraisedPrice.currency)
+                            PurchaseMetric(title: "推定修繕費", value: repairText)
                         }
                         if let project = item.suggestedProjectKind {
                             HStack {
@@ -336,14 +346,18 @@ private struct PurchaseCasesPanel: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        Label(
-                            assessment.detectedFault?.name ?? "故障判定に不確実性あり",
-                            systemImage: assessment.detectedFault == MechanicalFaultSeverity.none ? "checkmark.seal.fill" : "wrench.adjustable.fill"
-                        )
-                        .font(.caption2.bold())
-                        .foregroundStyle(assessment.detectedFault == MechanicalFaultSeverity.none ? GameTheme.teal : GameTheme.orange)
-                        Text("査定確度 \(assessment.confidence)%・店舗買取は推定値です")
-                            .font(.caption2).foregroundStyle(.secondary)
+                        if let detectedFault = assessment.detectedFault {
+                            Label(
+                                detectedFault.name,
+                                systemImage: detectedFault == .none ? "checkmark.seal.fill" : "wrench.adjustable.fill"
+                            )
+                            .font(.caption2.bold())
+                            .foregroundStyle(detectedFault == .none ? GameTheme.teal : GameTheme.orange)
+                        } else if !game.hasServiceTechnician(storeID: storeID) {
+                            Label("整備担当不在のため不明", systemImage: "person.crop.circle.badge.questionmark")
+                                .font(.caption2.bold())
+                                .foregroundStyle(GameTheme.orange)
+                        }
                         if let rival = item.competitorOffer {
                             Text("競合提示目安：\(game.competitorName(for: rival.competitorID)) \(rival.price.currency)/台")
                                 .font(.caption2).foregroundStyle(.secondary)
@@ -361,9 +375,6 @@ private struct PurchaseCasesPanel: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(GameTheme.danger.opacity(0.08))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            Label("未発見の修復歴・走行距離不正が残る可能性があります", systemImage: "magnifyingglass")
-                                .font(.caption2).foregroundStyle(.secondary)
                         }
                         if item.negotiations > 0 {
                             Label("交渉 \(item.negotiations)回・次に断られると売主が帰る可能性があります", systemImage: "exclamationmark.bubble.fill")
@@ -384,10 +395,7 @@ private struct PurchaseCasesPanel: View {
                             .disabled(!game.canNegotiatePurchaseCase(item.id))
                             Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Image(systemName: "xmark").font(.caption.bold()).padding(8) }.buttonStyle(.bordered)
                         }
-                        if isAutomated {
-                            Label("未処理のまま週を進めると買取担当社員が対応します", systemImage: "person.crop.circle.badge.checkmark")
-                                .font(.caption2).foregroundStyle(GameTheme.teal)
-                        } else if !game.canNegotiatePurchaseCase(item.id) {
+                        if !isAutomated && !game.canNegotiatePurchaseCase(item.id) {
                             Label("今週の営業枠を使い切っています", systemImage: "clock.badge.exclamationmark")
                                 .font(.caption2).foregroundStyle(GameTheme.orange)
                         }
@@ -407,7 +415,7 @@ private struct PurchaseCasesPanel: View {
                 switch game.negotiatePurchaseCase(item.id, offerPercent: percent) {
                 case let .purchased(price):
                     message = item.revealedIssue == nil
-                        ? "\(item.lotCount)台を合計\(price.currency)で買取成立しました。整備費を含めて在庫へ追加しました。"
+                        ? "\(item.lotCount)台を合計\(price.currency)で買取成立しました。現状のまま在庫へ追加しました。"
                         : "\(item.lotCount)台を合計\(price.currency)で買取成立しました。\(item.revealedIssue?.name ?? "問題歴")を告知する在庫として追加しました。"
                 case let .rejected(walkedAway):
                     message = walkedAway
@@ -447,23 +455,17 @@ private struct ManualSalesPanel: View {
     @State private var message: String?
     @State private var selectedLead: BuyerLead?
 
-    private var isAutomated: Bool { store.autoSales }
     private var leads: [BuyerLead] { game.buyerLeads(for: store.id) }
     private var capacity: Int { game.weeklyOpportunityCapacity(storeID: store.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                SectionTitle(title: "今週の販売客", subtitle: isAutomated ? "先に手動提案でき、残った来店客を販売担当社員が週間処理します" : "顧客の希望に合う在庫車を提案")
+                SectionTitle(title: "今週の販売客")
                 Spacer()
-                Text("営業枠 \(store.usedOpportunitiesThisWeek)/\(capacity)・成約 \(store.manualSalesThisWeek)")
+                Text("営業枠 \(store.usedOpportunitiesThisWeek)/\(capacity)")
                     .font(.caption.bold().monospacedDigit())
                     .foregroundStyle(GameTheme.teal)
-            }
-
-            if isAutomated {
-                Label("販売担当1人につき能力に応じて週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件を自動対応します。販売能力が高いほど成約率・代替提案・売価が改善します。", systemImage: "person.crop.circle.badge.checkmark")
-                    .font(.caption).foregroundStyle(GameTheme.teal)
             }
             if leads.isEmpty {
                 Label("今週は対応できる販売客がいません。広告・評判・立地・在庫構成が次週以降の来店に影響します。", systemImage: "person.crop.circle.badge.questionmark")
@@ -487,7 +489,7 @@ private struct ManualSalesPanel: View {
                             )
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(lead.preference.customerDescription).font(.subheadline.bold())
-                                Text("用途 \(lead.purpose.name)・予算 \(lead.budget.currency)・\(lead.vehicleRequirementDescription)")
+                                Text("用途 \(lead.purpose.name)・予算 \(lead.budget.currency)・\(customerFacingRequirementText(lead))")
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                                 if let rival = lead.competitorOffer {
                                     Text("比較候補：\(game.competitorName(for: rival.competitorID)) \(rival.price.currency)・状態目安\(Int(rival.quality * 100))")
@@ -628,10 +630,8 @@ private struct VehicleProposalSheet: View {
                         HStack {
                             MetricView(title: "希望条件", value: lead.preference.name, tint: GameTheme.teal)
                             MetricView(title: "予算", value: lead.budget.currency)
-                            MetricView(title: "希望状態", value: "3項目の目安 \(Int(lead.minimumQuality * 100))以上")
+                            MetricView(title: "年式・仕様", value: customerFacingRequirementText(lead))
                         }
-                        Text(lead.vehicleRequirementDescription)
-                            .font(.caption.bold()).foregroundStyle(.secondary)
                     }
                     .gameCard()
 
@@ -652,8 +652,7 @@ private struct VehicleProposalSheet: View {
                                     .font(.subheadline.bold().monospacedDigit()).foregroundStyle(GameTheme.teal)
                             }
                             HStack {
-                                ProposalMetric(title: "85仕上げ修繕費", value: "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)")
-                                ProposalMetric(title: "査定確度", value: "\(assessment.confidence)%")
+                                ProposalMetric(title: "推定修繕費", value: "\(assessment.repairCostRange.lowerBound.currency)〜\(assessment.repairCostRange.upperBound.currency)")
                                 ProposalMetric(title: "下取り効果", value: "成約率を改善")
                             }
                             Toggle("下取り込みで商談する", isOn: $acceptTradeIn)
@@ -758,14 +757,7 @@ private struct VehicleProposalSheet: View {
 
     private func tradeInSettlementLabel(_ preview: TradeInSalePreview?) -> String {
         guard let preview else { return "下取り条件を計算できません" }
-        let margin = Int(
-            (
-                Double(preview.expectedTradeInGrossProfit)
-                    / Double(max(1, preview.expectedTradeInSalePrice))
-                    * 100
-            ).rounded()
-        )
-        let grossText = "\(preview.expectedTradeInGrossProfit.currency)（\(margin)%）"
+        let grossText = preview.expectedTradeInGrossProfit.currency
         if preview.customerCashSettlement >= 0 {
             return "下取り\(preview.allowance.currency)・お客様差額\(preview.customerCashSettlement.currency)・下取粗利見込\(grossText)"
         }
@@ -808,7 +800,13 @@ private struct StoreInventoryPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            SectionTitle(title: "店舗在庫一覧", subtitle: "\(store.inventoryCount)台・平均在庫 \(String(format: "%.1f週", game.averageInventoryWeeks(storeID: store.id)))")
+            HStack {
+                SectionTitle(title: "店舗在庫一覧")
+                Spacer()
+                Text("\(store.inventoryCount)台")
+                    .font(.caption.bold().monospacedDigit())
+                    .foregroundStyle(GameTheme.teal)
+            }
             if sortedInventory.isEmpty {
                 Label("販売できる在庫がありません", systemImage: "car.circle")
                     .font(.subheadline).foregroundStyle(.secondary).padding(.vertical, 8)
@@ -825,11 +823,16 @@ private struct StoreInventoryPanel: View {
                                 .background((batch.fault == .none ? GameTheme.teal : GameTheme.danger).opacity(0.10))
                                 .clipShape(Circle())
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(batch.vehicleName)
+                                Text("\(batch.vehicleName)（#\(batch.id.uuidString.prefix(4).uppercased())）")
                                     .font(.subheadline.bold())
                                     .foregroundStyle(batch.fault == .none ? GameTheme.ink : GameTheme.danger)
-                                Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km")
-                                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                HStack(spacing: 5) {
+                                    Text("\(batch.category.name)・\(String(batch.modelYear))年式・\(batch.mileage.formatted())km")
+                                        .foregroundStyle(.secondary)
+                                    Text(game.inventoryAgeLabel(for: batch))
+                                        .foregroundStyle(ageTint(for: batch))
+                                }
+                                .font(.caption2.bold().monospacedDigit())
                                 Text("外装\(batch.condition.exterior)・内装\(batch.condition.interior)・機関\(mechanicalDetail)・\(batch.faultRevealed ? batch.fault.name : "故障判定中")")
                                     .font(.caption2.bold().monospacedDigit())
                                     .foregroundStyle(batch.fault == .none ? .secondary : GameTheme.danger)
@@ -851,13 +854,6 @@ private struct StoreInventoryPanel: View {
                                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            VStack(alignment: .trailing, spacing: 4) {
-                            Text("#\(batch.id.uuidString.prefix(4).uppercased())")
-                                .font(.caption2.bold().monospaced()).foregroundStyle(.secondary)
-                            Text(game.inventoryAgeLabel(for: batch))
-                                .font(.caption2.bold())
-                                .foregroundStyle(ageTint(for: batch))
-                            }
                         }
                         if let project = batch.workshopProject {
                             Label(project.outsourced ? "\(project.kind.name) あと\(project.remainingWeeks)週" : "\(project.kind.name) 残\(project.remainingWork)工数", systemImage: project.kind.icon)
@@ -975,35 +971,36 @@ private struct StoreSceneHeader: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
                     Button {
                         nameDraft = store.name
                         showRename = true
                     } label: {
                         HStack(spacing: 6) {
-                            Text(store.name).font(.title3.bold())
+                            Text(store.name)
+                                .font(.title3.bold())
+                                .multilineTextAlignment(.leading)
                             Image(systemName: "pencil").font(.caption.bold())
                         }
                         .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("店名を変更")
-                    Text("\(plot.district.name)・\(store.type.name)").font(.caption).foregroundStyle(.white.opacity(0.65))
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 5) {
-                    CapsuleLabel(
-                        text: game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store),
-                        color: GameTheme.mint,
-                        icon: game.regionalNicheLeaderLabel(for: store) == nil ? "car.2.fill" : "crown.fill"
-                    )
+                    Spacer()
                     if isFullyDelegated {
                         Label("店長に一任", systemImage: "checkmark.shield.fill")
                             .font(.caption2.bold())
                             .foregroundStyle(GameTheme.mint)
                     }
                 }
+                Label(
+                    game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store),
+                    systemImage: game.regionalNicheLeaderLabel(for: store) == nil ? "car.2.fill" : "crown.fill"
+                )
+                .font(.caption.bold())
+                .foregroundStyle(GameTheme.mint)
+                .fixedSize(horizontal: false, vertical: true)
             }
             .padding(15).background(GameTheme.ink)
             ZStack(alignment: .top) {
@@ -1041,7 +1038,7 @@ private struct StoreSceneHeader: View {
         if store.inventoryCount < 5 { return "在庫が少なく、販売機会を逃しています" }
         if store.lastProfit < 0 { return "今週は赤字です。価格と広告を見直しましょう" }
         if (store.averageReviewScore ?? 0) >= 80 { return "口コミが好調です。この流れを維持しましょう" }
-        return store.hasManager ? "今週もお客様の動きを確認していきましょう" : "仕入れと販売は手動で操作します"
+        return "今週もお客様の動きを確認していきましょう"
     }
 
     private func renameStore() {
@@ -1728,7 +1725,7 @@ private struct ManagerPanel: View {
     var body: some View {
         VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(title: "社員に任せる")
+                SectionTitle(title: "社員に任せる業務")
                 AutomationPolicyRow(
                     title: "販売",
                     icon: "person.line.dotted.person.fill",
@@ -1773,8 +1770,6 @@ private struct ManagerPanel: View {
                         .frame(width: 96, alignment: .trailing)
                 }
                 .padding(.vertical, 4)
-                Label("オーナーの営業枠とは別に、販売・仕入担当は能力に応じて1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件を処理します。仕入担当は指示に沿って4経路を横断します。", systemImage: "hand.raised.fill")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             .gameCard()
 
@@ -1784,7 +1779,7 @@ private struct ManagerPanel: View {
             )
 
             VStack(alignment: .leading, spacing: 13) {
-                SectionTitle(title: "店員・育成")
+                SectionTitle(title: "店員の情報")
                 HStack {
                     MetricView(title: "在籍", value: "\(store.staff)名")
                     MetricView(title: "月額給与", value: store.employeeMonthlyPayroll.currency)
@@ -2059,7 +2054,7 @@ private struct ManagerPanel: View {
         case .research:
             return "広告効率とトレンド先読み精度を改善"
         case .service:
-            return "査定確度 \(employee.serviceSkill)%・修理原価を最大\(game.employeeServiceCostDiscount(for: store.id))%削減"
+            return "機関・故障を判定・修理原価を最大\(game.employeeServiceCostDiscount(for: store.id))%削減"
         case .unassigned:
             return "担当を設定してください"
         }
@@ -2182,7 +2177,7 @@ private struct ProcurementInstructionPanel: View {
                 )
                 .font(.caption.bold())
                 .foregroundStyle(GameTheme.teal)
-                Text("出品一覧は非公開です。担当者の仕入力に応じて案件発見数・査定確度・落札判断が向上します。入札\(game.networkAuctionBidReservations.filter { $0.storeID == store.id }.count)件、直近成約\(game.networkAuctionBidResults.filter { $0.storeID == store.id && $0.status == .won }.prefix(5).count)件")
+                Text("出品一覧は非公開です。担当者の仕入力に応じて案件発見数・車両確認・落札判断が向上します。入札\(game.networkAuctionBidReservations.filter { $0.storeID == store.id }.count)件、直近成約\(game.networkAuctionBidResults.filter { $0.storeID == store.id && $0.status == .won }.prefix(5).count)件")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -2489,7 +2484,7 @@ private struct MarketPanel: View {
     let store: Store
     let plot: LandPlot
     let campaign: (Int, String) -> Void
-    @State private var section: MarketSection = .district
+    @State private var section: MarketSection = CommandLine.arguments.contains("-demo-catalog") ? .vehicles : .district
 
     var body: some View {
         VStack(spacing: 14) {
@@ -2524,9 +2519,9 @@ private struct DistrictSpecialtyPanel: View {
             storeID: store.id,
             district: district
         )
-        let absentReports = reports
-            .filter(\.isAbsent)
-            .sorted { $0.fourWeekDemand.upperBound > $1.fourWeekDemand.upperBound }
+        let demandReports = reports.sorted {
+            $0.fourWeekDemand.upperBound > $1.fourWeekDemand.upperBound
+        }
         let nearbyReports = reports
             .filter { !$0.isAbsent }
             .sorted {
@@ -2537,51 +2532,30 @@ private struct DistrictSpecialtyPanel: View {
             }
 
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "\(district.name)の専門店")
-            HStack {
-                ProposalMetric(
-                    title: "専門店",
-                    value: "\(game.districtSpecialtyBranchCount(in: district))店"
-                )
-                ProposalMetric(
-                    title: "取扱分野",
-                    value: "\(nearbyReports.count)/\(reports.count)"
-                )
-                ProposalMetric(
-                    title: "地区にいない",
-                    value: "\(absentReports.count)分野"
-                )
-            }
-
-            Text("地区にいない専門店")
+            SectionTitle(title: "この地区の需要")
+            Text("各業態の需要")
                 .font(.subheadline.bold())
-            if absentReports.isEmpty {
-                Text("なし")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 145), spacing: 8)],
-                    spacing: 8
-                ) {
-                    ForEach(absentReports) { report in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(
-                                report.productKind.name,
-                                systemImage: specialtyIcon(report.productKind)
-                            )
-                            .font(.caption.bold())
-                            Text(
-                                "4週需要 \(report.fourWeekDemand.lowerBound)〜\(report.fourWeekDemand.upperBound)人"
-                            )
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(9)
-                        .background(GameTheme.orange.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 145), spacing: 8)],
+                spacing: 8
+            ) {
+                ForEach(demandReports) { report in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(
+                            report.productKind.name,
+                            systemImage: specialtyIcon(report.productKind)
+                        )
+                        .font(.caption.bold())
+                        Text(
+                            "4週間 \(report.fourWeekDemand.lowerBound)〜\(report.fourWeekDemand.upperBound)人"
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(9)
+                    .background(GameTheme.navy.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
 
@@ -2682,7 +2656,7 @@ private struct DistrictMarketSharePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "\(plot.district.name)の市場シェア")
+            SectionTitle(title: "地区のマーケットシェア")
             HStack(spacing: 15) {
                 ZStack {
                     Chart(shares) { slice in
@@ -2727,7 +2701,6 @@ private struct MarketConditionsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            let intelligence = game.marketIntelligence(for: store.id)
             let weeklyDemand = game.marketForecastRange(
                 value: game.weeklyBuyerPool(in: plot.district),
                 storeID: store.id
@@ -2735,36 +2708,10 @@ private struct MarketConditionsPanel: View {
             SectionTitle(title: "市況")
             HStack {
                 ProposalMetric(
-                    title: "週需要",
+                    title: "地区の1週間の需要",
                     value: "\(weeklyDemand.lowerBound)〜\(weeklyDemand.upperBound)人"
                 )
-                ProposalMetric(
-                    title: "燃料",
-                    value: "\(intelligence.gasolineRange.lowerBound)〜\(intelligence.gasolineRange.upperBound)円"
-                )
             }
-            HStack {
-                ProposalMetric(
-                    title: "日経",
-                    value: "\(intelligence.nikkeiRange.lowerBound.formatted())〜\(intelligence.nikkeiRange.upperBound.formatted())"
-                )
-                ProposalMetric(
-                    title: "需要予測",
-                    value: "\(intelligence.demandRange.lowerBound)〜\(intelligence.demandRange.upperBound)%"
-                )
-            }
-            Label(
-                intelligence.upcomingEvent == nil
-                    ? intelligence.recommendedAction
-                    : intelligence.shortTermOutlook,
-                systemImage: intelligence.upcomingEvent == nil
-                    ? "lightbulb.max.fill"
-                    : "exclamationmark.triangle.fill"
-            )
-            .font(.caption.bold())
-            .foregroundStyle(
-                intelligence.upcomingEvent == nil ? GameTheme.navy : GameTheme.orange
-            )
 
             Divider()
             Text("販促").font(.subheadline.bold())
@@ -2943,34 +2890,28 @@ private struct VehicleCatalogPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "車両市場カタログ")
-            HStack {
-                ProposalMetric(title: "ガソリン", value: "\(game.gasolinePricePerLiter)円/L")
-                ProposalMetric(title: "EV人気", value: "指数 \(game.electricTrendIndex(in: district))")
-                ProposalMetric(title: "中古EV比率", value: "\(game.usedMarketEVShare)%")
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    CatalogFilterChip(title: "すべて", selected: selectedCategory == nil) { selectedCategory = nil }
+            HStack(spacing: 8) {
+                Picker("カテゴリ", selection: $selectedCategory) {
+                    Text("全カテゴリ").tag(Optional<VehicleCategory>.none)
                     ForEach(VehicleCategory.allCases) { category in
-                        CatalogFilterChip(title: category.name, selected: selectedCategory == category) { selectedCategory = category }
+                        Label(category.name, systemImage: category.icon).tag(Optional(category))
                     }
                 }
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    CatalogFilterChip(title: "全産地", selected: selectedOrigin == nil) { selectedOrigin = nil }
+                .pickerStyle(.menu)
+                Picker("産地", selection: $selectedOrigin) {
+                    Text("全産地").tag(Optional<VehicleOrigin>.none)
                     ForEach(VehicleOrigin.allCases) { origin in
-                        CatalogFilterChip(title: origin.name, selected: selectedOrigin == origin) { selectedOrigin = origin }
+                        Label(origin.name, systemImage: origin.icon).tag(Optional(origin))
                     }
                 }
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    CatalogFilterChip(title: "全動力", selected: selectedPowertrain == nil) { selectedPowertrain = nil }
+                .pickerStyle(.menu)
+                Picker("動力", selection: $selectedPowertrain) {
+                    Text("全動力").tag(Optional<VehiclePowertrain>.none)
                     ForEach(VehiclePowertrain.allCases) { powertrain in
-                        CatalogFilterChip(title: powertrain.name, selected: selectedPowertrain == powertrain) { selectedPowertrain = powertrain }
+                        Label(powertrain.name, systemImage: powertrain.icon).tag(Optional(powertrain))
                     }
                 }
+                .pickerStyle(.menu)
             }
 
             if let nextRelease = game.nextNewVehicleRelease {
@@ -2995,23 +2936,6 @@ private struct VehicleCatalogPanel: View {
     }
 }
 
-private struct CatalogFilterChip: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(title, action: action)
-            .font(.caption.bold())
-            .foregroundStyle(selected ? .white : GameTheme.navy)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(selected ? GameTheme.navy : GameTheme.navy.opacity(0.08))
-            .clipShape(Capsule())
-            .buttonStyle(.plain)
-    }
-}
-
 private struct CatalogVehicleRow: View {
     @EnvironmentObject private var game: GameEngine
     let model: VehicleCatalogEntry
@@ -3020,7 +2944,7 @@ private struct CatalogVehicleRow: View {
 
     private var marketIndex: Double { game.catalogMarketIndex(for: model, in: district) }
     private var trend: Int { game.catalogPriceTrendPercent(for: model, in: district) }
-    private var forecast: VehicleMarketForecast { game.vehicleMarketForecast(for: model, in: district, storeID: store.id) }
+    private var hasResearcher: Bool { game.hasMarketResearcher(storeID: store.id) }
     private var color: Color { marketIndex >= 1.12 ? GameTheme.teal : marketIndex >= 0.82 ? .blue : GameTheme.orange }
     private var powertrainColor: Color {
         switch model.powertrain {
@@ -3042,52 +2966,52 @@ private struct CatalogVehicleRow: View {
                     .frame(width: 36, height: 36)
                     .background(powertrainColor.opacity(0.11))
                     .clipShape(Circle())
-                VStack(alignment: .leading, spacing: 2) {
+                    .accessibilityLabel(model.powertrain.name)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.maker)
+                        .font(.caption2.bold())
+                        .foregroundStyle(.secondary)
                     HStack(spacing: 6) {
-                        Text(model.fullName).font(.subheadline.bold())
+                        Text(model.modelName)
+                            .font(.subheadline.bold())
+                            .fixedSize(horizontal: false, vertical: true)
                         Text(model.origin.shortName)
                             .font(.system(size: 8, weight: .black))
                             .foregroundStyle(model.origin == .imported ? .white : GameTheme.navy)
                             .padding(.horizontal, 5).padding(.vertical, 3)
                             .background(model.origin == .imported ? Color.purple : GameTheme.navy.opacity(0.10))
                             .clipShape(Capsule())
-                        Text(model.powertrain.name).font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(powertrainColor).clipShape(Capsule())
-                        if model.isRareClassic {
-                            Text("希少旧車").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())
-                        } else if model.isPopularCustomBase {
-                            Text("カスタム人気").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(Color.purple).clipShape(Capsule())
-                        }
-                        if model.origin == .imported {
-                            Text("指名需要 \(Int(model.customerDemandIndex * 100))")
-                                .font(.system(size: 8, weight: .black)).foregroundStyle(.white)
-                                .padding(.horizontal, 5).padding(.vertical, 3)
-                                .background(model.customerDemandIndex >= 1.12 ? GameTheme.teal : Color.gray)
-                                .clipShape(Capsule())
-                        }
-                        if !model.isRareClassic && game.turn - model.usedMarketTurn <= 3 {
-                            Text("中古流入").font(.system(size: 8, weight: .black)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 3).background(GameTheme.orange).clipShape(Capsule())
-                        }
                     }
-                    Text(model.classicProductionYears.map { "\(model.category.name)・\($0.lowerBound)〜\($0.upperBound)年製・現状は要商品化" } ?? "\(model.category.name)・\(model.powertrain.name)・基準状態 \(Int(model.qualityBaseline * 100))/100")
+                    Text(model.classicProductionYears.map { "\(model.category.name)・\($0.lowerBound)〜\($0.upperBound)年製" } ?? model.category.name)
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
+                if hasResearcher {
+                    VStack(alignment: .trailing, spacing: 2) {
                     Label(status, systemImage: trend >= 0 ? "arrow.up.right" : "arrow.down.right")
                         .font(.caption2.bold()).foregroundStyle(color)
                     Text("価格 \(trend >= 0 ? "+" : "")\(trend)%")
                         .font(.caption2.bold().monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            HStack(spacing: 6) {
+                if model.isRareClassic {
+                    CapsuleLabel(text: "希少旧車", color: GameTheme.orange, icon: "star.circle.fill")
+                } else if model.isPopularCustomBase {
+                    CapsuleLabel(text: "カスタム人気", color: .purple, icon: "paintbrush.fill")
+                }
+                if !model.isRareClassic && game.turn - model.usedMarketTurn <= 3 {
+                    CapsuleLabel(text: "中古流入", color: GameTheme.orange, icon: "arrow.triangle.2.circlepath")
                 }
             }
             HStack {
-                ProposalMetric(title: "需要指数", value: "\(Int(marketIndex * 100))")
-                ProposalMetric(title: "仕入相場", value: game.catalogWholesalePrice(for: model, in: district).currency)
-                ProposalMetric(title: "販売参考", value: game.catalogRetailPrice(for: model, in: district).currency)
-                ProposalMetric(title: "自店在庫", value: "\(game.inventoryCount(modelID: model.id, storeID: store.id))台")
+                ProposalMetric(title: "新車販売価格", value: model.referenceRetailPrice.currency)
+                if hasResearcher {
+                    ProposalMetric(title: "仕入価格相場", value: game.catalogWholesalePrice(for: model, in: district).currency)
+                    ProposalMetric(title: "販売価格相場", value: game.catalogRetailPrice(for: model, in: district).currency)
+                }
             }
-            Label("\(forecast.horizonWeeks)週後：販売 \(forecast.retailPriceRange.lowerBound.currency)〜\(forecast.retailPriceRange.upperBound.currency)／AA \(forecast.auctionPriceRange.lowerBound.currency)〜\(forecast.auctionPriceRange.upperBound.currency)（\(forecast.directionPercent >= 0 ? "+" : "")\(forecast.directionPercent)%）", systemImage: "waveform.path.ecg")
-                .font(.caption2.bold())
-                .foregroundStyle(forecast.directionPercent >= 0 ? GameTheme.teal : GameTheme.orange)
             if model.launchTurn > 0 {
                 Label("中古流通量 \(Int(game.usedMarketSupplyFactor(for: model) * 100))%（発売から\(max(0, game.turn - model.launchTurn))週）", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption2).foregroundStyle(.secondary)

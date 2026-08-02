@@ -813,7 +813,7 @@ enum StoreFacility: String, Codable, CaseIterable, Identifiable, Hashable {
         case .kidsSpace: "ファミリー客 +18%／成約率 +8pt"
         case .corporateDesk: "法人・仕事客 +22%／成約率 +7pt／対象の売却客 +42%"
         case .importLounge: "輸入車の売買客 +18%／成約率 +7pt"
-        case .serviceWorkshop: "整備ベイ +2／買取・下取り客 +24%／査定確度 +5／週の買取受付 +2"
+        case .serviceWorkshop: "整備ベイ +2／買取・下取り客 +24%／機関・故障判定を支援／週の買取受付 +2"
         case .customWorkshop: "カスタムベイ +2。キャンパー・仕事・アウトドア架装の設備費を圧縮"
         }
     }
