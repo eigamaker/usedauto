@@ -853,15 +853,7 @@ private struct WorkshopContent: View {
     @State private var message: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "整備・商品化キュー", subtitle: "内製と外注を原価・納期・状態上限で比較。外注はベイ・週次件数の制限なし")
-            HStack {
-                ForEach(OutsourcePartnerKind.allCases) { partner in
-                    MetricView(
-                        title: partner.name,
-                        value: "件数無制限"
-                    )
-                }
-            }
+            SectionTitle(title: "整備・商品化キュー", subtitle: "整備担当と対応設備の空きベイがあれば内製し、それ以外は外注します")
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 6) {
                     let customerOrders = game.customizationOrders(for: store.id)
@@ -984,22 +976,18 @@ private struct WorkshopContent: View {
                                     let grades: [SpecialtyProductGrade?] = isGradeProject
                                         ? SpecialtyProductGrade.allCases.map(Optional.some)
                                         : [nil]
-                                    return grades.flatMap { grade in
-                                        WorkFulfillmentMode.allCases
-                                            .filter { $0 != .automatic }
-                                            .compactMap { mode in
-                                                game.workshopProjectPreview(
-                                                    storeID: store.id,
-                                                    inventoryID: batch.id,
-                                                    kind: kind,
-                                                    grade: grade,
-                                                    fulfillment: mode
-                                                )
-                                            }
+                                    return grades.compactMap { grade in
+                                        game.workshopProjectPreview(
+                                            storeID: store.id,
+                                            inventoryID: batch.id,
+                                            kind: kind,
+                                            grade: grade,
+                                            fulfillment: .automatic
+                                        )
                                         }
                                 }
                                 if previews.isEmpty {
-                                    Text("外注枠、現金、車種条件を確認してください").font(.caption2).foregroundStyle(.secondary)
+                                    Text("現金、車種条件、または車両状態を確認してください").font(.caption2).foregroundStyle(.secondary)
                                 } else {
                                     Menu {
                                         ForEach(Array(previews.enumerated()), id: \.offset) { _, preview in
@@ -1009,9 +997,8 @@ private struct WorkshopContent: View {
                                                         "・\($0.name(for: MarketProductKind.resolve(productState: preview.kind.productState ?? batch.productState, isRareClassic: batch.isRareClassic)))"
                                                     } ?? "")
                                                     + "・\(preview.fulfillmentMode.name)"
-                                                    + "｜原価\(preview.cost.currency)・\(preview.estimatedWeeks)週"
-                                                    + "・外注基準比\(preview.finalCostRate)%"
-                                                    + "・完成\(preview.resultingCondition.displayText)・売価目安\(preview.projectedSalePrice.currency)"
+                                                    + "｜必要コスト\(preview.cost.currency)・納期\(preview.estimatedWeeks)週"
+                                                    + "・想定販売価格\(preview.projectedSalePrice.currency)"
                                             ) {
                                                 message = game.startWorkshopProject(
                                                     storeID: store.id,
@@ -1024,7 +1011,7 @@ private struct WorkshopContent: View {
                                                     : "現金、ベイ、担当者を確認してください。"
                                             }.disabled(game.cash < preview.cost)
                                         }
-                                    } label: { Label("内製・外注を比較", systemImage: "arrow.left.arrow.right") }
+                                    } label: { Label("カスタマイズを選ぶ", systemImage: "paintbrush.pointed.fill") }
                                     .font(.caption2.bold()).buttonStyle(.borderedProminent).tint(.purple)
                                 }
                             }

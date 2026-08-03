@@ -306,14 +306,13 @@ private struct PurchaseCasesPanel: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text("希望買取価格 \(item.askingPrice.currency)")
-                                .font(.caption.bold().monospacedDigit())
                         }
                         if item.lotCount > 1 {
                             Label("法人放出 \(item.lotCount)台一括・表示価格と整備費は1台あたり", systemImage: "building.2.fill")
                                 .font(.caption2.bold()).foregroundStyle(GameTheme.orange)
                         }
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), alignment: .leading, spacing: 8) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), alignment: .leading, spacing: 8) {
+                            PurchaseMetric(title: "希望額", value: item.askingPrice.currency)
                             PurchaseMetric(title: "外装", value: exteriorText)
                             PurchaseMetric(title: "内装", value: interiorText)
                             PurchaseMetric(title: "機関", value: mechanicalText)
@@ -363,12 +362,13 @@ private struct PurchaseCasesPanel: View {
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         if let advice = game.procurementAppraisalAdvice(for: item.id) {
-                            Label(advice, systemImage: advice.contains("見送り") ? "hand.raised.fill" : "checkmark.shield.fill")
+                            let shouldDecline = game.storePurchaseDecision(for: item) == .decline
+                            Label(advice, systemImage: shouldDecline ? "hand.raised.fill" : "checkmark.shield.fill")
                                 .font(.caption2.bold())
-                                .foregroundStyle(advice.contains("見送り") ? GameTheme.danger : GameTheme.teal)
+                                .foregroundStyle(shouldDecline ? GameTheme.danger : GameTheme.teal)
                         }
                         if let issue = item.revealedIssue {
-                            Label("要告知：\(issue.name) — \(issue.detail)。販売相場を\(Int(issue.disclosedValueFactor * 100))%で再計算済みです。", systemImage: "exclamationmark.triangle.fill")
+                            Label(issue.warningText, systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption2.bold())
                                 .foregroundStyle(GameTheme.danger)
                                 .padding(8)
@@ -383,9 +383,17 @@ private struct PurchaseCasesPanel: View {
                         }
                         HStack(spacing: 6) {
                             Menu {
-                                purchaseOfferButton(item, percent: 100, title: "希望額で提示")
-                                purchaseOfferButton(item, percent: 94, title: "6%値下げを交渉")
-                                purchaseOfferButton(item, percent: 88, title: "12%値下げを交渉")
+                                let recommended = game.storePurchaseDecision(for: item).recommendedOfferPercent
+                                let offerPercents = Array(Set([100, 94, 88, 80] + (recommended.map { [$0] } ?? []))).sorted(by: >)
+                                ForEach(offerPercents, id: \.self) { percent in
+                                    purchaseOfferButton(
+                                        item,
+                                        percent: percent,
+                                        title: percent == recommended && percent != 100
+                                            ? "査定担当の推奨額"
+                                            : percent == 100 ? "希望額で提示" : "\(100 - percent)%値下げを交渉"
+                                    )
+                                }
                             } label: {
                                 Label("価格を提示", systemImage: "bubble.left.and.bubble.right.fill")
                                     .font(.caption2.bold())
@@ -847,7 +855,6 @@ private struct StoreInventoryPanel: View {
                                         Text("告知：\(issue.name)").foregroundStyle(GameTheme.danger)
                                     }
                                     if batch.isReserved { Text("法人案件に予約中").foregroundStyle(GameTheme.orange) }
-                                    Text(game.specialtyDemandDescription(for: batch, in: game.plot(id: store.plotID)?.district ?? .suburb))
                                 }
                                 .font(.caption2.bold())
                                 Text("仕入れ価格 \(batch.averageCost.currency)・販売目安 \((game.manualSaleQuote(storeID: store.id, inventoryID: batch.id)?.price ?? 0).currency)")
@@ -1711,6 +1718,7 @@ private struct ManagerPanel: View {
     let update: (Store) -> Void
     @State private var confirmFireManager = false
     @State private var showProcurementInstructionEditor = false
+    @State private var showStorePurchasePolicyEditor = false
 
     private var candidate: StoreManager? { game.managerCandidate(for: store.id) }
     private var employeeCandidates: [StoreEmployee] { game.employeeCandidates(for: store.id) }
@@ -1757,19 +1765,43 @@ private struct ManagerPanel: View {
                     }
                 }
                 HStack(spacing: 10) {
-                    Label("買取・仕入", systemImage: "car.badge.gearshape")
+                    Label("店舗買取・AA仕入", systemImage: "car.badge.gearshape")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Toggle("", isOn: binding(\.autoProcurement))
                         .labelsHidden()
                     .tint(GameTheme.teal)
-                    Button("詳細指示") {
+                    Button("AA指示") {
                         showProcurementInstructionEditor = true
                     }
                         .font(.caption.bold())
                         .frame(width: 96, alignment: .trailing)
                 }
                 .padding(.vertical, 4)
+            }
+            .gameCard()
+
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    SectionTitle(title: "店舗買取方針")
+                    Spacer()
+                    Button("方針を設定") { showStorePurchasePolicyEditor = true }
+                        .font(.caption.bold())
+                }
+                let policy = store.storePurchasePolicy
+                HStack {
+                    MetricView(title: "週間予算", value: policy.weeklyBudget.currency)
+                    MetricView(title: "最低粗利", value: "\(policy.minimumGrossProfit.currency)／台")
+                    MetricView(title: "今週残り", value: policy.remainingBudget.currency)
+                }
+                Text(policy.categories.isEmpty
+                    ? "対象車両なし"
+                    : policy.modelIDs.isEmpty
+                        ? "対象：\(policy.categories.sorted { $0.name < $1.name }.map(\.name).joined(separator: "、"))"
+                        : "対象車種：\(policy.modelIDs.compactMap { VehicleCatalog.entry(id: $0)?.fullName }.sorted().joined(separator: "、"))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .gameCard()
 
@@ -2027,6 +2059,9 @@ private struct ManagerPanel: View {
         } message: {
             Text("すべての業務委任が解除され、次週からオーナーの手動運営に戻ります。")
         }
+        .sheet(isPresented: $showStorePurchasePolicyEditor) {
+            StorePurchasePolicyEditor(storeID: store.id)
+        }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<Store, Value>) -> Binding<Value> {
@@ -2061,6 +2096,115 @@ private struct ManagerPanel: View {
     }
 }
 
+private struct StorePurchasePolicyEditor: View {
+    @EnvironmentObject private var game: GameEngine
+    @Environment(\.dismiss) private var dismiss
+    let storeID: UUID
+    @State private var policy: StorePurchasePolicy
+
+    init(storeID: UUID) {
+        self.storeID = storeID
+        _policy = State(initialValue: .standard)
+    }
+
+    private var selectedModels: [VehicleCatalogEntry] {
+        game.availableVehicleCatalog.filter { policy.modelIDs.contains($0.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("採算と予算") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("1週間の買取予算")
+                            Spacer()
+                            Text(policy.weeklyBudget.currency).bold().monospacedDigit()
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { Double(policy.weeklyBudget) },
+                                set: { policy.weeklyBudget = Int($0.rounded()) }
+                            ),
+                            in: 0...5_000,
+                            step: 100
+                        )
+                        Text("0万円では査定助言だけを表示し、自動買取は行いません。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Stepper(
+                        "最低粗利 \(policy.minimumGrossProfit.currency)／台",
+                        value: $policy.minimumGrossProfit,
+                        in: 0...1_000,
+                        step: 5
+                    )
+                }
+                Section("対象カテゴリ") {
+                    ForEach(VehicleCategory.allCases) { category in
+                        Toggle(category.name, isOn: Binding(
+                            get: { policy.categories.contains(category) },
+                            set: { enabled in
+                                if enabled {
+                                    policy.categories.insert(category)
+                                } else {
+                                    policy.categories.remove(category)
+                                    let removedIDs = game.availableVehicleCatalog
+                                        .filter { $0.category == category }
+                                        .map(\.id)
+                                    policy.modelIDs.subtract(removedIDs)
+                                }
+                            }
+                        ))
+                    }
+                }
+                Section("対象車種（任意）") {
+                    if !policy.modelIDs.isEmpty {
+                        Button("車種指定を解除") { policy.modelIDs.removeAll() }
+                        Text("選択中：\(selectedModels.map(\.fullName).sorted().joined(separator: "、"))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    ForEach(VehicleCategory.allCases.filter { policy.categories.contains($0) }) { category in
+                        DisclosureGroup(category.name) {
+                            ForEach(game.availableVehicleCatalog.filter { $0.category == category }) { model in
+                                Toggle(model.fullName, isOn: Binding(
+                                    get: { policy.modelIDs.contains(model.id) },
+                                    set: { enabled in
+                                        if enabled { policy.modelIDs.insert(model.id) }
+                                        else { policy.modelIDs.remove(model.id) }
+                                    }
+                                ))
+                            }
+                        }
+                    }
+                    Text("車種を選ばない場合は、選択したカテゴリの全車種が対象です。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("店舗買取方針")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if let store = game.stores.first(where: { $0.id == storeID }) {
+                    policy = store.storePurchasePolicy
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        guard var store = game.stores.first(where: { $0.id == storeID }) else { return }
+                        policy.spentBudget = min(policy.spentBudget, policy.weeklyBudget)
+                        store.storePurchasePolicy = policy
+                        game.updateStore(store)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct ProcurementInstructionPanel: View {
     @EnvironmentObject private var game: GameEngine
     let store: Store
@@ -2073,10 +2217,10 @@ private struct ProcurementInstructionPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "仕入れの指示")
+            SectionTitle(title: "AA仕入れ指示")
 
             if store.autoProcurement && instructions.filter({ $0.status == .active }).isEmpty {
-                Label("自動仕入れはONですが、有効な指示がありません", systemImage: "exclamationmark.triangle.fill")
+                Label("自動仕入れはONですが、有効なAA仕入れ指示がありません", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(GameTheme.orange)
             }
@@ -2223,7 +2367,7 @@ private struct ProcurementInstructionEditor: View {
     init(storeID: UUID, instruction: ProcurementInstruction?) {
         self.storeID = storeID
         self.instruction = instruction
-        _totalBudget = State(initialValue: instruction?.totalBudget ?? 800)
+        _totalBudget = State(initialValue: instruction?.totalBudget ?? 1_000)
         _targetUnits = State(initialValue: 3)
         _minimumGrossMarginPercent = State(initialValue: 5)
         switch instruction?.financialRule {
@@ -2257,13 +2401,12 @@ private struct ProcurementInstructionEditor: View {
     }
 
     private var minimumBudget: Int {
-        max(10, (instruction?.spentBudget ?? 0) + (instruction?.reservedBudget ?? 0))
+        let committed = (instruction?.spentBudget ?? 0) + (instruction?.reservedBudget ?? 0)
+        return Int(ceil(Double(committed) / 100.0)) * 100
     }
 
     private var selectableSources: [ProcurementSource] {
-        ruleSelection == .replenishment
-            ? [.auction, .networkAuction]
-            : [.storePurchase, .auction, .networkAuction]
+        [.auction, .networkAuction]
     }
 
     private func sourceBinding(_ source: ProcurementSource) -> Binding<Bool> {
@@ -2309,7 +2452,21 @@ private struct ProcurementInstructionEditor: View {
                     Toggle("故障車のみ", isOn: $faultOnly)
                 }
                 Section("金額条件") {
-                    Stepper("1週間の総予算 \(totalBudget.currency)", value: $totalBudget, in: minimumBudget...100_000, step: 10)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("1週間の総予算")
+                            Spacer()
+                            Text(totalBudget.currency).bold().monospacedDigit()
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { Double(totalBudget) },
+                                set: { totalBudget = Int($0.rounded()) }
+                            ),
+                            in: Double(minimumBudget)...Double(max(5_000, minimumBudget)),
+                            step: 100
+                        )
+                    }
                     Picker("判定方法", selection: $ruleSelection) {
                         ForEach(ProcurementRuleSelection.allCases) { Text($0.name).tag($0) }
                     }
@@ -2337,7 +2494,7 @@ private struct ProcurementInstructionEditor: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(instruction == nil ? "仕入れ指示を追加" : "仕入れ指示を編集")
+            .navigationTitle(instruction == nil ? "AA仕入れ指示を追加" : "AA仕入れ指示を編集")
             .navigationBarTitleDisplayMode(.inline)
             .onChange(of: category) { _, newCategory in
                 if let newCategory, let origin,

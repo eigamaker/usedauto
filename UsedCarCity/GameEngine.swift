@@ -232,7 +232,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v51"
+    private static let saveKey = "UsedCarCity.save.v52"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -1154,15 +1154,6 @@ final class GameEngine: ObservableObject {
         return "長期在庫\(age)週"
     }
 
-    func specialtyDemandDescription(for batch: InventoryBatch, in district: DistrictKind) -> String {
-        if let purpose = batch.productState.purpose { return "\(purpose.name)向け商品" }
-        if batch.productState == .refurbished { return "完全再生車" }
-        if batch.isRareClassic {
-            return [.downtown, .emerging].contains(district) ? "旧車需要：強い" : "旧車需要：限定的"
-        }
-        return "一般需要"
-    }
-
     func marketProductKind(for batch: InventoryBatch) -> MarketProductKind {
         MarketProductKind.resolve(productState: batch.productState, isRareClassic: batch.isRareClassic)
     }
@@ -2034,7 +2025,7 @@ final class GameEngine: ObservableObject {
             return nil
         }
         guard stores.contains(where: { $0.id == storeID }),
-              totalBudget > 0,
+              totalBudget >= 0,
               financialRule.isValid else { return nil }
         let priority = (procurementInstructions(for: storeID).map(\.priority).max() ?? -1) + 1
         let instruction = ProcurementInstruction(
@@ -2064,7 +2055,7 @@ final class GameEngine: ObservableObject {
         guard let index = procurementInstructions.firstIndex(where: { $0.id == changed.id }),
               stores.contains(where: { $0.id == changed.storeID }),
               changed.totalBudget >= changed.spentBudget + changed.reservedBudget,
-              changed.totalBudget > 0,
+              changed.totalBudget >= 0,
               changed.financialRule.isValid else { return false }
         var normalized = changed
         if let modelID = normalized.modelID {
@@ -2083,9 +2074,7 @@ final class GameEngine: ObservableObject {
         _ sources: Set<ProcurementSource>,
         for rule: ProcurementFinancialRule
     ) -> Set<ProcurementSource> {
-        let executable: Set<ProcurementSource> = rule.targetUnits > 0
-            ? [.auction, .networkAuction]
-            : [.storePurchase, .auction, .networkAuction]
+        let executable: Set<ProcurementSource> = [.auction, .networkAuction]
         let normalized = sources.intersection(executable)
         return normalized.isEmpty ? executable : normalized
     }
@@ -3084,19 +3073,11 @@ final class GameEngine: ObservableObject {
             )
             estimatedRepairCost = item.asIsRepairCost
                 + conversionCost
-                + estimatedSourcingRepairCost(
-                    category: item.category,
-                    fault: item.fault,
-                    condition: item.condition,
-                    storeID: item.storeID
-                )
+                + assessment.repairCostRange.upperBound
         } else {
-            estimatedRepairCost = assessment.estimatedRepairCost
+            estimatedRepairCost = assessment.repairCostRange.upperBound
         }
-        let uncertaintyBuffer = assessment.isVerified
-            ? 0
-            : max(2, estimatedRepairCost * max(0, 100 - assessment.confidence) / 250)
-        return (item.expectedSaleAfterAppraisal - item.askingPrice - estimatedRepairCost - uncertaintyBuffer)
+        return (item.expectedSaleAfterAppraisal - item.askingPrice - estimatedRepairCost)
             * item.lotCount
     }
 
@@ -4944,8 +4925,8 @@ final class GameEngine: ObservableObject {
 
     func purchaseNegotiationPreview(_ caseID: UUID, offerPercent: Int) -> (price: Int, closeChance: Double)? {
         guard let item = purchaseCases.first(where: { $0.id == caseID }) else { return nil }
-        let percent = min(100, max(85, offerPercent))
-        let baseChance: Double = percent >= 100 ? 0.96 : percent >= 94 ? 0.80 : 0.60
+        let percent = min(100, max(80, offerPercent))
+        let baseChance: Double = percent >= 100 ? 0.96 : percent >= 94 ? 0.80 : percent >= 88 ? 0.60 : 0.42
         let priceGap = Double(item.askingPrice - item.appraisedPrice) / Double(max(1, item.askingPrice))
         let retryPenalty = Double(item.negotiations) * 0.08
         let expertise = stores.first(where: { $0.id == item.storeID }).map {
@@ -4965,29 +4946,40 @@ final class GameEngine: ObservableObject {
 
     func procurementAppraisalAdvice(for caseID: UUID) -> String? {
         guard let item = purchaseCases.first(where: { $0.id == caseID }),
-              let store = stores.first(where: { $0.id == item.storeID }),
-              let appraiser = store.employees
-                .filter({ $0.assignment == .service })
-                .max(by: { $0.appraisalComposite < $1.appraisalComposite }) else { return nil }
-        let minimumGrossProfit = max(0, Int((Double(item.expectedSaleAfterAppraisal) * 0.07).rounded()))
-        guard let percent = safePurchaseOfferPercent(
-            item: item,
-            maximumOffer: item.askingPrice,
-            minimumGrossProfit: minimumGrossProfit,
-            appraiser: appraiser
-        ) else {
-            return "\(appraiser.name)査定：採算上限が希望額の85%未満。高値づかみを避けるため見送り推奨"
+              stores.contains(where: { $0.id == item.storeID }) else { return nil }
+        switch storePurchaseDecision(for: item) {
+        case .acceptableAtAsking:
+            return "査定担当：顧客の希望額でも十分採算が取れる見込みです"
+        case .counteroffer(let price, let percent, _):
+            return "査定担当：採算性を考えると顧客の希望額は厳しいため、希望額から\(100 - percent)%下げた\(price.currency)であれば採算が取れる見込みです"
+        case .decline:
+            return "査定担当：採算性を考えると顧客の希望額は厳しいため、見送りを勧めます"
         }
+    }
+
+    func storePurchaseDecision(for item: PurchaseCase) -> StorePurchaseDecision {
+        guard let store = stores.first(where: { $0.id == item.storeID }),
+              store.storePurchasePolicy.matches(category: item.category, modelID: item.modelID) else {
+            return .decline
+        }
+        let expectedAtAsking = purchaseExpectedGrossProfit(for: item) / max(1, item.lotCount)
+        let minimum = store.storePurchasePolicy.minimumGrossProfit
+        if expectedAtAsking >= minimum {
+            return .acceptableAtAsking(price: item.askingPrice, expectedGrossProfit: expectedAtAsking)
+        }
+        let maximumOffer = item.askingPrice + expectedAtAsking - minimum
+        guard maximumOffer > 0 else { return .decline }
+        let percent = min(99, maximumOffer * 100 / max(1, item.askingPrice))
+        guard percent >= 80 else { return .decline }
         let price = item.askingPrice * percent / 100
-        let issueText = item.revealedIssue.map { issue in "・\(issue.name)を価格へ反映" } ?? ""
-        return "\(appraiser.name)査定：上限\(price.currency)（希望額の\(percent)%）\(issueText)"
+        let expectedGrossProfit = expectedAtAsking + item.askingPrice - price
+        return .counteroffer(price: price, percent: percent, expectedGrossProfit: expectedGrossProfit)
     }
 
     private func safePurchaseOfferPercent(
         item: PurchaseCase,
         maximumOffer: Int,
-        minimumGrossProfit: Int,
-        appraiser _: StoreEmployee
+        minimumGrossProfit: Int
     ) -> Int? {
         // The procurement handler negotiates the deal but never changes the
         // mechanical assessment. The same assessment is used manually and by
@@ -5000,7 +4992,7 @@ final class GameEngine: ObservableObject {
         )
         guard safePurchasePrice > 0 else { return nil }
         let maximumPercent = safePurchasePrice * 100 / max(1, item.askingPrice)
-        guard maximumPercent >= 85 else { return nil }
+        guard maximumPercent >= 80 else { return nil }
         return min(100, maximumPercent)
     }
 
@@ -8396,6 +8388,9 @@ final class GameEngine: ObservableObject {
         for index in procurementInstructions.indices {
             procurementInstructions[index].spentBudget = 0
         }
+        for index in stores.indices {
+            stores[index].storePurchasePolicy.spentBudget = 0
+        }
     }
 
     private func instructionMatches(
@@ -8569,54 +8564,6 @@ final class GameEngine: ObservableObject {
             : handler.procurementComposite >= 60 ? 8 : 4
         var candidates: [AutomaticProcurementCandidate] = []
 
-        if instruction.allowedSources.contains(.storePurchase) {
-        for item in purchaseCases where item.storeID == storeID {
-            let assessment = purchaseAssessment(for: item)
-            let assessedFault = assessment.detectedFault ?? .none
-            let assessedCondition = assessment.condition.estimatedProfile
-            guard item.lotCount <= freeCapacity,
-                  instructionMatches(instruction, category: item.category, modelID: item.modelID, fault: assessedFault) else { continue }
-            let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000
-            guard transactionRoll(seed: seed + instruction.priority * 31) <= visibility else { continue }
-            let predictedRetail = predictedSourcingRetail(
-                storeID: storeID,
-                modelID: item.modelID,
-                category: item.category,
-                modelYear: item.modelYear,
-                mileage: item.mileage,
-                condition: assessedCondition
-            )
-            let repairCost = assessment.repairCostRange.upperBound
-            let maximumOffer = maximumInstructionOffer(
-                instruction: instruction,
-                predictedRetail: predictedRetail,
-                repairCost: repairCost,
-                fixedCosts: 0
-            )
-            guard maximumOffer >= item.askingPrice * 85 / 100,
-                  let percent = safePurchaseOfferPercent(
-                    item: item,
-                    maximumOffer: maximumOffer,
-                    minimumGrossProfit: 0,
-                    appraiser: handler
-                  ),
-                  let preview = purchaseNegotiationPreview(item.id, offerPercent: percent) else { continue }
-            let total = preview.price * item.lotCount
-            guard total <= instruction.remainingBudget, total <= cash else { continue }
-            candidates.append(AutomaticProcurementCandidate(
-                kind: .storePurchase(caseID: item.id, offerPercent: percent),
-                source: .storePurchase,
-                vehicleName: item.vehicleName,
-                acquisitionCost: total,
-                predictedUnitGrossProfit: predictedRetail - preview.price - repairCost,
-                successProbability: min(
-                    0.98,
-                    max(0.05, preview.closeChance + employeeProcurementCloseAdjustment(handler))
-                )
-            ))
-        }
-        }
-
         if instruction.allowedSources.contains(.auction) {
         for listing in auctionListings where !bidReservations.contains(where: { $0.listingID == listing.id }) {
             guard instructionMatches(instruction, category: listing.category, modelID: listing.modelID, fault: listing.fault) else { continue }
@@ -8725,6 +8672,130 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    private func automaticStorePurchaseCandidate(
+        handler: StoreEmployee,
+        storeIndex: Int
+    ) -> AutomaticProcurementCandidate? {
+        let store = stores[storeIndex]
+        let policy = store.storePurchasePolicy
+        guard policy.remainingBudget > 0 else { return nil }
+        let freeCapacity = store.type.capacity - store.inventoryCount - incomingCount(for: store.id)
+        guard freeCapacity > 0 else { return nil }
+        let visibility = interpolatedEmployeeEffect(score: handler.procurementComposite, low: 0.30, high: 0.98)
+        return purchaseCases
+            .filter { item in
+                guard item.storeID == store.id,
+                      item.lotCount <= freeCapacity,
+                      policy.matches(category: item.category, modelID: item.modelID),
+                      let percent = storePurchaseDecision(for: item).recommendedOfferPercent,
+                      let preview = purchaseNegotiationPreview(item.id, offerPercent: percent) else { return false }
+                let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000
+                return transactionRoll(seed: seed) <= visibility
+                    && preview.price * item.lotCount <= policy.remainingBudget
+                    && preview.price * item.lotCount <= cash
+            }
+            .compactMap { item -> AutomaticProcurementCandidate? in
+                guard let percent = storePurchaseDecision(for: item).recommendedOfferPercent,
+                      let preview = purchaseNegotiationPreview(item.id, offerPercent: percent) else { return nil }
+                let expected = purchaseExpectedGrossProfit(for: item) / max(1, item.lotCount)
+                    + item.askingPrice - preview.price
+                return AutomaticProcurementCandidate(
+                    kind: .storePurchase(caseID: item.id, offerPercent: percent),
+                    source: .storePurchase,
+                    vehicleName: item.vehicleName,
+                    acquisitionCost: preview.price * item.lotCount,
+                    predictedUnitGrossProfit: expected,
+                    successProbability: min(
+                        0.98,
+                        max(0.05, preview.closeChance + employeeProcurementCloseAdjustment(handler))
+                    )
+                )
+            }
+            .max { $0.expectedGrossProfit < $1.expectedGrossProfit }
+    }
+
+    @discardableResult
+    private func executeAutomaticStorePurchase(
+        _ candidate: AutomaticProcurementCandidate,
+        handler: StoreEmployee,
+        storeIndex: Int,
+        notes: inout [String]
+    ) -> Bool {
+        guard case .storePurchase(let caseID, let offerPercent) = candidate.kind,
+              let caseIndex = purchaseCases.firstIndex(where: { $0.id == caseID }),
+              let preview = purchaseNegotiationPreview(caseID, offerPercent: offerPercent) else { return false }
+        let item = purchaseCases[caseIndex]
+        let total = preview.price * item.lotCount
+        guard total <= stores[storeIndex].storePurchasePolicy.remainingBudget,
+              cash >= total,
+              stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity else { return false }
+        let chance = min(0.98, max(0.05, preview.closeChance + employeeProcurementCloseAdjustment(handler)))
+        let seed = turn * 263 + item.modelYear * 7 + item.mileage / 1_000 + offerPercent * 29
+        let succeeded = transactionRoll(seed: seed) < chance
+        updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) { $0.handled += 1 }
+        awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .procurement, successful: succeeded)
+        recordSellerReview(
+            item: item,
+            offerPercent: offerPercent,
+            succeeded: succeeded,
+            serviceScore: (succeeded ? 68 : 50) + Int((handler.procurementComposite * 0.20).rounded())
+        )
+        if succeeded {
+            let dispositionPlan = item.suggestedProjectKind
+                .map { InventoryDispositionPlan.customization(kind: $0, grade: nil) } ?? .retail
+            cash -= total
+            stores[storeIndex].storePurchasePolicy.spentBudget += total
+            stores[storeIndex].inventory.append(InventoryBatch(
+                modelID: item.modelID,
+                category: item.category,
+                count: item.lotCount,
+                averageCost: preview.price,
+                quality: item.condition.quality,
+                modelYear: item.modelYear,
+                mileage: item.mileage,
+                acquiredTurn: turn,
+                vehicleIssue: item.hiddenIssue.map {
+                    VehicleIssueRecord(kind: $0, status: item.issueRevealed ? .disclosed : .hidden)
+                },
+                condition: item.condition,
+                fault: item.fault,
+                faultRevealed: item.faultRevealed,
+                dispositionPlan: dispositionPlan
+            ))
+            if let suggested = item.suggestedProjectKind,
+               let inventoryID = stores[storeIndex].inventory.last?.id {
+                _ = startWorkshopProject(
+                    storeID: item.storeID,
+                    inventoryID: inventoryID,
+                    kind: suggested,
+                    fulfillment: .automatic
+                )
+            }
+            recordVehicleAcquisition(
+                storeID: item.storeID, source: .storePurchase, modelID: item.modelID,
+                category: item.category, count: item.lotCount, unitCost: preview.price,
+                cashImpact: total, modelYear: item.modelYear, mileage: item.mileage,
+                quality: item.condition.quality, arrivalTurn: nil,
+                dispositionPlan: dispositionPlan
+            )
+            simulationTransactionHandler?(SimulationVehicleTransaction(
+                turn: turn, kind: .acquired, storeID: item.storeID, source: .storePurchase,
+                category: item.category, count: item.lotCount, revenue: 0, cost: total,
+                purchaseOrigin: item.origin
+            ))
+            let purpose = stores[storeIndex].marketPolicy.targetPurpose
+            stores[storeIndex].expertise.add(category: item.category, purpose: purpose, source: .storePurchase, points: 1)
+            companyExpertise.add(category: item.category, purpose: purpose, source: .storePurchase, points: 1)
+            updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                $0.successes += 1
+                $0.grossProfit += candidate.predictedUnitGrossProfit * item.lotCount
+            }
+            notes.append("\(stores[storeIndex].name)店舗買取：\(item.vehicleName)\(item.lotCount)台を取得")
+        }
+        purchaseCases.removeAll { $0.id == caseID }
+        return true
+    }
+
     @discardableResult
     private func executeAutomaticProcurementCandidate(
         _ candidate: AutomaticProcurementCandidate,
@@ -8767,8 +8838,7 @@ final class GameEngine: ObservableObject {
             guard let safePercent = safePurchaseOfferPercent(
                 item: item,
                 maximumOffer: maximumOffer,
-                minimumGrossProfit: 0,
-                appraiser: handler
+                minimumGrossProfit: 0
             ), let preview = purchaseNegotiationPreview(
                 caseID,
                 offerPercent: min(requestedOfferPercent, safePercent)
@@ -8952,8 +9022,9 @@ final class GameEngine: ObservableObject {
         let activeInstructions = procurementInstructions(for: storeID).filter {
             $0.status == .active && $0.remainingBudget > 0
         }
-        guard !activeInstructions.isEmpty else {
-            notes.append("\(stores[storeIndex].name)自動仕入：有効な仕入れ指示なし")
+        let hasStorePurchaseBudget = stores[storeIndex].storePurchasePolicy.remainingBudget > 0
+        guard hasStorePurchaseBudget || !activeInstructions.isEmpty else {
+            notes.append("\(stores[storeIndex].name)自動仕入：店舗買取予算と有効なAA仕入れ指示がありません")
             return
         }
         guard !handlers.isEmpty else {
@@ -8976,6 +9047,19 @@ final class GameEngine: ObservableObject {
         for handler in handlers {
             let caseCapacity = employeeWeeklyCaseCapacity(for: handler, assignment: .procurement)
             for _ in 0..<caseCapacity {
+                if let storePurchase = automaticStorePurchaseCandidate(
+                    handler: handler,
+                    storeIndex: storeIndex
+                ) {
+                    if executeAutomaticStorePurchase(
+                        storePurchase,
+                        handler: handler,
+                        storeIndex: storeIndex,
+                        notes: &notes
+                    ) {
+                        continue
+                    }
+                }
                 var selected: (ProcurementInstruction, AutomaticProcurementCandidate)?
                 for instruction in procurementInstructions(for: storeID)
                     where instruction.status == .active && instruction.remainingBudget > 0 {

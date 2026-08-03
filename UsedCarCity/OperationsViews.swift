@@ -172,16 +172,16 @@ struct InventoryCustomizationSheet: View {
         .workConversion
     ]
 
-    private var store: Store? { game.stores.first(where: { $0.id == storeID }) }
     private var batch: InventoryBatch? {
-        store?.inventory.first(where: { $0.id == inventoryID })
+        game.stores.first(where: { $0.id == storeID })?
+            .inventory.first(where: { $0.id == inventoryID })
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
-                    if let store, let batch {
+                    if let batch {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Image(systemName: batch.category.icon)
@@ -197,7 +197,7 @@ struct InventoryCustomizationSheet: View {
                                 }
                                 Spacer()
                             }
-                            Text("在庫車をベースに商品を作ります。内製は工房・整備担当が必要で、外注は費用と納期が増えます。")
+                            Text("内製には整備担当と対応設備の空きベイが必要です。条件を満たさない場合は外注になります。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()
@@ -213,18 +213,14 @@ struct InventoryCustomizationSheet: View {
                             let gradeOptions: [SpecialtyProductGrade?] = isGradeProject
                                 ? SpecialtyProductGrade.allCases.map(Optional.some)
                                 : [nil]
-                            let previews = gradeOptions.flatMap { grade in
-                                WorkFulfillmentMode.allCases
-                                    .filter { $0 != .automatic }
-                                    .compactMap {
-                                        game.workshopProjectPreview(
-                                            storeID: storeID,
-                                            inventoryID: inventoryID,
-                                            kind: kind,
-                                            grade: grade,
-                                            fulfillment: $0
-                                        )
-                                    }
+                            let previews = gradeOptions.compactMap { grade in
+                                game.workshopProjectPreview(
+                                    storeID: storeID,
+                                    inventoryID: inventoryID,
+                                    kind: kind,
+                                    grade: grade,
+                                    fulfillment: .automatic
+                                )
                                 }
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack {
@@ -239,7 +235,7 @@ struct InventoryCustomizationSheet: View {
                                     }
                                 }
                                 if previews.isEmpty {
-                                    Text(unavailableReason(kind: kind, store: store, batch: batch))
+                                    Text(unavailableReason(kind: kind, batch: batch))
                                         .font(.caption).foregroundStyle(.secondary)
                                 } else {
                                     ForEach(Array(previews.enumerated()), id: \.offset) { _, preview in
@@ -249,15 +245,11 @@ struct InventoryCustomizationSheet: View {
                                                     preview.grade.map { "\($0.name(for: productKind))・\(preview.fulfillmentMode.name)" }
                                                         ?? preview.fulfillmentMode.name
                                                 ).font(.caption.bold())
-                                                Spacer()
-                                                Text("原価 \(preview.cost.currency)").font(.caption.bold().monospacedDigit())
-                                                Text("外注基準 \(preview.outsourceBaselineCost.currency) → \(preview.finalCostRate)%")
-                                                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                                             }
                                             HStack {
+                                                MetricView(title: "必要コスト", value: preview.cost.currency)
                                                 MetricView(title: "納期", value: "\(preview.estimatedWeeks)週")
-                                                MetricView(title: "完成状態", value: preview.resultingCondition.displayText)
-                                                MetricView(title: "販売目安", value: preview.projectedSalePrice.currency, tint: GameTheme.teal)
+                                                MetricView(title: "想定販売価格", value: preview.projectedSalePrice.currency, tint: GameTheme.teal)
                                             }
                                             Button {
                                                 let started = game.startWorkshopProject(
@@ -269,7 +261,7 @@ struct InventoryCustomizationSheet: View {
                                                 )
                                                 resultMessage = started
                                                     ? "\(kind.name) \(preview.grade?.name(for: productKind) ?? "")を\(preview.fulfillmentMode.name)で開始しました。"
-                                                    : "現金、設備、担当者、外注枠を確認してください。"
+                                                    : "現金、設備、担当者、または車両状態を確認してください。"
                                             } label: {
                                                 Label("\(preview.fulfillmentMode.name)で開始", systemImage: "hammer.fill")
                                                     .frame(maxWidth: .infinity)
@@ -312,7 +304,7 @@ struct InventoryCustomizationSheet: View {
         }
     }
 
-    private func unavailableReason(kind: WorkshopProjectKind, store: Store, batch: InventoryBatch) -> String {
+    private func unavailableReason(kind: WorkshopProjectKind, batch: InventoryBatch) -> String {
         if kind == .camperConversion && batch.category != .minivan {
             return "キャンピングカー化はミニバンが対象です。"
         }
@@ -322,10 +314,7 @@ struct InventoryCustomizationSheet: View {
         if kind == .workConversion && ![VehicleCategory.minivan, .pickup].contains(batch.category) {
             return "職人・配送仕様はミニバン・ピックアップが対象です。"
         }
-        if !store.facilities.contains(.customWorkshop) {
-            return "内製にはカスタム工房、外注には提携先の空き枠が必要です。"
-        }
-        return "整備担当、工房ベイ、外注枠、または車両の現在状態を確認してください。"
+        return "車両の現在状態または施工条件を確認してください。"
     }
 }
 

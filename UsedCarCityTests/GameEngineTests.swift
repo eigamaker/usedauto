@@ -130,6 +130,7 @@ final class GameEngineTests: XCTestCase {
         game.stores[0].autoProcurement = true
         game.stores[0].autoMarketing = true
         game.stores[0].autoService = true
+        game.stores[0].storePurchasePolicy.weeklyBudget = 0
         game.stores[0].salesPolicy = .balanced
         game.stores[0].servicePolicy = .balanced
 
@@ -5318,6 +5319,13 @@ final class GameEngineTests: XCTestCase {
         game.stores[0].autoSales = true
         game.stores[0].autoMarketing = true
         game.stores[0].salesPolicy = .profit
+        game.stores[0].storePurchasePolicy = StorePurchasePolicy(
+            weeklyBudget: 1_200,
+            spentBudget: 100,
+            minimumGrossProfit: 45,
+            categories: [.suv],
+            modelIDs: []
+        )
         game.stores[0].manager = StoreManager(
             name: "保存店長", staffingAbility: 70, salesAbility: 71,
             procurementAbility: 88, researchAbility: 72,
@@ -5434,6 +5442,10 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(game.stores[0].autoSales)
         XCTAssertTrue(game.stores[0].autoMarketing)
         XCTAssertEqual(game.stores[0].salesPolicy, .profit)
+        XCTAssertEqual(game.stores[0].storePurchasePolicy.weeklyBudget, 1_200)
+        XCTAssertEqual(game.stores[0].storePurchasePolicy.spentBudget, 100)
+        XCTAssertEqual(game.stores[0].storePurchasePolicy.minimumGrossProfit, 45)
+        XCTAssertEqual(game.stores[0].storePurchasePolicy.categories, [.suv])
         XCTAssertEqual(game.stores[0].employees[0].assignment, .sales)
         XCTAssertEqual(game.stores[0].employees[0].marketResearchSkill, 91)
         XCTAssertEqual(game.stores[0].employees[0].commissionRate, 8)
@@ -5466,13 +5478,13 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.competitors[0].branches[0].productizationQueue.first?.productGrade, .middle)
     }
 
-    func testVersion50SaveIsNotLoadedAfterVersion51ConditionModelChange() {
+    func testVersion51SaveIsNotLoadedAfterVersion52StorePurchasePolicyChange() {
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "UsedCarCity.save.v51")
-        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v50")
+        defaults.removeObject(forKey: "UsedCarCity.save.v52")
+        defaults.set(Data([0x01, 0x02, 0x03]), forKey: "UsedCarCity.save.v51")
         defer {
-            defaults.removeObject(forKey: "UsedCarCity.save.v50")
             defaults.removeObject(forKey: "UsedCarCity.save.v51")
+            defaults.removeObject(forKey: "UsedCarCity.save.v52")
         }
 
         let game = GameEngine()
@@ -6020,5 +6032,88 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(MarketProductKind.resolve(productState: .mobileSales, isRareClassic: false), .mobileSales)
         XCTAssertEqual(MarketProductKind.resolve(productState: .kitchenCar, isRareClassic: false), .kitchenCar)
         XCTAssertNotEqual(MarketProductKind.mobileSales, .kitchenCar)
+    }
+
+    func testStorePurchasePolicyDefaultsAndVehicleFilters() throws {
+        let policy = StorePurchasePolicy.standard
+        XCTAssertEqual(policy.weeklyBudget, 1_000)
+        XCTAssertEqual(policy.minimumGrossProfit, 30)
+        XCTAssertEqual(policy.categories, Set(VehicleCategory.allCases))
+        XCTAssertTrue(policy.modelIDs.isEmpty)
+
+        let compact = try XCTUnwrap(VehicleCatalog.available(category: .compact, through: 0).first)
+        let kei = try XCTUnwrap(VehicleCatalog.available(category: .kei, through: 0).first)
+        XCTAssertTrue(policy.matches(category: compact.category, modelID: compact.id))
+
+        var filtered = policy
+        filtered.categories = [.compact]
+        XCTAssertTrue(filtered.matches(category: compact.category, modelID: compact.id))
+        XCTAssertFalse(filtered.matches(category: kei.category, modelID: kei.id))
+        filtered.modelIDs = [compact.id]
+        XCTAssertTrue(filtered.matches(category: compact.category, modelID: compact.id))
+        XCTAssertFalse(filtered.matches(category: .compact, modelID: "another-compact"))
+    }
+
+    func testStorePurchaseDecisionUsesOneConservativeMinimumGrossProfitAndEightyPercentFloor() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 131)
+        let item = try XCTUnwrap(game.purchaseCases.first)
+        let expectedAtAsking = game.purchaseExpectedGrossProfit(for: item) / max(1, item.lotCount)
+
+        game.stores[0].storePurchasePolicy.minimumGrossProfit = expectedAtAsking
+        XCTAssertEqual(
+            game.storePurchaseDecision(for: item),
+            .acceptableAtAsking(price: item.askingPrice, expectedGrossProfit: expectedAtAsking)
+        )
+        XCTAssertTrue(game.procurementAppraisalAdvice(for: item.id)?.contains("希望額でも十分採算") == true)
+
+        game.stores[0].storePurchasePolicy.minimumGrossProfit = expectedAtAsking + item.askingPrice / 5
+        guard case .counteroffer(_, let percent, _) = game.storePurchaseDecision(for: item) else {
+            return XCTFail("希望額の80%以上なら値下げ提案になる必要があります")
+        }
+        XCTAssertGreaterThanOrEqual(percent, 80)
+        XCTAssertTrue(game.procurementAppraisalAdvice(for: item.id)?.contains("希望額から") == true)
+
+        game.stores[0].storePurchasePolicy.minimumGrossProfit = expectedAtAsking + item.askingPrice * 21 / 100 + 2
+        XCTAssertEqual(game.storePurchaseDecision(for: item), .decline)
+        XCTAssertTrue(game.procurementAppraisalAdvice(for: item.id)?.contains("見送りを勧めます") == true)
+
+        game.stores[0].storePurchasePolicy.minimumGrossProfit = expectedAtAsking
+        game.stores[0].storePurchasePolicy.categories.remove(item.category)
+        XCTAssertEqual(game.storePurchaseDecision(for: item), .decline)
+    }
+
+    func testAutomaticStorePurchaseRunsWithoutAAInstructionAndResetsWeeklySpend() throws {
+        let game = GameEngine(persistenceEnabled: false)
+        startPlayableGame(game, simulationSeed: 132)
+        game.cash = 100_000
+        game.stores[0].inventory = []
+        game.stores[0].autoProcurement = true
+        game.stores[0].storePurchasePolicy.weeklyBudget = 50_000
+        game.stores[0].storePurchasePolicy.minimumGrossProfit = 0
+        game.stores[0].storePurchasePolicy.spentBudget = 400
+        game.stores[0].employees = [StoreEmployee(
+            name: "店舗買取担当", salesSkill: 40, procurementSkill: 99,
+            researchSkill: 60, serviceSkill: 90, monthlySalary: 60,
+            assignment: .procurement
+        )]
+        game.procurementInstructions = []
+        let originalCaseIDs = Set(game.purchaseCases.map(\.id))
+        XCTAssertFalse(originalCaseIDs.isEmpty)
+
+        game.advanceWeek()
+
+        XCTAssertFalse(originalCaseIDs.isSubset(of: Set(game.purchaseCases.map(\.id))))
+        XCTAssertTrue(game.lastReport?.notes.contains { $0.contains("店舗買取") } == true)
+
+        game.stores[0].autoProcurement = false
+        game.stores[0].storePurchasePolicy.spentBudget = 400
+        game.advanceWeek()
+        XCTAssertEqual(game.stores[0].storePurchasePolicy.spentBudget, 0)
+    }
+
+    func testVehicleIssueWarningsAreShortAndDirect() {
+        XCTAssertEqual(VehicleIssueKind.odometerRollback.warningText, "メーター改ざんの恐れがあります")
+        XCTAssertEqual(VehicleIssueKind.repairedHistory.warningText, "修復歴があります")
     }
 }

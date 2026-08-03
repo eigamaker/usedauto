@@ -457,6 +457,7 @@ enum SaleNegotiationStrategy: String, CaseIterable, Identifiable {
         case .closeDeal: "成約優先・粗利は下がる"
         }
     }
+
     var discountRate: Double {
         switch self {
         case .holdPrice: 0
@@ -2154,6 +2155,13 @@ enum VehicleIssueKind: String, Codable, Hashable {
         }
     }
 
+    var warningText: String {
+        switch self {
+        case .repairedHistory: "修復歴があります"
+        case .odometerRollback: "メーター改ざんの恐れがあります"
+        }
+    }
+
     var disclosedValueFactor: Double { self == .repairedHistory ? 0.78 : 0.68 }
     var compensationRate: Double { self == .repairedHistory ? 0.18 : 0.27 }
     var reputationPenalty: Double { self == .repairedHistory ? 0.06 : 0.09 }
@@ -3437,6 +3445,51 @@ struct ManagerProposal: Identifiable, Codable, Hashable {
     }
 }
 
+struct StorePurchasePolicy: Codable, Hashable {
+    var weeklyBudget: Int
+    var spentBudget: Int
+    var minimumGrossProfit: Int
+    var categories: Set<VehicleCategory>
+    var modelIDs: Set<String>
+
+    static let standard = StorePurchasePolicy(
+        weeklyBudget: 1_000,
+        spentBudget: 0,
+        minimumGrossProfit: 30,
+        categories: Set(VehicleCategory.allCases),
+        modelIDs: []
+    )
+
+    var remainingBudget: Int {
+        max(0, weeklyBudget - spentBudget)
+    }
+
+    func matches(category: VehicleCategory, modelID: String) -> Bool {
+        categories.contains(category) && (modelIDs.isEmpty || modelIDs.contains(modelID))
+    }
+}
+
+enum StorePurchaseDecision: Hashable {
+    case acceptableAtAsking(price: Int, expectedGrossProfit: Int)
+    case counteroffer(price: Int, percent: Int, expectedGrossProfit: Int)
+    case decline
+
+    var recommendedOfferPercent: Int? {
+        switch self {
+        case .acceptableAtAsking: 100
+        case .counteroffer(_, let percent, _): percent
+        case .decline: nil
+        }
+    }
+
+    var recommendedPrice: Int? {
+        switch self {
+        case .acceptableAtAsking(let price, _), .counteroffer(let price, _, _): price
+        case .decline: nil
+        }
+    }
+}
+
 struct Store: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -3463,6 +3516,7 @@ struct Store: Identifiable, Codable, Hashable {
     var autoProcurement: Bool
     var autoMarketing: Bool
     var autoService: Bool
+    var storePurchasePolicy: StorePurchasePolicy
     var salesPolicy: SalesAutomationPolicy
     var marketingPolicy: MarketingAutomationPolicy
     var servicePolicy: ServiceAutomationPolicy
@@ -3522,6 +3576,7 @@ struct Store: Identifiable, Codable, Hashable {
         autoProcurement = false
         autoMarketing = false
         autoService = false
+        storePurchasePolicy = .standard
         salesPolicy = .balanced
         marketingPolicy = .balanced
         servicePolicy = .balanced
