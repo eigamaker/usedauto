@@ -539,12 +539,12 @@ struct StoreSettingsView: View {
                                 MetricView(title: "店員", value: "\(store.wrappedValue.staff)名")
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
                                 MetricView(
-                                    title: "営業枠",
+                                    title: "担当枠",
                                     value: "1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)回"
                                 )
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。仕入担当は能力に応じて1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件、登録した指示を4経路で処理します。")
+                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。販売担当と仕入担当は、能力に応じてそれぞれ1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件を処理します。仕入担当は店舗買取と2種類のAAで枠を共有します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

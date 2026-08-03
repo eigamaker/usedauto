@@ -106,8 +106,8 @@ private struct WeeklyOpportunityPanel: View {
     @EnvironmentObject private var game: GameEngine
     let store: Store
 
-    private var capacity: Int { game.weeklyOpportunityCapacity(storeID: store.id) }
-    private var remaining: Int { game.remainingWeeklyOpportunities(storeID: store.id) }
+    private var capacity: Int { game.weeklySalesCapacity(storeID: store.id) }
+    private var remaining: Int { game.remainingWeeklySalesOpportunities(storeID: store.id) }
     private var inventoryRate: Double {
         Double(store.inventoryCount) / Double(max(1, store.type.capacity))
     }
@@ -464,14 +464,14 @@ private struct ManualSalesPanel: View {
     @State private var selectedLead: BuyerLead?
 
     private var leads: [BuyerLead] { game.buyerLeads(for: store.id) }
-    private var capacity: Int { game.weeklyOpportunityCapacity(storeID: store.id) }
+    private var capacity: Int { game.weeklySalesCapacity(storeID: store.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 SectionTitle(title: "今週の販売客")
                 Spacer()
-                Text("営業枠 \(store.usedOpportunitiesThisWeek)/\(capacity)")
+                Text("営業枠 \(store.manualNegotiationsThisWeek)/\(capacity)")
                     .font(.caption.bold().monospacedDigit())
                     .foregroundStyle(GameTheme.teal)
             }
@@ -1722,12 +1722,17 @@ private struct ManagerPanel: View {
 
     private var candidate: StoreManager? { game.managerCandidate(for: store.id) }
     private var employeeCandidates: [StoreEmployee] { game.employeeCandidates(for: store.id) }
-    private var employeeAutomationCapacity: Int {
+    private var employeeSalesCapacity: Int {
         store.employees
-            .filter { [.sales, .procurement].contains($0.assignment) }
+            .filter { $0.assignment == .sales }
             .reduce(0) {
                 $0 + game.employeeWeeklyCaseCapacity(for: $1)
             }
+    }
+    private var employeeProcurementCapacity: Int {
+        store.employees
+            .filter { $0.assignment == .procurement }
+            .reduce(0) { $0 + game.employeeWeeklyCaseCapacity(for: $1) }
     }
 
     var body: some View {
@@ -1745,7 +1750,7 @@ private struct ManagerPanel: View {
                     }
                 }
                 AutomationPolicyRow(
-                    title: "集客・市場調査",
+                    title: "市場調査",
                     icon: "chart.line.uptrend.xyaxis",
                     isOn: binding(\.autoMarketing),
                     policyName: store.marketingPolicy.name
@@ -1765,7 +1770,7 @@ private struct ManagerPanel: View {
                     }
                 }
                 HStack(spacing: 10) {
-                    Label("店舗買取・AA仕入", systemImage: "car.badge.gearshape")
+                    Label("仕入", systemImage: "car.badge.gearshape")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Toggle("", isOn: binding(\.autoProcurement))
@@ -1774,7 +1779,7 @@ private struct ManagerPanel: View {
                     Button("AA指示") {
                         showProcurementInstructionEditor = true
                     }
-                        .font(.caption.bold())
+                        .font(.subheadline.bold())
                         .frame(width: 96, alignment: .trailing)
                 }
                 .padding(.vertical, 4)
@@ -1815,11 +1820,18 @@ private struct ManagerPanel: View {
                 HStack {
                     MetricView(title: "在籍", value: "\(store.staff)名")
                     MetricView(title: "月額給与", value: store.employeeMonthlyPayroll.currency)
-                    MetricView(title: "営業枠", value: "週\(game.weeklyOpportunityCapacity(storeID: store.id))回", detail: "オーナー")
+                    MetricView(title: "オーナー販売枠", value: "週\(game.weeklySalesCapacity(storeID: store.id))回")
                     MetricView(
                         title: "社員営業枠",
-                        value: "週\(employeeAutomationCapacity)回",
-                        detail: "担当社員"
+                        value: "週\(employeeSalesCapacity)回"
+                    )
+                    MetricView(
+                        title: "オーナー仕入枠",
+                        value: "週\(game.weeklyProcurementCapacity(storeID: store.id))回"
+                    )
+                    MetricView(
+                        title: "社員仕入枠",
+                        value: "週\(employeeProcurementCapacity)回"
                     )
                 }
                 Text("社員は担当を割り当てないと業務をしてくれません")
@@ -2236,9 +2248,7 @@ private struct ProcurementInstructionPanel: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(instruction.targetName)
                                     .font(.subheadline.bold())
-                                Text(instruction.financialRule.targetUnits > 0
-                                    ? "台数確保 \(instruction.financialRule.targetUnits)台・最低粗利率\(instruction.financialRule.minimumGrossMarginPercent ?? 0)%\(instruction.faultOnly ? "・故障車のみ" : "")"
-                                    : "\(instruction.financialRule.name) \(instruction.financialRule.amount.currency)／台\(instruction.faultOnly ? "・故障車のみ" : "")")
+                                Text("最低粗利 \(instruction.minimumGrossProfit.currency)／台")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -2336,68 +2346,27 @@ private struct ProcurementInstructionPanel: View {
     }
 }
 
-private enum ProcurementRuleSelection: String, CaseIterable, Identifiable {
-    case replenishment, minimumGrossProfit, maximumOffer
-    var id: String { rawValue }
-    var name: String {
-        switch self {
-        case .replenishment: "台数確保"
-        case .minimumGrossProfit: "最低粗利額"
-        case .maximumOffer: "入札・提示上限"
-        }
-    }
-}
-
 private struct ProcurementInstructionEditor: View {
     @EnvironmentObject private var game: GameEngine
     @Environment(\.dismiss) private var dismiss
     let storeID: UUID
     let instruction: ProcurementInstruction?
     @State private var totalBudget: Int
-    @State private var ruleSelection: ProcurementRuleSelection
-    @State private var ruleAmount: Int
-    @State private var targetUnits: Int
-    @State private var minimumGrossMarginPercent: Int
-    @State private var category: VehicleCategory?
-    @State private var origin: VehicleOrigin?
-    @State private var modelID: String?
-    @State private var faultOnly: Bool
-    @State private var allowedSources: Set<ProcurementSource>
+    @State private var minimumGrossProfit: Int
+    @State private var categories: Set<VehicleCategory>
+    @State private var modelIDs: Set<String>
 
     init(storeID: UUID, instruction: ProcurementInstruction?) {
         self.storeID = storeID
         self.instruction = instruction
         _totalBudget = State(initialValue: instruction?.totalBudget ?? 1_000)
-        _targetUnits = State(initialValue: 3)
-        _minimumGrossMarginPercent = State(initialValue: 5)
-        switch instruction?.financialRule {
-        case .maximumOffer(let amount):
-            _ruleSelection = State(initialValue: .maximumOffer)
-            _ruleAmount = State(initialValue: amount)
-        case .minimumGrossProfit(let amount):
-            _ruleSelection = State(initialValue: .minimumGrossProfit)
-            _ruleAmount = State(initialValue: amount)
-        case .replenishment(let units, let percent):
-            _ruleSelection = State(initialValue: .replenishment)
-            _ruleAmount = State(initialValue: 40)
-            _targetUnits = State(initialValue: units)
-            _minimumGrossMarginPercent = State(initialValue: percent)
-        case nil:
-            _ruleSelection = State(initialValue: .minimumGrossProfit)
-            _ruleAmount = State(initialValue: 40)
-        }
-        _category = State(initialValue: instruction?.category)
-        _origin = State(initialValue: instruction?.origin)
-        _modelID = State(initialValue: instruction?.modelID)
-        _faultOnly = State(initialValue: instruction?.faultOnly ?? false)
-        _allowedSources = State(initialValue: instruction?.allowedSources ?? Set(ProcurementSource.allCases))
+        _minimumGrossProfit = State(initialValue: instruction?.minimumGrossProfit ?? 30)
+        _categories = State(initialValue: instruction?.categories ?? Set(VehicleCategory.allCases))
+        _modelIDs = State(initialValue: instruction?.modelIDs ?? [])
     }
 
-    private var availableModels: [VehicleCatalogEntry] {
-        game.availableVehicleCatalog.filter {
-            (category == nil || $0.category == category) &&
-            (origin == nil || $0.origin == origin)
-        }
+    private var selectedModels: [VehicleCatalogEntry] {
+        game.availableVehicleCatalog.filter { modelIDs.contains($0.id) }
     }
 
     private var minimumBudget: Int {
@@ -2405,56 +2374,13 @@ private struct ProcurementInstructionEditor: View {
         return Int(ceil(Double(committed) / 100.0)) * 100
     }
 
-    private var selectableSources: [ProcurementSource] {
-        [.auction, .networkAuction]
-    }
-
-    private func sourceBinding(_ source: ProcurementSource) -> Binding<Bool> {
-        Binding(
-            get: { allowedSources.contains(source) },
-            set: { enabled in
-                if enabled {
-                    allowedSources.insert(source)
-                } else if allowedSources.count > 1 {
-                    allowedSources.remove(source)
-                }
-            }
-        )
-    }
-
     var body: some View {
         NavigationStack {
             Form {
-                Section("対象車両") {
-                    Picker("カテゴリ", selection: $category) {
-                        Text("指定なし").tag(VehicleCategory?.none)
-                        ForEach(VehicleCategory.allCases) { item in
-                            Text(item.name).tag(Optional(item))
-                        }
-                    }
-                    Picker("産地", selection: $origin) {
-                        Text("指定なし").tag(VehicleOrigin?.none)
-                        ForEach(VehicleOrigin.allCases) { item in
-                            Text(item.name).tag(Optional(item))
-                                .disabled(
-                                    category.map {
-                                        !game.hasAvailableVehicle(category: $0, origin: item)
-                                    } ?? false
-                                )
-                        }
-                    }
-                    Picker("車種", selection: $modelID) {
-                        Text("指定なし").tag(String?.none)
-                        ForEach(availableModels) { model in
-                            Text(model.fullName).tag(Optional(model.id))
-                        }
-                    }
-                    Toggle("故障車のみ", isOn: $faultOnly)
-                }
-                Section("金額条件") {
+                Section("採算と予算") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("1週間の総予算")
+                            Text("1週間の仕入予算")
                             Spacer()
                             Text(totalBudget.currency).bold().monospacedDigit()
                         }
@@ -2467,102 +2393,68 @@ private struct ProcurementInstructionEditor: View {
                             step: 100
                         )
                     }
-                    Picker("判定方法", selection: $ruleSelection) {
-                        ForEach(ProcurementRuleSelection.allCases) { Text($0.name).tag($0) }
-                    }
-                    if ruleSelection == .replenishment {
-                        Stepper("最低仕入台数 \(targetUnits)台", value: $targetUnits, in: 1...20)
-                        Stepper("最低粗利率 \(minimumGrossMarginPercent)%", value: $minimumGrossMarginPercent, in: 0...10)
-                        Text("粗利率は0〜10%の固定上限です。候補不足でも条件を自動緩和せず、未達理由を週次結果に残します。")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    } else {
-                        Stepper("\(ruleSelection.name) \(ruleAmount.currency)／台", value: $ruleAmount, in: 0...20_000, step: 5)
-                    }
+                    Stepper("最低粗利 \(minimumGrossProfit.currency)／台", value: $minimumGrossProfit, in: 0...1_000, step: 5)
                     Text("週間予算は毎週更新され、車両価格・手数料・輸送費を含みます。入札は次の週間処理で一度だけ確定します。最低粗利は予測修理費も差し引いて判定します。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                Section("仕入先") {
-                    ForEach(selectableSources) { source in
-                        Toggle(
-                            "\(source.name)（目安\(source.baselineGrossMarginLabel)・\(source.isConditionVerified ? "状態確認済" : "査定が必要")）",
-                            isOn: sourceBinding(source)
-                        )
+                Section("対象カテゴリ") {
+                    ForEach(VehicleCategory.allCases) { category in
+                        Toggle(category.name, isOn: Binding(
+                            get: { categories.contains(category) },
+                            set: { enabled in
+                                if enabled { categories.insert(category) }
+                                else {
+                                    categories.remove(category)
+                                    modelIDs.subtract(game.availableVehicleCatalog.filter { $0.category == category }.map(\.id))
+                                }
+                            }
+                        ))
                     }
-                    Text("粗利率は販売価格方針100を基準にした仕入れ時点の目安です。値付け、値引き、相場変動、修理費によって実績はレンジ外になります。")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                }
+                Section("対象車種（任意）") {
+                    if !modelIDs.isEmpty {
+                        Button("車種指定を解除") { modelIDs.removeAll() }
+                        Text("選択中：\(selectedModels.map(\.fullName).sorted().joined(separator: "、"))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    ForEach(VehicleCategory.allCases.filter { categories.contains($0) }) { category in
+                        DisclosureGroup(category.name) {
+                            ForEach(game.availableVehicleCatalog.filter { $0.category == category }) { model in
+                                Toggle(model.fullName, isOn: Binding(
+                                    get: { modelIDs.contains(model.id) },
+                                    set: { enabled in
+                                        if enabled { modelIDs.insert(model.id) } else { modelIDs.remove(model.id) }
+                                    }
+                                ))
+                            }
+                        }
+                    }
+                    Text("車種を選ばない場合は、選択したカテゴリの全車種が対象です。通常AAと社員専用ネットAAの両方を探索します。")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle(instruction == nil ? "AA仕入れ指示を追加" : "AA仕入れ指示を編集")
             .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: category) { _, newCategory in
-                if let newCategory, let origin,
-                   !game.hasAvailableVehicle(category: newCategory, origin: origin) {
-                    self.origin = nil
-                }
-                if let modelID,
-                   VehicleCatalog.entry(id: modelID)?.category != newCategory {
-                    self.modelID = nil
-                }
-            }
-            .onChange(of: origin) { _, newOrigin in
-                if let category, let newOrigin,
-                   !game.hasAvailableVehicle(category: category, origin: newOrigin) {
-                    self.origin = nil
-                    return
-                }
-                if let modelID,
-                   VehicleCatalog.entry(id: modelID)?.origin != newOrigin {
-                    self.modelID = nil
-                }
-            }
-            .onChange(of: modelID) { _, newModelID in
-                if let newModelID {
-                    let model = VehicleCatalog.entry(id: newModelID)
-                    category = model?.category
-                    origin = model?.origin
-                }
-            }
-            .onChange(of: ruleSelection) { _, selection in
-                if selection == .replenishment {
-                    allowedSources = allowedSources.intersection([.auction, .networkAuction])
-                    if allowedSources.isEmpty { allowedSources = [.auction, .networkAuction] }
-                }
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        let rule: ProcurementFinancialRule = switch ruleSelection {
-                        case .replenishment: .replenishment(
-                            targetUnits: targetUnits,
-                            minimumGrossMarginPercent: minimumGrossMarginPercent
-                        )
-                        case .minimumGrossProfit: .minimumGrossProfit(ruleAmount)
-                        case .maximumOffer: .maximumOffer(ruleAmount)
-                        }
                         if var changed = instruction {
                             changed.totalBudget = totalBudget
-                            changed.financialRule = rule
-                            changed.category = category
-                            changed.origin = origin
-                            changed.modelID = modelID
-                            changed.faultOnly = faultOnly
-                            changed.allowedSources = allowedSources
+                            changed.minimumGrossProfit = minimumGrossProfit
+                            changed.categories = categories
+                            changed.modelIDs = modelIDs
                             _ = game.updateProcurementInstruction(changed)
                         } else {
                             _ = game.createProcurementInstruction(
                                 storeID: storeID,
                                 totalBudget: totalBudget,
-                                financialRule: rule,
-                                category: category,
-                                origin: origin,
-                                modelID: modelID,
-                                faultOnly: faultOnly,
-                                allowedSources: allowedSources
+                                minimumGrossProfit: minimumGrossProfit,
+                                categories: categories,
+                                modelIDs: modelIDs
                             )
                         }
                         dismiss()

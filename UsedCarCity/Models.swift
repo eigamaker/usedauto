@@ -2632,44 +2632,6 @@ enum ProcurementInstructionStatus: String, Codable, Hashable, CaseIterable, Iden
     }
 }
 
-enum ProcurementFinancialRule: Codable, Hashable {
-    case minimumGrossProfit(Int)
-    case maximumOffer(Int)
-    case replenishment(targetUnits: Int, minimumGrossMarginPercent: Int)
-
-    var amount: Int {
-        switch self {
-        case .minimumGrossProfit(let amount), .maximumOffer(let amount): amount
-        case .replenishment(_, let minimumGrossMarginPercent): minimumGrossMarginPercent
-        }
-    }
-
-    var name: String {
-        switch self {
-        case .minimumGrossProfit: "最低粗利"
-        case .maximumOffer: "入札・提示上限"
-        case .replenishment: "台数確保"
-        }
-    }
-
-    var targetUnits: Int {
-        guard case .replenishment(let targetUnits, _) = self else { return 0 }
-        return targetUnits
-    }
-
-    var minimumGrossMarginPercent: Int? {
-        guard case .replenishment(_, let percent) = self else { return nil }
-        return percent
-    }
-
-    var isValid: Bool {
-        switch self {
-        case .minimumGrossProfit(let amount), .maximumOffer(let amount): amount >= 0
-        case .replenishment(let targetUnits, let percent): targetUnits > 0 && (0...10).contains(percent)
-        }
-    }
-}
-
 struct ProcurementInstruction: Identifiable, Codable, Hashable {
     let id: UUID
     let storeID: UUID
@@ -2678,14 +2640,10 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
     var totalBudget: Int
     var spentBudget: Int
     var reservedBudget: Int
-    var financialRule: ProcurementFinancialRule
-    var category: VehicleCategory?
-    var origin: VehicleOrigin?
-    var modelID: String?
-    var faultOnly: Bool
-    var allowedSources: Set<ProcurementSource>
+    var minimumGrossProfit: Int
+    var categories: Set<VehicleCategory>
+    var modelIDs: Set<String>
     var acquiredCount: Int
-    var dispositionPlan: InventoryDispositionPlan
     let createdTurn: Int
     var lastResult: String
 
@@ -2697,14 +2655,10 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
         totalBudget: Int,
         spentBudget: Int = 0,
         reservedBudget: Int = 0,
-        financialRule: ProcurementFinancialRule,
-        category: VehicleCategory? = nil,
-        origin: VehicleOrigin? = nil,
-        modelID: String? = nil,
-        faultOnly: Bool = false,
-        allowedSources: Set<ProcurementSource> = Set(ProcurementSource.allCases),
+        minimumGrossProfit: Int,
+        categories: Set<VehicleCategory> = Set(VehicleCategory.allCases),
+        modelIDs: Set<String> = [],
         acquiredCount: Int = 0,
-        dispositionPlan: InventoryDispositionPlan = .retail,
         createdTurn: Int,
         lastResult: String = "探索待ち"
     ) {
@@ -2715,14 +2669,13 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
         self.totalBudget = totalBudget
         self.spentBudget = spentBudget
         self.reservedBudget = reservedBudget
-        self.financialRule = financialRule
-        self.category = modelID.flatMap { VehicleCatalog.entry(id: $0)?.category } ?? category
-        self.origin = modelID.flatMap { VehicleCatalog.entry(id: $0)?.origin } ?? origin
-        self.modelID = modelID
-        self.faultOnly = faultOnly
-        self.allowedSources = allowedSources.isEmpty ? Set(ProcurementSource.allCases) : allowedSources
+        self.minimumGrossProfit = minimumGrossProfit
+        self.categories = categories
+        self.modelIDs = modelIDs.filter { id in
+            guard let model = VehicleCatalog.entry(id: id) else { return false }
+            return categories.contains(model.category)
+        }
         self.acquiredCount = acquiredCount
-        self.dispositionPlan = dispositionPlan
         self.createdTurn = createdTurn
         self.lastResult = lastResult
     }
@@ -2732,11 +2685,16 @@ struct ProcurementInstruction: Identifiable, Codable, Hashable {
     }
 
     var targetName: String {
-        if let modelID { return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID }
-        if let category, let origin { return "\(origin.shortName)・\(category.name)" }
-        if let category { return category.name }
-        if let origin { return origin.name }
-        return "車種指定なし"
+        if !modelIDs.isEmpty {
+            let names = modelIDs.compactMap { VehicleCatalog.entry(id: $0)?.fullName }.sorted()
+            return names.count == 1 ? names[0] : "指定車種\(names.count)件"
+        }
+        if categories.count == VehicleCategory.allCases.count { return "全カテゴリ" }
+        return categories.sorted { $0.name < $1.name }.map(\.name).joined(separator: "・")
+    }
+
+    func matches(category: VehicleCategory, modelID: String) -> Bool {
+        categories.contains(category) && (modelIDs.isEmpty || modelIDs.contains(modelID))
     }
 }
 

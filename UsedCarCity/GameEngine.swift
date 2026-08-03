@@ -232,7 +232,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v52"
+    private static let saveKey = "UsedCarCity.save.v53"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -909,6 +909,10 @@ final class GameEngine: ObservableObject {
         stores.contains(where: { $0.id == storeID }) ? 7 : 0
     }
 
+    func weeklySalesCapacity(storeID: UUID) -> Int { weeklyOpportunityCapacity(storeID: storeID) }
+
+    func weeklyProcurementCapacity(storeID: UUID) -> Int { weeklyOpportunityCapacity(storeID: storeID) }
+
     func catalogMarketIndex(for model: VehicleCatalogEntry, in kind: DistrictKind) -> Double {
         let identifierSeed = model.id.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         let movement = deterministicVariation(seed: (turn / 13) * 97 + identifierSeed)
@@ -1530,8 +1534,17 @@ final class GameEngine: ObservableObject {
     }
 
     func remainingWeeklyOpportunities(storeID: UUID) -> Int {
+        remainingWeeklySalesOpportunities(storeID: storeID)
+    }
+
+    func remainingWeeklySalesOpportunities(storeID: UUID) -> Int {
         guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
-        return max(0, weeklyOpportunityCapacity(storeID: storeID) - store.usedOpportunitiesThisWeek)
+        return max(0, weeklySalesCapacity(storeID: storeID) - store.manualNegotiationsThisWeek)
+    }
+
+    func remainingWeeklyProcurementOpportunities(storeID: UUID) -> Int {
+        guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
+        return max(0, weeklyProcurementCapacity(storeID: storeID) - store.purchaseNegotiationsThisWeek)
     }
 
     func buyerLeads(for storeID: UUID) -> [BuyerLead] {
@@ -1785,12 +1798,14 @@ final class GameEngine: ObservableObject {
     func buyInventory(category: VehicleCategory, count: Int, storeID: UUID) -> Bool {
         guard count > 0,
               let index = stores.firstIndex(where: { $0.id == storeID }),
+              remainingWeeklyProcurementOpportunities(storeID: storeID) > 0,
               let inventory = inventoryPurchaseBatches(category: category, count: count, store: stores[index]) else { return false }
         let totalCost = inventory.reduce(0) { $0 + $1.averageCost }
         guard cash >= totalCost else { return false }
         let freeCapacity = stores[index].type.capacity - stores[index].inventoryCount
         guard freeCapacity >= count else { return false }
         cash -= totalCost
+        stores[index].pendingPurchaseNegotiations += 1
         stores[index].inventory.append(contentsOf: inventory)
         for batch in inventory {
             recordVehicleAcquisition(
@@ -2012,33 +2027,21 @@ final class GameEngine: ObservableObject {
     func createProcurementInstruction(
         storeID: UUID,
         totalBudget: Int,
-        financialRule: ProcurementFinancialRule,
-        category: VehicleCategory?,
-        origin: VehicleOrigin? = nil,
-        modelID: String?,
-        faultOnly: Bool,
-        allowedSources: Set<ProcurementSource> = Set(ProcurementSource.allCases),
-        dispositionPlan: InventoryDispositionPlan = .retail
+        minimumGrossProfit: Int,
+        categories: Set<VehicleCategory>,
+        modelIDs: Set<String> = []
     ) -> UUID? {
-        if let category, let origin,
-           !hasAvailableVehicle(category: category, origin: origin) {
-            return nil
-        }
         guard stores.contains(where: { $0.id == storeID }),
               totalBudget >= 0,
-              financialRule.isValid else { return nil }
+              minimumGrossProfit >= 0 else { return nil }
         let priority = (procurementInstructions(for: storeID).map(\.priority).max() ?? -1) + 1
         let instruction = ProcurementInstruction(
             storeID: storeID,
             priority: priority,
             totalBudget: totalBudget,
-            financialRule: financialRule,
-            category: category,
-            origin: origin,
-            modelID: modelID,
-            faultOnly: faultOnly,
-            allowedSources: normalizedInstructionSources(allowedSources, for: financialRule),
-            dispositionPlan: dispositionPlan,
+            minimumGrossProfit: minimumGrossProfit,
+            categories: categories,
+            modelIDs: modelIDs,
             createdTurn: turn
         )
         procurementInstructions.append(instruction)
@@ -2048,35 +2051,18 @@ final class GameEngine: ObservableObject {
 
     @discardableResult
     func updateProcurementInstruction(_ changed: ProcurementInstruction) -> Bool {
-        if let category = changed.category, let origin = changed.origin,
-           !hasAvailableVehicle(category: category, origin: origin) {
-            return false
-        }
         guard let index = procurementInstructions.firstIndex(where: { $0.id == changed.id }),
               stores.contains(where: { $0.id == changed.storeID }),
               changed.totalBudget >= changed.spentBudget + changed.reservedBudget,
               changed.totalBudget >= 0,
-              changed.financialRule.isValid else { return false }
+              changed.minimumGrossProfit >= 0 else { return false }
         var normalized = changed
-        if let modelID = normalized.modelID {
-            normalized.category = VehicleCatalog.entry(id: modelID)?.category
+        normalized.modelIDs = normalized.modelIDs.filter { id in
+            VehicleCatalog.entry(id: id).map { normalized.categories.contains($0.category) } ?? false
         }
-        normalized.allowedSources = normalizedInstructionSources(
-            normalized.allowedSources,
-            for: normalized.financialRule
-        )
         procurementInstructions[index] = normalized
         save()
         return true
-    }
-
-    private func normalizedInstructionSources(
-        _ sources: Set<ProcurementSource>,
-        for rule: ProcurementFinancialRule
-    ) -> Set<ProcurementSource> {
-        let executable: Set<ProcurementSource> = [.auction, .networkAuction]
-        let normalized = sources.intersection(executable)
-        return normalized.isEmpty ? executable : normalized
     }
 
     @discardableResult
@@ -2158,8 +2144,13 @@ final class GameEngine: ObservableObject {
         handlerEmployeeID: UUID? = nil
     ) -> Bool {
         guard let listing = auctionListings.first(where: { $0.id == listingID }),
-              let store = stores.first(where: { $0.id == storeID }),
+              let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               maxPrice >= listing.reservePrice else { return false }
+        let store = stores[storeIndex]
+        let isNewManualBid = instructionID == nil
+            && !bidReservations.contains(where: { $0.listingID == listingID })
+        if isNewManualBid,
+           remainingWeeklyProcurementOpportunities(storeID: storeID) <= 0 { return false }
         let otherReservedSlots = bidReservations.filter { $0.storeID == storeID && $0.listingID != listingID }.count
             + networkAuctionBidReservations.filter { $0.storeID == storeID }.count
         guard store.inventoryCount + incomingCount(for: storeID) + otherReservedSlots + 1 <= store.type.capacity else { return false }
@@ -2180,6 +2171,9 @@ final class GameEngine: ObservableObject {
                 handlerEmployeeID: handlerEmployeeID,
                 targetTurn: turn + 1
             ))
+            if isNewManualBid {
+                stores[storeIndex].pendingPurchaseNegotiations += 1
+            }
         }
         save()
         return true
@@ -2226,10 +2220,15 @@ final class GameEngine: ObservableObject {
         handlerEmployeeID: UUID? = nil
     ) -> Bool {
         guard let listing = networkAuctionListings.first(where: { $0.id == listingID }),
-              let store = stores.first(where: { $0.id == storeID && $0.isOperational }),
+              let storeIndex = stores.firstIndex(where: { $0.id == storeID && $0.isOperational }),
               hasProcurementEmployee(storeID: storeID),
               maxPrice >= listing.reservePrice else { return false }
+        let store = stores[storeIndex]
         if instructionID == nil, store.autoProcurement { return false }
+        let isNewManualBid = instructionID == nil
+            && !networkAuctionBidReservations.contains(where: { $0.listingID == listingID })
+        if isNewManualBid,
+           remainingWeeklyProcurementOpportunities(storeID: storeID) <= 0 { return false }
         let otherReservedSlots = networkAuctionBidReservations.filter { $0.storeID == storeID && $0.listingID != listingID }.count
             + bidReservations.filter { $0.storeID == storeID }.count
         guard store.inventoryCount + incomingCount(for: storeID) + otherReservedSlots + 1 <= store.type.capacity else { return false }
@@ -2249,6 +2248,9 @@ final class GameEngine: ObservableObject {
                 handlerEmployeeID: handlerEmployeeID,
                 targetTurn: turn + 1
             ))
+            if isNewManualBid {
+                stores[storeIndex].pendingPurchaseNegotiations += 1
+            }
         }
         save()
         return true
@@ -2265,8 +2267,15 @@ final class GameEngine: ObservableObject {
               let opportunityIndex = corporateOpportunities.firstIndex(where: { $0.id == opportunityID && !$0.resolved && $0.dueTurn > turn }),
               let storeIndex = stores.firstIndex(where: { $0.id == storeID && $0.isOperational }),
               stores[storeIndex].facilities.contains(.corporateDesk) else { return false }
-        releaseCorporateReservation(opportunityID: opportunityID)
         let opportunity = corporateOpportunities[opportunityIndex]
+        let isInitialBid = opportunity.playerStoreID == nil
+        if isInitialBid {
+            let remaining = opportunity.kind == .fleetDisposal
+                ? remainingWeeklyProcurementOpportunities(storeID: storeID)
+                : remainingWeeklySalesOpportunities(storeID: storeID)
+            guard remaining > 0 else { return false }
+        }
+        releaseCorporateReservation(opportunityID: opportunityID)
         if opportunity.kind == .fleetDisposal {
             guard stores[storeIndex].inventoryCount + incomingCount(for: storeID) + opportunity.count <= stores[storeIndex].type.capacity,
                   cash >= unitPrice * opportunity.count else { return false }
@@ -2289,6 +2298,13 @@ final class GameEngine: ObservableObject {
         }
         corporateOpportunities[opportunityIndex].playerStoreID = storeID
         corporateOpportunities[opportunityIndex].playerUnitPrice = unitPrice
+        if isInitialBid {
+            if opportunity.kind == .fleetDisposal {
+                stores[storeIndex].pendingPurchaseNegotiations += 1
+            } else {
+                stores[storeIndex].pendingManualNegotiations += 1
+            }
+        }
         save()
         return true
     }
@@ -4533,9 +4549,8 @@ final class GameEngine: ObservableObject {
               cash >= (tradeInPreview?.requiredDealerCash ?? 0) else { return nil }
         let category = stores[storeIndex].inventory[batchIndex].category
         let salesAttempts = stores[storeIndex].manualNegotiationsThisWeek
-        let allAttempts = stores[storeIndex].usedOpportunitiesThisWeek
         let strategyIndex = SaleNegotiationStrategy.allCases.firstIndex(of: strategy) ?? 0
-        let seed = turn * 97 + stores[storeIndex].plotID * 19 + categoryIndex(category) * 31 + allAttempts * 43 + strategyIndex * 11 + (acceptTradeIn ? 71 : 0)
+        let seed = turn * 97 + stores[storeIndex].plotID * 19 + categoryIndex(category) * 31 + salesAttempts * 43 + strategyIndex * 11 + (acceptTradeIn ? 71 : 0)
         let closeChance = tradeInPreview?.closeChance ?? preview.closeChance
         let succeeded = transactionRoll(seed: seed) < closeChance
         stores[storeIndex].pendingManualNegotiations = salesAttempts + 1
@@ -4999,7 +5014,7 @@ final class GameEngine: ObservableObject {
     func canNegotiatePurchaseCase(_ caseID: UUID) -> Bool {
         guard let item = purchaseCases.first(where: { $0.id == caseID }),
               stores.contains(where: { $0.id == item.storeID }) else { return false }
-        return remainingWeeklyOpportunities(storeID: item.storeID) > 0
+        return remainingWeeklyProcurementOpportunities(storeID: item.storeID) > 0
     }
 
     @discardableResult
@@ -5011,11 +5026,11 @@ final class GameEngine: ObservableObject {
         let total = preview.price * item.lotCount
         guard cash >= total,
               stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity,
-              remainingWeeklyOpportunities(storeID: item.storeID) > 0 else { return .unavailable }
+              remainingWeeklyProcurementOpportunities(storeID: item.storeID) > 0 else { return .unavailable }
 
         stores[storeIndex].pendingPurchaseNegotiations = stores[storeIndex].purchaseNegotiationsThisWeek + 1
 
-        let seed = turn * 83 + item.modelYear * 7 + item.mileage / 1_000 + offerPercent * 13 + stores[storeIndex].usedOpportunitiesThisWeek * 37
+        let seed = turn * 83 + item.modelYear * 7 + item.mileage / 1_000 + offerPercent * 13 + stores[storeIndex].purchaseNegotiationsThisWeek * 37
         guard transactionRoll(seed: seed) < preview.closeChance else {
             let nextAttempt = item.negotiations + 1
             let walkedAway = nextAttempt >= 2 || offerPercent <= 88
@@ -8399,12 +8414,7 @@ final class GameEngine: ObservableObject {
         modelID: String,
         fault: MechanicalFaultSeverity
     ) -> Bool {
-        if let targetCategory = instruction.category, targetCategory != category { return false }
-        if let targetModelID = instruction.modelID, targetModelID != modelID { return false }
-        if let targetOrigin = instruction.origin,
-           VehicleCatalog.entry(id: modelID)?.origin != targetOrigin { return false }
-        if instruction.faultOnly, fault == .none { return false }
-        return true
+        instruction.matches(category: category, modelID: modelID)
     }
 
     private func estimatedSourcingRepairCost(
@@ -8517,16 +8527,7 @@ final class GameEngine: ObservableObject {
         repairCost: Int,
         fixedCosts: Int
     ) -> Int {
-        let financialLimit: Int
-        switch instruction.financialRule {
-        case .minimumGrossProfit(let minimum):
-            financialLimit = predictedRetail - repairCost - fixedCosts - minimum
-        case .maximumOffer(let maximum):
-            financialLimit = maximum
-        case .replenishment(_, let minimumGrossMarginPercent):
-            let requiredProfit = predictedRetail * minimumGrossMarginPercent / 100
-            financialLimit = predictedRetail - repairCost - fixedCosts - requiredProfit
-        }
+        let financialLimit = predictedRetail - repairCost - fixedCosts - instruction.minimumGrossProfit
         return max(0, min(financialLimit, instruction.remainingBudget - fixedCosts))
     }
 
@@ -8564,7 +8565,7 @@ final class GameEngine: ObservableObject {
             : handler.procurementComposite >= 60 ? 8 : 4
         var candidates: [AutomaticProcurementCandidate] = []
 
-        if instruction.allowedSources.contains(.auction) {
+        do {
         for listing in auctionListings where !bidReservations.contains(where: { $0.listingID == listing.id }) {
             guard instructionMatches(instruction, category: listing.category, modelID: listing.modelID, fault: listing.fault) else { continue }
             let seed = listing.modelYear * 19 + listing.mileage / 500 + categoryIndex(listing.category) * 43
@@ -8611,7 +8612,7 @@ final class GameEngine: ObservableObject {
         }
         }
 
-        if instruction.allowedSources.contains(.networkAuction) {
+        do {
         for listing in networkAuctionListings where !networkAuctionBidReservations.contains(where: { $0.listingID == listing.id }) {
             let assessment = networkAuctionAssessment(for: listing, storeID: storeID)
             let assessedFault = assessment.detectedFault ?? .none
@@ -8657,14 +8658,6 @@ final class GameEngine: ObservableObject {
         }
 
         return candidates.max {
-            if instruction.financialRule.targetUnits > 0,
-               $0.successProbability != $1.successProbability {
-                return $0.successProbability < $1.successProbability
-            }
-            if instruction.financialRule.targetUnits > 0,
-               $0.acquisitionCost != $1.acquisitionCost {
-                return $0.acquisitionCost > $1.acquisitionCost
-            }
             if $0.expectedGrossProfit != $1.expectedGrossProfit {
                 return $0.expectedGrossProfit < $1.expectedGrossProfit
             }
@@ -8889,10 +8882,7 @@ final class GameEngine: ObservableObject {
                 serviceScore: (succeeded ? 68 : 50) + Int((handler.procurementComposite * 0.20).rounded())
             )
             if succeeded {
-                let instructionPlan = procurementInstructions[instructionIndex].dispositionPlan
-                let dispositionPlan = instructionPlan.plannedProject == nil
-                    ? item.suggestedProjectKind.map { InventoryDispositionPlan.customization(kind: $0, grade: nil) } ?? .retail
-                    : instructionPlan
+                let dispositionPlan: InventoryDispositionPlan = .retail
                 cash -= total
                 stores[storeIndex].inventory.append(InventoryBatch(
                     modelID: item.modelID,
@@ -9033,17 +9023,6 @@ final class GameEngine: ObservableObject {
         }
 
         var performedInstructionIDs: Set<UUID> = []
-        var replenishmentReservations: [UUID: Int] = [:]
-        for reservation in bidReservations where reservation.storeID == storeID && reservation.targetTurn == turn + 1 {
-            if let instructionID = reservation.instructionID {
-                replenishmentReservations[instructionID, default: 0] += 1
-            }
-        }
-        for reservation in networkAuctionBidReservations where reservation.storeID == storeID && reservation.targetTurn == turn + 1 {
-            if let instructionID = reservation.instructionID {
-                replenishmentReservations[instructionID, default: 0] += 1
-            }
-        }
         for handler in handlers {
             let caseCapacity = employeeWeeklyCaseCapacity(for: handler, assignment: .procurement)
             for _ in 0..<caseCapacity {
@@ -9063,10 +9042,6 @@ final class GameEngine: ObservableObject {
                 var selected: (ProcurementInstruction, AutomaticProcurementCandidate)?
                 for instruction in procurementInstructions(for: storeID)
                     where instruction.status == .active && instruction.remainingBudget > 0 {
-                    if instruction.financialRule.targetUnits > 0,
-                       replenishmentReservations[instruction.id, default: 0] >= instruction.financialRule.targetUnits {
-                        continue
-                    }
                     if let candidate = automaticProcurementCandidate(
                         for: instruction,
                         handler: handler,
@@ -9086,9 +9061,6 @@ final class GameEngine: ObservableObject {
                 )
                 if !attempted { break }
                 performedInstructionIDs.insert(selected.0.id)
-                if selected.0.financialRule.targetUnits > 0 {
-                    replenishmentReservations[selected.0.id, default: 0] += 1
-                }
             }
         }
         let unmatched = activeInstructions.filter { instruction in
@@ -9107,18 +9079,6 @@ final class GameEngine: ObservableObject {
         }
         if !unmatched.isEmpty {
             notes.append("\(stores[storeIndex].name)仕入指示：今週は予算・車両条件に合う候補なし")
-        }
-        for instruction in activeInstructions where instruction.financialRule.targetUnits > 0 {
-            let reserved = replenishmentReservations[instruction.id, default: 0]
-            let target = instruction.financialRule.targetUnits
-            if reserved < target {
-                let message = "台数確保 \(reserved)/\(target)台：粗利上限・予算・在庫枠の条件は緩和しません"
-                if let index = procurementInstructions.firstIndex(where: { $0.id == instruction.id }) {
-                    procurementInstructions[index].lastResult = message
-                }
-                recordProcurementActivity(instructionID: instruction.id, source: nil, result: message)
-                notes.append("\(stores[storeIndex].name)仕入指示：\(message)")
-            }
         }
     }
 
@@ -9421,10 +9381,6 @@ final class GameEngine: ObservableObject {
                 let appraisalReady = appraisalConfidence(for: storeID) >= 65
                 let hasRepairReadiness = stores[index].serviceBays > 0
                     && stores[index].employees.contains(where: { $0.assignment == .service })
-                var sources: Set<ProcurementSource> = [.auction, .networkAuction]
-                if appraisalReady {
-                    sources.insert(.storePurchase)
-                }
                 let demandCategory = VehicleCategory.allCases.max {
                     vehicleDemand($0, in: plot.district) < vehicleDemand($1, in: plot.district)
                 }
@@ -9433,10 +9389,6 @@ final class GameEngine: ObservableObject {
                 let targetBudget = min(max(0, cash - reserveCash), inventoryRate < 0.35 ? 1_200 : 700)
                 let targetUnitProfit = stores[index].managerMandate.fourWeekGrossProfitTarget / max(4, stores[index].type.capacity / 3)
                 let minimumMargin = max(24 + max(0, manager.procurementAbility - 50) / 3, targetUnitProfit)
-                let acceptsFaulty = hasRepairReadiness
-                    && stores[index].marketPolicy.acceptedConditions.contains(.faulty)
-                let dispositionPlan = plannedWorkshop(for: stores[index].managerMandate.specialty)
-                    .map { InventoryDispositionPlan.customization(kind: $0, grade: .middle) } ?? .retail
                 if let instructionIndex = procurementInstructions.firstIndex(where: {
                     $0.storeID == storeID && $0.status == .active
                 }) {
@@ -9446,12 +9398,9 @@ final class GameEngine: ObservableObject {
                             + procurementInstructions[instructionIndex].reservedBudget,
                         targetBudget
                     )
-                    procurementInstructions[instructionIndex].financialRule = .minimumGrossProfit(minimumMargin)
-                    procurementInstructions[instructionIndex].category = targetCategory
-                    procurementInstructions[instructionIndex].modelID = nil
-                    procurementInstructions[instructionIndex].faultOnly = acceptsFaulty && inventoryRate < 0.45
-                    procurementInstructions[instructionIndex].allowedSources = sources
-                    procurementInstructions[instructionIndex].dispositionPlan = dispositionPlan
+                    procurementInstructions[instructionIndex].minimumGrossProfit = minimumMargin
+                    procurementInstructions[instructionIndex].categories = targetCategory.map { [$0] } ?? Set(VehicleCategory.allCases)
+                    procurementInstructions[instructionIndex].modelIDs = []
                     procurementInstructions[instructionIndex].lastResult = "店長が市場と在庫から条件を更新"
                     actions.append("仕入条件を更新")
                 } else if targetBudget >= 100 {
@@ -9459,11 +9408,8 @@ final class GameEngine: ObservableObject {
                         storeID: storeID,
                         priority: 0,
                         totalBudget: targetBudget,
-                        financialRule: .minimumGrossProfit(minimumMargin),
-                        category: targetCategory,
-                        faultOnly: acceptsFaulty && inventoryRate < 0.45,
-                        allowedSources: sources,
-                        dispositionPlan: dispositionPlan,
+                        minimumGrossProfit: minimumMargin,
+                        categories: targetCategory.map { [$0] } ?? Set(VehicleCategory.allCases),
                         createdTurn: turn,
                         lastResult: "店長が市場と在庫から作成"
                     ))
@@ -9599,9 +9545,7 @@ final class GameEngine: ObservableObject {
                 } else {
                     status = .won
                     winningCompetitorID = nil
-                    let dispositionPlan = bid.instructionID
-                        .flatMap { id in procurementInstructions.first(where: { $0.id == id })?.dispositionPlan }
-                        ?? .retail
+                    let dispositionPlan: InventoryDispositionPlan = .retail
                     cash -= playerTotal
                     inboundShipments.append(InboundShipment(
                         id: UUID(),
@@ -9806,9 +9750,7 @@ final class GameEngine: ObservableObject {
                 } else {
                     status = .won
                     winningCompetitorID = nil
-                    let dispositionPlan = bid.instructionID
-                        .flatMap { id in procurementInstructions.first(where: { $0.id == id })?.dispositionPlan }
-                        ?? .retail
+                    let dispositionPlan: InventoryDispositionPlan = .retail
                     cash -= playerTotal
                     inboundShipments.append(InboundShipment(
                         storeID: bid.storeID,

@@ -1007,19 +1007,13 @@ final class LongTermSimulationRunner {
         for category in categories where remainingCash >= 50 {
             let estimated = max(50, category.purchaseCost * perCategoryGap)
             let budget = min(remainingCash, estimated)
-            let faultOnly = store.marketPolicy.acceptedConditions.contains(.faulty)
-                && store.marketPolicy.targetPurpose == .general
             _ = game.createProcurementInstruction(
                 storeID: storeID,
                 totalBudget: budget,
-                financialRule: .minimumGrossProfit(
-                    strategy == .adaptive
-                        ? max(30, category.purchaseCost / 7)
-                        : max(20, category.purchaseCost / 8)
-                ),
-                category: category,
-                modelID: nil,
-                faultOnly: faultOnly
+                minimumGrossProfit: strategy == .adaptive
+                    ? max(30, category.purchaseCost / 7)
+                    : max(20, category.purchaseCost / 8),
+                categories: [category]
             )
             remainingCash -= budget
         }

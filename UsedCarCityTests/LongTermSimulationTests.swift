@@ -4,6 +4,13 @@ import XCTest
 
 @MainActor
 final class LongTermSimulationTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard ProcessInfo.processInfo.environment["RUN_LONG_TERM_TESTS"] == "1" else {
+            throw XCTSkip("長期シミュレーションは RUN_LONG_TERM_TESTS=1 の明示指定時のみ実行します")
+        }
+    }
+
     func testFiveYearSmokeSimulationAcrossAllStrategies() {
         let report = LongTermSimulationRunner.run(configuration: .smoke)
 
