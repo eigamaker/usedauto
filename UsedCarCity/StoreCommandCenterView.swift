@@ -106,8 +106,8 @@ private struct WeeklyOpportunityPanel: View {
     @EnvironmentObject private var game: GameEngine
     let store: Store
 
-    private var capacity: Int { game.weeklySalesCapacity(storeID: store.id) }
-    private var remaining: Int { game.remainingWeeklySalesOpportunities(storeID: store.id) }
+    private var capacity: Int { game.ownerWeeklyWorkCapacity }
+    private var remaining: Int { game.ownerRemainingWorkEffort }
     private var inventoryRate: Double {
         Double(store.inventoryCount) / Double(max(1, store.type.capacity))
     }
@@ -118,7 +118,7 @@ private struct WeeklyOpportunityPanel: View {
             HStack(spacing: 8) {
                 StoreStatusMetric(
                     icon: "clock.badge.checkmark",
-                    title: "営業枠",
+                    title: "オーナー工数",
                     value: "\(remaining)/\(capacity)",
                     detail: "残り",
                     tint: remaining > 0 ? GameTheme.teal : GameTheme.orange
@@ -464,14 +464,12 @@ private struct ManualSalesPanel: View {
     @State private var selectedLead: BuyerLead?
 
     private var leads: [BuyerLead] { game.buyerLeads(for: store.id) }
-    private var capacity: Int { game.weeklySalesCapacity(storeID: store.id) }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 SectionTitle(title: "今週の販売客")
                 Spacer()
-                Text("営業枠 \(store.manualNegotiationsThisWeek)/\(capacity)")
+                Text("オーナー工数 \(game.ownerWorkEffortUsed)/\(game.ownerWeeklyWorkCapacity)")
                     .font(.caption.bold().monospacedDigit())
                     .foregroundStyle(GameTheme.teal)
             }
@@ -1725,14 +1723,32 @@ private struct ManagerPanel: View {
     private var employeeSalesCapacity: Int {
         store.employees
             .filter { $0.assignment == .sales }
-            .reduce(0) {
-                $0 + game.employeeWeeklyCaseCapacity(for: $1)
-            }
+            .reduce(0) { $0 + $1.weeklyWorkCapacity }
     }
     private var employeeProcurementCapacity: Int {
         store.employees
             .filter { $0.assignment == .procurement }
-            .reduce(0) { $0 + game.employeeWeeklyCaseCapacity(for: $1) }
+            .reduce(0) { $0 + $1.weeklyWorkCapacity }
+    }
+    private var employeeResearchCapacity: Int {
+        store.employees.filter { $0.assignment == .research }.reduce(0) { $0 + $1.weeklyWorkCapacity }
+    }
+    private var employeeServiceCapacity: Int {
+        store.employees.filter { $0.assignment == .service }.reduce(0) { $0 + $1.weeklyWorkCapacity }
+    }
+    private var activeServiceBays: Int {
+        store.inventory.filter {
+            $0.workshopProject?.outsourced == false
+                && $0.workshopProject?.kind.usesCustomizationBay == false
+        }.count
+    }
+    private var activeCustomizationBays: Int {
+        store.inventory.filter {
+            $0.workshopProject?.outsourced == false
+                && $0.workshopProject?.kind.usesCustomizationBay == true
+        }.count + game.customerCustomizationOrders.filter {
+            $0.storeID == store.id && $0.status == .active
+        }.count
     }
 
     var body: some View {
@@ -1769,6 +1785,10 @@ private struct ManagerPanel: View {
                         ForEach(ServiceAutomationPolicy.allCases) { Text($0.name).tag($0) }
                     }
                 }
+                Picker("ベイ満杯時", selection: binding(\.workshopOverflowPolicy)) {
+                    ForEach(WorkshopOverflowPolicy.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.menu)
                 HStack(spacing: 10) {
                     Label("仕入", systemImage: "car.badge.gearshape")
                         .font(.subheadline.bold())
@@ -1783,6 +1803,106 @@ private struct ManagerPanel: View {
                         .frame(width: 96, alignment: .trailing)
                 }
                 .padding(.vertical, 4)
+            }
+            .gameCard()
+
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    SectionTitle(title: "週間工数", subtitle: "社員は担当職種の工数だけを供給します")
+                    Spacer()
+                    Text("オーナー \(game.ownerWorkEffortUsed)/\(game.ownerWeeklyWorkCapacity)")
+                        .font(.caption.bold().monospacedDigit())
+                        .foregroundStyle(GameTheme.orange)
+                }
+                HStack {
+                    MetricView(title: "販売", value: "\(employeeSalesCapacity)")
+                    MetricView(title: "仕入", value: "\(employeeProcurementCapacity)")
+                    MetricView(title: "調査", value: "\(employeeResearchCapacity)")
+                    MetricView(title: "整備", value: "\(employeeServiceCapacity)")
+                }
+                Text("販売2／下取り商談3／店舗買取2／AA入札1工数。オーナー工数は全店舗で共有します。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Divider()
+                HStack {
+                    MetricView(title: "整備ベイ", value: "\(activeServiceBays)/\(store.serviceBays)")
+                    MetricView(title: "カスタムベイ", value: "\(activeCustomizationBays)/\(store.customizationBays)")
+                    MetricView(title: "ベイ処理上限", value: "各20工数/週")
+                    MetricView(title: "自動加工見送り", value: "\(store.inventory.filter(\.automaticServiceSkipped).reduce(0) { $0 + $1.count })台")
+                }
+                Text("担当者工数とベイ枠は別制約です。空きベイがあっても整備工数が不足すると完成は遅れます。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if store.inventory.contains(where: \.automaticServiceSkipped) {
+                    Button("自動加工の見送りをすべて解除") {
+                        game.resumeSkippedAutomaticService(storeID: store.id)
+                    }
+                    .font(.caption.bold())
+                }
+            }
+            .gameCard()
+
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    SectionTitle(title: "調査キュー", subtitle: "未完の調査は翌週へ持ち越します")
+                    Spacer()
+                    Menu("調査を追加") {
+                        ForEach(ResearchWorkKind.allCases.filter { $0 != .competitorAnalysis }) { kind in
+                            Button("\(kind.name)・\(kind.requiredEffort)工数") {
+                                _ = game.enqueueResearchWork(storeID: store.id, kind: kind)
+                            }
+                        }
+                        Menu("競合分析・5工数") {
+                            ForEach(game.competitors) { competitor in
+                                Button(competitor.name) {
+                                    _ = game.enqueueResearchWork(
+                                        storeID: store.id,
+                                        kind: .competitorAnalysis,
+                                        targetName: competitor.name
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .disabled(!store.employees.contains(where: { $0.assignment == .research }))
+                }
+                if store.researchWorkOrders.isEmpty {
+                    Text("調査案件はありません。自動化ONではイベント予測、自店舗分析、広告分析を定期実行します。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.researchWorkOrders) { order in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(order.kind.name).font(.caption.bold())
+                                Text("残り\(order.remainingEffort)/\(order.requiredEffort)工数・優先\(order.priority)\(order.repeats ? "・定期" : "")")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                game.setResearchWorkPriority(storeID: store.id, orderID: order.id, priority: order.priority + 10)
+                            } label: { Image(systemName: "arrow.up.circle") }
+                            Button {
+                                game.setResearchWorkPriority(storeID: store.id, orderID: order.id, priority: order.priority - 10)
+                            } label: { Image(systemName: "arrow.down.circle") }
+                            Button(role: .destructive) {
+                                game.cancelResearchWork(storeID: store.id, orderID: order.id)
+                            } label: { Image(systemName: "xmark.circle") }
+                        }
+                    }
+                }
+                if !store.researchReports.isEmpty {
+                    Divider()
+                    ForEach(store.researchReports.sorted(by: { $0.completedTurn > $1.completedTurn }).prefix(4)) { report in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(report.kind.name)・精度\(report.accuracyPercent)%").font(.caption.bold())
+                            Text(report.summary).font(.caption2).foregroundStyle(.secondary)
+                            Text(report.expiresTurn >= game.turn ? "有効：\(report.expiresTurn + 1)週目まで" : "情報が古くなっています")
+                                .font(.caption2)
+                                .foregroundStyle(report.expiresTurn >= game.turn ? GameTheme.teal : GameTheme.orange)
+                        }
+                    }
+                }
             }
             .gameCard()
 
@@ -1820,19 +1940,8 @@ private struct ManagerPanel: View {
                 HStack {
                     MetricView(title: "在籍", value: "\(store.staff)名")
                     MetricView(title: "月額給与", value: store.employeeMonthlyPayroll.currency)
-                    MetricView(title: "オーナー販売枠", value: "週\(game.weeklySalesCapacity(storeID: store.id))回")
-                    MetricView(
-                        title: "社員営業枠",
-                        value: "週\(employeeSalesCapacity)回"
-                    )
-                    MetricView(
-                        title: "オーナー仕入枠",
-                        value: "週\(game.weeklyProcurementCapacity(storeID: store.id))回"
-                    )
-                    MetricView(
-                        title: "社員仕入枠",
-                        value: "週\(employeeProcurementCapacity)回"
-                    )
+                    MetricView(title: "オーナー残り", value: "\(game.ownerRemainingWorkEffort)工数")
+                    MetricView(title: "社員総工数", value: "\(employeeSalesCapacity + employeeProcurementCapacity + employeeResearchCapacity + employeeServiceCapacity)")
                 }
                 Text("社員は担当を割り当てないと業務をしてくれません")
                     .font(.caption)
@@ -1879,6 +1988,9 @@ private struct ManagerPanel: View {
                                 ForEach(EmployeeAssignment.allCases) { Label($0.name, systemImage: $0.icon).tag($0) }
                             }
                             .pickerStyle(.menu)
+                            Text("週間工数 \(employee.currentWeekPerformance.workEffortUsed)/\(employee.weeklyWorkCapacity)・残り\(employee.remainingWorkEffort)")
+                                .font(.caption.bold().monospacedDigit())
+                                .foregroundStyle(GameTheme.orange)
                             AbilityBar(name: "販売", value: employee.salesSkill, color: .blue)
                             AbilityBar(name: "仕入", value: employee.procurementSkill, color: .purple)
                             AbilityBar(name: "調査", value: employee.researchSkill, color: .indigo)
@@ -2094,14 +2206,14 @@ private struct ManagerPanel: View {
         case .sales:
             let effect = Int((game.employeeSalesCloseAdjustment(employee) * 100).rounded())
             let price = Int((game.employeeSalesPriceRealization(employee) * 100).rounded())
-            return "週\(game.employeeWeeklyCaseCapacity(for: employee))件・成約\(effect >= 0 ? "+" : "")\(effect)pt・売価\(price >= 0 ? "+" : "")\(price)%"
+            return "週\(employee.weeklyWorkCapacity)工数・通常商談\(employee.weeklyWorkCapacity / 2)件目安・成約\(effect >= 0 ? "+" : "")\(effect)pt・売価\(price >= 0 ? "+" : "")\(price)%"
         case .procurement:
             let close = Int((game.employeeProcurementCloseAdjustment(employee) * 100).rounded())
-            return "週\(game.employeeWeeklyCaseCapacity(for: employee))件・仕入成約\(close >= 0 ? "+" : "")\(close)pt"
+            return "週\(employee.weeklyWorkCapacity)工数・店舗買取\(employee.weeklyWorkCapacity / 2)件目安・仕入成約\(close >= 0 ? "+" : "")\(close)pt"
         case .research:
-            return "広告効率とトレンド先読み精度を改善"
+            return "週\(employee.weeklyWorkCapacity)工数・調査キューを処理し予測と分析を更新"
         case .service:
-            return "機関・故障を判定・修理原価を最大\(game.employeeServiceCostDiscount(for: store.id))%削減"
+            return "週\(employee.weeklyWorkCapacity)工数・機関判定・修理原価を最大\(game.employeeServiceCostDiscount(for: store.id))%削減"
         case .unassigned:
             return "担当を設定してください"
         }

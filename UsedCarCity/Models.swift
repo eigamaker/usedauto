@@ -2236,6 +2236,7 @@ struct InventoryBatch: Identifiable, Codable, Hashable {
     var faultRevealed: Bool
     var corporateReservationID: UUID?
     var dispositionPlan: InventoryDispositionPlan
+    var automaticServiceSkipped: Bool
 
     var quality: Double {
         get { condition.quality }
@@ -2245,7 +2246,7 @@ struct InventoryBatch: Identifiable, Codable, Hashable {
         }
     }
 
-    init(id: UUID = UUID(), modelID: String, category: VehicleCategory, count: Int, averageCost: Int? = nil, quality: Double = 0.75, modelYear: Int, mileage: Int, acquiredTurn: Int, productState: VehicleProductState = .stock, productGrade: SpecialtyProductGrade? = nil, valueAddedInvestment: Int = 0, workshopProject: VehicleWorkshopProject? = nil, vehicleIssue: VehicleIssueRecord? = nil, condition: VehicleConditionProfile? = nil, fault: MechanicalFaultSeverity = .none, faultRevealed: Bool = true, corporateReservationID: UUID? = nil, dispositionPlan: InventoryDispositionPlan = .retail) {
+    init(id: UUID = UUID(), modelID: String, category: VehicleCategory, count: Int, averageCost: Int? = nil, quality: Double = 0.75, modelYear: Int, mileage: Int, acquiredTurn: Int, productState: VehicleProductState = .stock, productGrade: SpecialtyProductGrade? = nil, valueAddedInvestment: Int = 0, workshopProject: VehicleWorkshopProject? = nil, vehicleIssue: VehicleIssueRecord? = nil, condition: VehicleConditionProfile? = nil, fault: MechanicalFaultSeverity = .none, faultRevealed: Bool = true, corporateReservationID: UUID? = nil, dispositionPlan: InventoryDispositionPlan = .retail, automaticServiceSkipped: Bool = false) {
         self.id = id
         self.modelID = modelID
         self.category = category
@@ -2265,6 +2266,7 @@ struct InventoryBatch: Identifiable, Codable, Hashable {
         self.faultRevealed = faultRevealed
         self.corporateReservationID = corporateReservationID
         self.dispositionPlan = dispositionPlan
+        self.automaticServiceSkipped = automaticServiceSkipped
     }
 
     var vehicleName: String {
@@ -3046,11 +3048,107 @@ struct EmployeeWeeklyPerformance: Codable, Hashable {
     var commission = 0
     var issuesFound = 0
     var servicesCompleted = 0
+    var workEffortUsed = 0
 
     var summary: String {
-        if servicesCompleted > 0 { return "整備\(servicesCompleted)台" }
-        if handled > 0 { return "対応\(handled)件・成功\(successes)件・粗利\(grossProfit.currency)" }
+        if servicesCompleted > 0 { return "整備\(servicesCompleted)台・工数\(workEffortUsed)" }
+        if handled > 0 { return "対応\(handled)件・成功\(successes)件・工数\(workEffortUsed)・粗利\(grossProfit.currency)" }
         return "実績なし"
+    }
+}
+
+enum ResearchWorkKind: String, Codable, CaseIterable, Identifiable, Hashable {
+    case storeAnalysis
+    case marketCauseAnalysis
+    case competitorAnalysis
+    case eventForecast
+    case segmentSurvey
+    case advertisingAnalysis
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .storeAnalysis: "自店舗分析"
+        case .marketCauseAnalysis: "市場変動の原因分析"
+        case .competitorAnalysis: "競合分析"
+        case .eventForecast: "イベント発生予測"
+        case .segmentSurvey: "地域・車種別相場調査"
+        case .advertisingAnalysis: "広告効果分析"
+        }
+    }
+    var requiredEffort: Int {
+        switch self {
+        case .storeAnalysis, .advertisingAnalysis: 3
+        case .marketCauseAnalysis, .competitorAnalysis: 5
+        case .eventForecast, .segmentSurvey: 7
+        }
+    }
+    var validityWeeks: Int {
+        switch self {
+        case .storeAnalysis, .eventForecast: 1
+        case .marketCauseAnalysis: 2
+        case .competitorAnalysis, .segmentSurvey, .advertisingAnalysis: 4
+        }
+    }
+}
+
+struct ResearchWorkOrder: Identifiable, Codable, Hashable {
+    let id: UUID
+    var kind: ResearchWorkKind
+    var targetName: String?
+    var requiredEffort: Int
+    var remainingEffort: Int
+    var accumulatedSkillEffort: Int
+    var completedEffort: Int
+    var priority: Int
+    var createdTurn: Int
+    var repeats: Bool
+
+    init(
+        id: UUID = UUID(),
+        kind: ResearchWorkKind,
+        targetName: String? = nil,
+        priority: Int = 0,
+        createdTurn: Int,
+        repeats: Bool = false
+    ) {
+        self.id = id
+        self.kind = kind
+        self.targetName = targetName
+        requiredEffort = kind.requiredEffort
+        remainingEffort = kind.requiredEffort
+        accumulatedSkillEffort = 0
+        completedEffort = 0
+        self.priority = priority
+        self.createdTurn = createdTurn
+        self.repeats = repeats
+    }
+}
+
+struct ResearchReportRecord: Identifiable, Codable, Hashable {
+    let id: UUID
+    let kind: ResearchWorkKind
+    let targetName: String?
+    let completedTurn: Int
+    let expiresTurn: Int
+    let accuracyPercent: Int
+    let summary: String
+}
+
+enum WorkshopOverflowPolicy: String, Codable, CaseIterable, Identifiable {
+    case wait
+    case profitableOutsource
+    case alwaysOutsource
+    case skip
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .wait: "ベイが空くまで待機"
+        case .profitableOutsource: "利益条件内なら外注"
+        case .alwaysOutsource: "常に外注"
+        case .skip: "加工せず販売"
+        }
     }
 }
 
@@ -3101,6 +3199,30 @@ struct StoreEmployee: Identifiable, Codable, Hashable {
     var lastWeekPerformance: EmployeeWeeklyPerformance
     var tenureWeeks: Int
     var lastTrainingTurn: Int?
+
+    var assignedSkill: Int {
+        switch assignment {
+        case .sales: salesSkill
+        case .procurement: procurementSkill
+        case .research: researchSkill
+        case .service: serviceSkill
+        case .unassigned: overallSkill
+        }
+    }
+
+    var weeklyWorkCapacity: Int {
+        switch assignedSkill {
+        case ..<45: 10
+        case ..<60: 12
+        case ..<75: 15
+        case ..<88: 18
+        default: 20
+        }
+    }
+
+    var remainingWorkEffort: Int {
+        max(0, weeklyWorkCapacity - currentWeekPerformance.workEffortUsed)
+    }
 
     init(
         id: UUID = UUID(),
@@ -3507,6 +3629,9 @@ struct Store: Identifiable, Codable, Hashable {
     var marketRepositioningWeeks: Int = 0
     var inventorySaleCampaign: InventorySaleCampaign?
     var inventorySaleCooldownWeeks: Int = 0
+    var researchWorkOrders: [ResearchWorkOrder]
+    var researchReports: [ResearchReportRecord]
+    var workshopOverflowPolicy: WorkshopOverflowPolicy
 
     init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, marketPolicy: StoreMarketPolicy = StoreMarketPolicy(), facilities: Set<StoreFacility> = [], inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
         id = UUID()
@@ -3565,6 +3690,9 @@ struct Store: Identifiable, Codable, Hashable {
         lifetimeProductSales = [:]
         inventorySaleCampaign = nil
         inventorySaleCooldownWeeks = 0
+        researchWorkOrders = []
+        researchReports = []
+        workshopOverflowPolicy = .profitableOutsource
     }
 
     var inventoryCount: Int { inventory.reduce(0) { $0 + $1.count } }
@@ -3585,9 +3713,7 @@ struct Store: Identifiable, Codable, Hashable {
         }
     }
     var weeklyWorkshopLabor: Int {
-        employees.filter { $0.assignment == .service }.reduce(0) {
-            $0 + min(4, max(2, Int((Double($1.serviceSkill) / 25).rounded())))
-        }
+        employees.filter { $0.assignment == .service }.reduce(0) { $0 + $1.remainingWorkEffort }
     }
     var derivedBusinessName: String {
         let bestCategory = expertise.categories.max(by: { $0.value < $1.value })

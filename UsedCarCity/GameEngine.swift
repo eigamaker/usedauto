@@ -110,6 +110,7 @@ final class GameEngine: ObservableObject {
     @Published var marketSignals: [MarketSignalRecord] = []
     @Published var newspaperIssues: [MarketNewspaperIssue] = []
     @Published var pendingVehicleTransactions: [VehicleTransactionRecord] = []
+    @Published private(set) var ownerWorkEffortUsed = 0
     @Published private(set) var simulationSeed = 1
     var simulationTransactionHandler: ((SimulationVehicleTransaction) -> Void)?
     private var openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord] = [:]
@@ -196,6 +197,7 @@ final class GameEngine: ObservableObject {
         let simulationSeed: Int
         let openSegmentWeek: [MarketSegmentKey: SegmentWeekRecord]
         let guide: GuideProgress
+        let ownerWorkEffortUsed: Int
     }
 
     private struct RegionalMonthResult {
@@ -232,7 +234,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v53"
+    private static let saveKey = "UsedCarCity.save.v54"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -364,6 +366,15 @@ final class GameEngine: ObservableObject {
 
     var progress: Double { Double(turn) / Double(maxTurns) }
     var totalInventory: Int { stores.reduce(0) { $0 + $1.inventoryCount } }
+    var ownerWeeklyWorkCapacity: Int { 20 }
+    var ownerRemainingWorkEffort: Int { max(0, ownerWeeklyWorkCapacity - ownerWorkEffortUsed) }
+
+    @discardableResult
+    private func consumeOwnerWorkEffort(_ effort: Int) -> Bool {
+        guard effort > 0, ownerRemainingWorkEffort >= effort else { return false }
+        ownerWorkEffortUsed += effort
+        return true
+    }
 
     func canSelectFoundingInventory(storeID: UUID) -> Bool {
         turn == 0
@@ -675,6 +686,7 @@ final class GameEngine: ObservableObject {
         districts = Self.makeDistricts(); plots = Self.makePlots(); competitors = Self.makeCompetitors()
         stores = []; reports = []; monthlyReports = []; purchaseCases = []; customerCustomizationOrders = []; buyerLeads = []; cityEvents = []; auctionListings = []; bidReservations = []; auctionBidResults = []; networkAuctionListings = []; networkAuctionBidReservations = []; networkAuctionBidResults = []; procurementInstructions = []; competitorAuctionPurchases = []; inboundShipments = []; auctionConsignments = []; pendingCustomerClaims = []; regionalOperations = []; intercityShipments = []; corporateOpportunities = []
         segmentMarkets = [:]; segmentTrends = []; marketSignals = []; newspaperIssues = []; pendingVehicleTransactions = []; openSegmentWeek = [:]
+        ownerWorkEffortUsed = 0
         competitorAuctionSlotsRemaining = [:]; competitorAuctionBudgetRemaining = [:]
         simulationSeed = requestedSeed ?? Int.random(in: 1...Int.max / 4)
         companyExpertise = BusinessExpertise()
@@ -787,6 +799,7 @@ final class GameEngine: ObservableObject {
         simulationSeed = saved.simulationSeed
         openSegmentWeek = saved.openSegmentWeek
         guide = saved.guide
+        ownerWorkEffortUsed = saved.ownerWorkEffortUsed
         lastReport = reports.first
         lastMonthlyReport = monthlyReports.first
     }
@@ -874,39 +887,31 @@ final class GameEngine: ObservableObject {
         return max(0, Int((base * economy * weeklyMarketShock(seed: turn * 173 + index * 43 + 29)).rounded()))
     }
 
-    /// 能力表示を持たない箇所向けの基準値。実処理は担当者ごとの6〜12件を使う。
-    var employeeWeeklyCaseCapacity: Int { 10 }
-    var employeeWeeklyCaseCapacityRange: ClosedRange<Int> { 6...12 }
+    /// 店員は職種能力に応じて週10〜20工数を持つ。販売・仕入の件数表示は
+    /// 標準案件2工数で割った目安として残す。
+    var employeeWeeklyCaseCapacity: Int { 8 }
+    var employeeWeeklyCaseCapacityRange: ClosedRange<Int> { 5...10 }
 
     func employeeWeeklyCaseCapacity(
         for employee: StoreEmployee,
         assignment: EmployeeAssignment? = nil
     ) -> Int {
-        let resolvedAssignment = assignment ?? employee.assignment
-        let score: Double
-        switch resolvedAssignment {
-        case .sales:
-            score = employee.salesComposite
-        case .procurement:
-            score = employee.procurementComposite
-        case .research:
-            score = employee.researchComposite
-        case .service:
-            score = employee.serviceComposite
-        case .unassigned:
-            score = Double(employee.overallSkill)
-        }
-        switch score {
-        case ..<45: return 6
-        case ..<60: return 8
-        case ..<75: return 10
-        case ..<88: return 11
-        default: return 12
-        }
+        var copy = employee
+        if let assignment { copy.assignment = assignment }
+        return copy.weeklyWorkCapacity / 2
+    }
+
+    func employeeWeeklyWorkCapacity(
+        for employee: StoreEmployee,
+        assignment: EmployeeAssignment? = nil
+    ) -> Int {
+        var copy = employee
+        if let assignment { copy.assignment = assignment }
+        return copy.weeklyWorkCapacity
     }
 
     func weeklyOpportunityCapacity(storeID: UUID) -> Int {
-        stores.contains(where: { $0.id == storeID }) ? 7 : 0
+        stores.contains(where: { $0.id == storeID }) ? ownerWeeklyWorkCapacity / 2 : 0
     }
 
     func weeklySalesCapacity(storeID: UUID) -> Int { weeklyOpportunityCapacity(storeID: storeID) }
@@ -1538,13 +1543,11 @@ final class GameEngine: ObservableObject {
     }
 
     func remainingWeeklySalesOpportunities(storeID: UUID) -> Int {
-        guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
-        return max(0, weeklySalesCapacity(storeID: storeID) - store.manualNegotiationsThisWeek)
+        stores.contains(where: { $0.id == storeID }) ? ownerRemainingWorkEffort / 2 : 0
     }
 
     func remainingWeeklyProcurementOpportunities(storeID: UUID) -> Int {
-        guard let store = stores.first(where: { $0.id == storeID }) else { return 0 }
-        return max(0, weeklyProcurementCapacity(storeID: storeID) - store.purchaseNegotiationsThisWeek)
+        stores.contains(where: { $0.id == storeID }) ? ownerRemainingWorkEffort : 0
     }
 
     func buyerLeads(for storeID: UUID) -> [BuyerLead] {
@@ -1803,7 +1806,8 @@ final class GameEngine: ObservableObject {
         let totalCost = inventory.reduce(0) { $0 + $1.averageCost }
         guard cash >= totalCost else { return false }
         let freeCapacity = stores[index].type.capacity - stores[index].inventoryCount
-        guard freeCapacity >= count else { return false }
+        guard freeCapacity >= count,
+              consumeOwnerWorkEffort(1) else { return false }
         cash -= totalCost
         stores[index].pendingPurchaseNegotiations += 1
         stores[index].inventory.append(contentsOf: inventory)
@@ -2160,6 +2164,7 @@ final class GameEngine: ObservableObject {
             bidReservations[index].maxPrice = maxPrice
             bidReservations[index].committedCost = maxPrice + listing.lane.fee + listing.lane.shippingCost
         } else {
+            if isNewManualBid, !consumeOwnerWorkEffort(1) { return false }
             bidReservations.append(BidReservation(
                 id: UUID(),
                 listingID: listingID,
@@ -2237,6 +2242,7 @@ final class GameEngine: ObservableObject {
             networkAuctionBidReservations[index].maxPrice = maxPrice
             networkAuctionBidReservations[index].committedCost = maxPrice + listing.fee + listing.shippingCost
         } else {
+            if isNewManualBid, !consumeOwnerWorkEffort(1) { return false }
             networkAuctionBidReservations.append(NetworkAuctionBidReservation(
                 id: UUID(),
                 listingID: listingID,
@@ -2295,6 +2301,10 @@ final class GameEngine: ObservableObject {
                 stores[storeIndex].inventory[batchIndex].corporateReservationID = opportunityID
             }
             corporateOpportunities[opportunityIndex].reservedInventoryIDs = reserved
+        }
+        if isInitialBid, !consumeOwnerWorkEffort(4) {
+            releaseCorporateReservation(opportunityID: opportunityID)
+            return false
         }
         corporateOpportunities[opportunityIndex].playerStoreID = storeID
         corporateOpportunities[opportunityIndex].playerUnitPrice = unitPrice
@@ -3119,7 +3129,8 @@ final class GameEngine: ObservableObject {
 
     func employeeMarketingEfficiency(for storeID: UUID, buyers: Bool) -> Double {
         guard let store = stores.first(where: { $0.id == storeID }), store.autoMarketing,
-              store.employees.contains(where: { $0.assignment == .research }) else { return 1 }
+              store.employees.contains(where: { $0.assignment == .research }),
+              currentResearchReport(storeID: storeID, kind: .advertisingAnalysis) != nil else { return 1 }
         let base = interpolatedEmployeeEffect(score: employeeMarketingScore(for: storeID), low: 0.65, high: 1.50)
         let policyFactor: Double
         switch (store.marketingPolicy, buyers) {
@@ -3154,6 +3165,11 @@ final class GameEngine: ObservableObject {
 
     func competitorAuctionTrend(competitorID: UUID, storeID: UUID) -> String {
         guard hasMarketResearcher(storeID: storeID) else { return "市場調査担当を配置すると仕入れ動向が判明します" }
+        let competitorName = competitorName(for: competitorID)
+        guard currentResearchReport(storeID: storeID, kind: .competitorAnalysis, targetName: competitorName) != nil
+                || currentResearchReport(storeID: storeID, kind: .competitorAnalysis) != nil else {
+            return "\(competitorName)を調査キューへ追加すると仕入れ動向が判明します"
+        }
         let purchases = recentCompetitorAuctionPurchases(competitorID: competitorID)
         guard !purchases.isEmpty else { return "直近12週間は目立ったAA仕入れなし" }
         let counts = Dictionary(grouping: purchases, by: \.category).mapValues(\.count)
@@ -3186,7 +3202,10 @@ final class GameEngine: ObservableObject {
     }
 
     func segmentResearchHorizon(for storeID: UUID) -> Int {
-        guard hasMarketResearcher(storeID: storeID) else { return 0 }
+        guard hasMarketResearcher(storeID: storeID),
+              stores.first(where: { $0.id == storeID })?.researchReports.contains(where: {
+                  $0.kind == .segmentSurvey && $0.completedTurn <= turn && $0.expiresTurn >= turn
+              }) == true else { return 0 }
         let score = marketResearchScore(for: storeID)
         if score >= 90 { return 8 }
         if score >= 75 { return 5 }
@@ -3510,7 +3529,8 @@ final class GameEngine: ObservableObject {
     }
 
     func marketForecastHorizon(for storeID: UUID) -> Int {
-        guard hasMarketResearcher(storeID: storeID) else { return 1 }
+        guard hasMarketResearcher(storeID: storeID),
+              currentResearchReport(storeID: storeID, kind: .eventForecast) != nil else { return 1 }
         return marketResearchScore(for: storeID) >= 70 ? 3 : 2
     }
 
@@ -3524,7 +3544,8 @@ final class GameEngine: ObservableObject {
         let event = upcomingMarketShock(within: horizon)
         let shortTerm: String
         if let event {
-            if !hasMarketResearcher(storeID: storeID) {
+            if !hasMarketResearcher(storeID: storeID)
+                || currentResearchReport(storeID: storeID, kind: .eventForecast) == nil {
                 shortTerm = "市場変動の兆候あり。専門担当なら発生要因まで先読みできます"
             } else if marketResearchScore(for: storeID) >= 70 {
                 shortTerm = "\(horizon)週以内：\(event.title)の可能性が高い"
@@ -4546,7 +4567,8 @@ final class GameEngine: ObservableObject {
         let lead = buyerLeads[leadIndex]
         let tradeInPreview = acceptTradeIn ? tradeInSalePreview(storeID: storeID, buyerLeadID: buyerLeadID, inventoryID: inventoryID, strategy: strategy) : nil
         guard !acceptTradeIn || tradeInPreview != nil,
-              cash >= (tradeInPreview?.requiredDealerCash ?? 0) else { return nil }
+              cash >= (tradeInPreview?.requiredDealerCash ?? 0),
+              consumeOwnerWorkEffort(acceptTradeIn ? 3 : 2) else { return nil }
         let category = stores[storeIndex].inventory[batchIndex].category
         let salesAttempts = stores[storeIndex].manualNegotiationsThisWeek
         let strategyIndex = SaleNegotiationStrategy.allCases.firstIndex(of: strategy) ?? 0
@@ -5014,7 +5036,7 @@ final class GameEngine: ObservableObject {
     func canNegotiatePurchaseCase(_ caseID: UUID) -> Bool {
         guard let item = purchaseCases.first(where: { $0.id == caseID }),
               stores.contains(where: { $0.id == item.storeID }) else { return false }
-        return remainingWeeklyProcurementOpportunities(storeID: item.storeID) > 0
+        return ownerRemainingWorkEffort >= 2
     }
 
     @discardableResult
@@ -5026,7 +5048,8 @@ final class GameEngine: ObservableObject {
         let total = preview.price * item.lotCount
         guard cash >= total,
               stores[storeIndex].inventoryCount + item.lotCount <= stores[storeIndex].type.capacity,
-              remainingWeeklyProcurementOpportunities(storeID: item.storeID) > 0 else { return .unavailable }
+              ownerRemainingWorkEffort >= 2,
+              consumeOwnerWorkEffort(2) else { return .unavailable }
 
         stores[storeIndex].pendingPurchaseNegotiations = stores[storeIndex].purchaseNegotiationsThisWeek + 1
 
@@ -5203,48 +5226,56 @@ final class GameEngine: ObservableObject {
         let targetState: VehicleProductState
         switch kind {
         case .basicService:
-            baseCost = max(1, retailQuote.baseCost); requiredWork = 1
+            baseCost = max(1, retailQuote.baseCost); requiredWork = 5
             requestedGain = max(0, retailQuote.targetCondition.score - batch.condition.score)
             targetState = .serviced
         case .repair:
-            requiredWork = max(2, batch.fault.requiredWork)
+            requiredWork = switch batch.fault {
+            case .none: 0
+            case .minor: 8
+            case .major: 16
+            case .immobile: 24
+            }
             baseCost = max(1, retailQuote.baseCost)
             requestedGain = max(0, retailQuote.targetCondition.score - batch.condition.score)
             targetState = .repaired
         case .refurbishment:
             baseCost = max(80, Int(Double(model.baseWholesalePrice) * (model.isRareClassic ? 0.52 : 0.28)))
-            requiredWork = 6; requestedGain = currentQuality < 65 ? 15 : 10; targetState = .refurbished
+            requiredWork = 20; requestedGain = currentQuality < 65 ? 15 : 10; targetState = .refurbished
         case .camperConversion:
-            baseCost = max(180, Int(Double(model.baseWholesalePrice) * 0.90)); requiredWork = 10; requestedGain = 3; targetState = .camper
+            baseCost = max(180, Int(Double(model.baseWholesalePrice) * 0.90)); requiredWork = 30; requestedGain = 3; targetState = .camper
         case .workConversion:
-            baseCost = max(45, Int(Double(batch.category.purchaseCost) * 0.22)); requiredWork = 5; requestedGain = 2; targetState = .workCargo
+            baseCost = max(45, Int(Double(batch.category.purchaseCost) * 0.22)); requiredWork = 18; requestedGain = 2; targetState = .workCargo
         case .outdoorConversion:
-            baseCost = max(35, Int(Double(batch.category.purchaseCost) * 0.18)); requiredWork = 4; requestedGain = 2; targetState = .outdoor
+            baseCost = max(35, Int(Double(batch.category.purchaseCost) * 0.18)); requiredWork = 16; requestedGain = 2; targetState = .outdoor
         case .streetTuning:
-            baseCost = max(70, Int(Double(model.referenceRetailPrice) * 0.22)); requiredWork = 5; requestedGain = 3; targetState = .sportStreet
+            baseCost = max(70, Int(Double(model.referenceRetailPrice) * 0.22)); requiredWork = 18; requestedGain = 3; targetState = .sportStreet
         case .driftTuning:
-            baseCost = max(120, Int(Double(model.referenceRetailPrice) * 0.38)); requiredWork = 7; requestedGain = 4; targetState = .sportDrift
+            baseCost = max(120, Int(Double(model.referenceRetailPrice) * 0.38)); requiredWork = 24; requestedGain = 4; targetState = .sportDrift
         case .circuitTuning:
-            baseCost = max(180, Int(Double(model.referenceRetailPrice) * 0.55)); requiredWork = 9; requestedGain = 5; targetState = .sportCircuit
+            baseCost = max(180, Int(Double(model.referenceRetailPrice) * 0.55)); requiredWork = 30; requestedGain = 5; targetState = .sportCircuit
         case .liftSeatConversion:
-            baseCost = max(65, Int(Double(model.referenceRetailPrice) * 0.22)); requiredWork = 5; requestedGain = 2; targetState = .welfareLiftSeat
+            baseCost = max(65, Int(Double(model.referenceRetailPrice) * 0.22)); requiredWork = 18; requestedGain = 2; targetState = .welfareLiftSeat
         case .wheelchairConversion:
-            baseCost = max(110, Int(Double(model.referenceRetailPrice) * 0.40)); requiredWork = 8; requestedGain = 3; targetState = .welfareWheelchair
+            baseCost = max(110, Int(Double(model.referenceRetailPrice) * 0.40)); requiredWork = 22; requestedGain = 3; targetState = .welfareWheelchair
         case .mobileSalesConversion:
-            baseCost = max(90, Int(Double(model.referenceRetailPrice) * 0.30)); requiredWork = 6; requestedGain = 2; targetState = .mobileSales
+            baseCost = max(90, Int(Double(model.referenceRetailPrice) * 0.30)); requiredWork = 22; requestedGain = 2; targetState = .mobileSales
         case .kitchenCarConversion:
-            baseCost = max(170, Int(Double(model.referenceRetailPrice) * 0.60)); requiredWork = 10; requestedGain = 3; targetState = .kitchenCar
+            baseCost = max(170, Int(Double(model.referenceRetailPrice) * 0.60)); requiredWork = 30; requestedGain = 3; targetState = .kitchenCar
         }
         if let resolvedGrade {
             if isGradeUpgrade {
                 let currentRank = (batch.productGrade ?? .low).rank
-                requiredWork = max(1, resolvedGrade.rank - currentRank)
-            } else if kind.usesCustomizationBay {
-                let completionTarget = resolvedGrade.rank + 2
-                requiredWork = max(1, completionTarget - kind.completionInspectionWeeks)
+                requiredWork = max(5, (resolvedGrade.rank - currentRank) * 10)
+            } else {
+                let workMultiplier: Double = switch resolvedGrade {
+                case .low: 1.0
+                case .middle: 1.5
+                case .high: 2.0
+                }
+                requiredWork = Int((Double(requiredWork) * workMultiplier).rounded(.up))
             }
         }
-        requiredWork = min(requiredWork, kind.maximumWorkWeeks)
         let gradeCostMultiplier: Double
         if let resolvedGrade {
             let currentMultiplier = isGradeUpgrade ? (batch.productGrade ?? .low).costMultiplier : 0
@@ -5346,12 +5377,9 @@ final class GameEngine: ObservableObject {
         let effectiveExpertise = min(100, store.expertise.project(kind) + companyExpertise.project(kind) * 0.25)
         let expertiseEfficiency = 1 + min(0.20, effectiveExpertise / 500)
         let effectiveLabor = max(1, Int((Double(labor) * expertiseEfficiency).rounded()))
-        let estimatedWeeks = min(
-            kind.maximumCompletionWeeks,
-            outsourced
-                ? requiredWork + partner.extraWeeks + kind.completionInspectionWeeks
-                : Int(ceil(Double(requiredWork) / Double(effectiveLabor))) + kind.completionInspectionWeeks
-        )
+        let estimatedWeeks = outsourced
+            ? max(1, Int(ceil(Double(requiredWork) / 20.0)) + partner.extraWeeks + kind.completionInspectionWeeks)
+            : Int(ceil(Double(requiredWork) / Double(min(20, effectiveLabor)))) + kind.completionInspectionWeeks
         return WorkshopProjectPreview(
             kind: kind,
             grade: resolvedGrade,
@@ -5413,7 +5441,8 @@ final class GameEngine: ObservableObject {
                 vehicleIssue: original.vehicleIssue,
                 condition: original.condition,
                 fault: original.fault,
-                faultRevealed: original.faultRevealed
+                faultRevealed: original.faultRevealed,
+                automaticServiceSkipped: original.automaticServiceSkipped
             ))
         }
         cash -= preview.cost
@@ -5665,6 +5694,7 @@ final class GameEngine: ObservableObject {
         updateSegmentTrends(at: turn + 1, notes: &notes)
         simulateCompetitors(notes: &notes)
         turn += 1
+        ownerWorkEffortUsed = 0
         announceNewModels(notes: &notes)
         weekOfMonth += 1
         if weekOfMonth > 4 {
@@ -7724,6 +7754,19 @@ final class GameEngine: ObservableObject {
     private func progressWorkshopProjects(notes: inout [String]) {
         for storeIndex in stores.indices {
             var labor = stores[storeIndex].weeklyWorkshopLabor
+            let technicianIndices = stores[storeIndex].employees.indices
+                .filter { stores[storeIndex].employees[$0].assignment == .service }
+                .sorted { stores[storeIndex].employees[$0].serviceSkill > stores[storeIndex].employees[$1].serviceSkill }
+            func recordServiceEffort(_ amount: Int) {
+                var remaining = amount
+                for employeeIndex in technicianIndices where remaining > 0 {
+                    let capacity = stores[storeIndex].employees[employeeIndex].weeklyWorkCapacity
+                    let used = stores[storeIndex].employees[employeeIndex].currentWeekPerformance.workEffortUsed
+                    let allocation = min(remaining, max(0, capacity - used))
+                    stores[storeIndex].employees[employeeIndex].currentWeekPerformance.workEffortUsed += allocation
+                    remaining -= allocation
+                }
+            }
             let ordered = stores[storeIndex].inventory.indices
                 .filter { stores[storeIndex].inventory[$0].workshopProject != nil }
                 .sorted { lhs, rhs in
@@ -7740,9 +7783,10 @@ final class GameEngine: ObservableObject {
                 if project.outsourced {
                     project.outsourcedWeeksRemaining -= 1
                 } else if project.remainingWork > 0, labor > 0 {
-                    let allocation = min(labor, project.remainingWork)
+                    let allocation = min(20, labor, project.remainingWork)
                     project.remainingWork -= allocation
                     labor -= allocation
+                    recordServiceEffort(allocation)
                 } else if project.remainingWork <= 0, project.inspectionWeeksRemaining > 0 {
                     project.inspectionWeeksRemaining -= 1
                 }
@@ -7802,9 +7846,10 @@ final class GameEngine: ObservableObject {
             var completedOrderIDs: Set<UUID> = []
             for orderIndex in orderIndices {
                 if customerCustomizationOrders[orderIndex].remainingWork > 0, labor > 0 {
-                    let allocation = min(labor, customerCustomizationOrders[orderIndex].remainingWork)
+                    let allocation = min(20, labor, customerCustomizationOrders[orderIndex].remainingWork)
                     customerCustomizationOrders[orderIndex].remainingWork -= allocation
                     labor -= allocation
+                    recordServiceEffort(allocation)
                 } else if customerCustomizationOrders[orderIndex].remainingWork <= 0,
                           customerCustomizationOrders[orderIndex].inspectionWeeksRemaining > 0 {
                     customerCustomizationOrders[orderIndex].inspectionWeeksRemaining -= 1
@@ -8103,10 +8148,8 @@ final class GameEngine: ObservableObject {
         let strategy = stores[storeIndex].salesPolicy.strategy
 
         for handler in handlers {
-            var handledByEmployee = 0
-            let caseCapacity = employeeWeeklyCaseCapacity(for: handler, assignment: .sales)
-            while handledByEmployee < caseCapacity,
-                  let lead = buyerLeads.first(where: {
+            var remainingEffort = employeeWeeklyWorkCapacity(for: handler, assignment: .sales)
+            while let lead = buyerLeads.first(where: {
                       $0.storeID == storeID && automaticInventoryIndex(for: $0, storeIndex: storeIndex, salesperson: handler) != nil
                   }),
                   let batchIndex = automaticInventoryIndex(for: lead, storeIndex: storeIndex, salesperson: handler),
@@ -8116,7 +8159,9 @@ final class GameEngine: ObservableObject {
                       inventoryID: stores[storeIndex].inventory[batchIndex].id,
                       strategy: strategy
                   ) {
-                handledByEmployee += 1
+                let workEffort = lead.tradeInVehicle == nil ? 2 : 3
+                guard remainingEffort >= workEffort else { break }
+                remainingEffort -= workEffort
                 result.attempts += 1
                 let category = stores[storeIndex].inventory[batchIndex].category
                 let employeeSeed = handler.name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
@@ -8147,7 +8192,10 @@ final class GameEngine: ObservableObject {
                 )
                 buyerLeads.removeAll { $0.id == lead.id }
                 let succeeded = transactionRoll(seed: seed) < closeChance
-                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) { $0.handled += 1 }
+                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                    $0.handled += 1
+                    $0.workEffortUsed += workEffort
+                }
                 awardEmployeeExperience(employeeID: handler.id, storeIndex: storeIndex, focus: .sales, successful: succeeded)
                 let proposedVehicle = stores[storeIndex].inventory[batchIndex]
                 let reviewService = (succeeded ? 68 : 48)
@@ -9024,18 +9072,22 @@ final class GameEngine: ObservableObject {
 
         var performedInstructionIDs: Set<UUID> = []
         for handler in handlers {
-            let caseCapacity = employeeWeeklyCaseCapacity(for: handler, assignment: .procurement)
-            for _ in 0..<caseCapacity {
+            var remainingEffort = employeeWeeklyWorkCapacity(for: handler, assignment: .procurement)
+            while remainingEffort > 0 {
                 if let storePurchase = automaticStorePurchaseCandidate(
                     handler: handler,
                     storeIndex: storeIndex
-                ) {
+                ), remainingEffort >= 2 {
                     if executeAutomaticStorePurchase(
                         storePurchase,
                         handler: handler,
                         storeIndex: storeIndex,
                         notes: &notes
                     ) {
+                        remainingEffort -= 2
+                        updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                            $0.workEffortUsed += 2
+                        }
                         continue
                     }
                 }
@@ -9052,6 +9104,12 @@ final class GameEngine: ObservableObject {
                     }
                 }
                 guard let selected else { break }
+                let workEffort: Int
+                switch selected.1.kind {
+                case .storePurchase: workEffort = 2
+                case .auction, .networkAuction: workEffort = 1
+                }
+                guard remainingEffort >= workEffort else { break }
                 let attempted = executeAutomaticProcurementCandidate(
                     selected.1,
                     instructionID: selected.0.id,
@@ -9060,6 +9118,10 @@ final class GameEngine: ObservableObject {
                     notes: &notes
                 )
                 if !attempted { break }
+                remainingEffort -= workEffort
+                updateEmployeePerformance(employeeID: handler.id, storeIndex: storeIndex) {
+                    $0.workEffortUsed += workEffort
+                }
                 performedInstructionIDs.insert(selected.0.id)
             }
         }
@@ -9118,6 +9180,7 @@ final class GameEngine: ObservableObject {
                 batch.count > 0
                     && !batch.isInWorkshop
                     && !batch.isReserved
+                    && !batch.automaticServiceSkipped
                     && projectKind(for: batch) != nil
             }.sorted { $0.quality < $1.quality }
             let viable = candidates.compactMap { batch -> (InventoryBatch, WorkshopProjectPreview)? in
@@ -9133,12 +9196,18 @@ final class GameEngine: ObservableObject {
                     ? (batch.dispositionPlan.plannedGrade.map { [Optional.some($0)] }
                         ?? SpecialtyProductGrade.allCases.map(Optional.some))
                     : [nil]
+                let fulfillment: WorkFulfillmentMode = switch stores[storeIndex].workshopOverflowPolicy {
+                case .wait, .skip: .inHouse
+                case .profitableOutsource: .automatic
+                case .alwaysOutsource: .outsourced
+                }
                 let previews = grades.compactMap { grade in
                     workshopProjectPreview(
                         storeID: storeID,
                         inventoryID: batch.id,
                         kind: kind,
-                        grade: grade
+                        grade: grade,
+                        fulfillment: fulfillment
                     )
                 }.filter { preview in
                     if batch.dispositionPlan.protectsFromAutomaticSales,
@@ -9156,7 +9225,16 @@ final class GameEngine: ObservableObject {
                 }) else { return nil }
                 return (batch, preview)
             }
-            guard let selected = viable.first else { break }
+            guard let selected = viable.first else {
+                if stores[storeIndex].workshopOverflowPolicy == .skip,
+                   let skipped = candidates.first,
+                   let skippedIndex = stores[storeIndex].inventory.firstIndex(where: { $0.id == skipped.id }) {
+                    stores[storeIndex].inventory[skippedIndex].automaticServiceSkipped = true
+                    stores[storeIndex].inventory[skippedIndex].dispositionPlan = .retail
+                    continue
+                }
+                break
+            }
             guard startWorkshopProject(
                 storeID: storeID,
                 inventoryID: selected.0.id,
@@ -9167,11 +9245,161 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    @discardableResult
+    func enqueueResearchWork(
+        storeID: UUID,
+        kind: ResearchWorkKind,
+        targetName: String? = nil,
+        priority: Int = 0,
+        repeats: Bool = false
+    ) -> Bool {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
+              stores[storeIndex].employees.contains(where: { $0.assignment == .research }),
+              !stores[storeIndex].researchWorkOrders.contains(where: {
+                  $0.kind == kind && $0.targetName == targetName
+              }) else { return false }
+        stores[storeIndex].researchWorkOrders.append(ResearchWorkOrder(
+            kind: kind,
+            targetName: targetName,
+            priority: priority,
+            createdTurn: turn,
+            repeats: repeats
+        ))
+        save()
+        return true
+    }
+
+    func cancelResearchWork(storeID: UUID, orderID: UUID) {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }) else { return }
+        stores[storeIndex].researchWorkOrders.removeAll { $0.id == orderID }
+        save()
+    }
+
+    func resumeSkippedAutomaticService(storeID: UUID) {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }) else { return }
+        for inventoryIndex in stores[storeIndex].inventory.indices {
+            stores[storeIndex].inventory[inventoryIndex].automaticServiceSkipped = false
+        }
+        save()
+    }
+
+    func setResearchWorkPriority(storeID: UUID, orderID: UUID, priority: Int) {
+        guard let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
+              let orderIndex = stores[storeIndex].researchWorkOrders.firstIndex(where: { $0.id == orderID }) else { return }
+        stores[storeIndex].researchWorkOrders[orderIndex].priority = min(100, max(-100, priority))
+        save()
+    }
+
+    func currentResearchReport(
+        storeID: UUID,
+        kind: ResearchWorkKind,
+        targetName: String? = nil
+    ) -> ResearchReportRecord? {
+        stores.first(where: { $0.id == storeID })?.researchReports
+            .filter {
+                $0.kind == kind && $0.targetName == targetName
+                    && $0.completedTurn <= turn && $0.expiresTurn >= turn
+            }
+            .max { $0.completedTurn < $1.completedTurn }
+    }
+
+    private func researchSummary(
+        kind: ResearchWorkKind,
+        targetName: String?,
+        storeID: UUID
+    ) -> String {
+        switch kind {
+        case .storeAnalysis:
+            guard let store = stores.first(where: { $0.id == storeID }) else { return "店舗データを取得できませんでした" }
+            if store.inventoryCount > store.type.capacity * 7 / 10 { return "在庫過多。長期在庫の値下げと仕入抑制を推奨" }
+            if store.lastProfit < 0 { return "営業赤字。粗利、広告費、固定費の順に見直しを推奨" }
+            return "在庫・粗利・来店対応は概ね均衡"
+        case .marketCauseAnalysis:
+            return "燃料・景気・地域需要の変化が現在の相場へ与える影響を整理"
+        case .competitorAnalysis:
+            return "\(targetName ?? "指定競合")の在庫、仕入経路、価格方針を分析"
+        case .eventForecast:
+            let horizon = marketResearchScore(for: storeID) >= 70 ? 3 : 2
+            if let event = upcomingMarketShock(within: horizon) {
+                return "\(horizon)週以内：\(event.title)の発生可能性を検出"
+            }
+            return "\(horizon)週先まで大型イベントの兆候なし"
+        case .segmentSurvey:
+            return "\(targetName ?? "指定市場")の需要、競合在庫、想定粗利を調査"
+        case .advertisingAnalysis:
+            return "来店構成に基づき、\(stores.first(where: { $0.id == storeID })?.marketingPolicy.name ?? "バランス")向けの広告配分を提案"
+        }
+    }
+
     private func progressAutomaticMarketing(for storeIndex: Int) {
         guard stores.indices.contains(storeIndex), stores[storeIndex].autoMarketing else { return }
-        let employeeIDs = stores[storeIndex].employees.filter { $0.assignment == .research }.map(\.id)
-        for employeeID in employeeIDs {
-            awardEmployeeExperience(employeeID: employeeID, storeIndex: storeIndex, focus: .research, successful: true)
+        let researchers = stores[storeIndex].employees.indices
+            .filter { stores[storeIndex].employees[$0].assignment == .research }
+            .sorted { stores[storeIndex].employees[$0].researchSkill > stores[storeIndex].employees[$1].researchSkill }
+        guard !researchers.isEmpty else { return }
+
+        let defaults: [(ResearchWorkKind, Int)] = [
+            (.eventForecast, 30),
+            (.storeAnalysis, 20),
+            (.advertisingAnalysis, 10)
+        ]
+        for (kind, priority) in defaults where !stores[storeIndex].researchWorkOrders.contains(where: { $0.kind == kind }) {
+            stores[storeIndex].researchWorkOrders.append(ResearchWorkOrder(
+                kind: kind,
+                priority: priority,
+                createdTurn: turn,
+                repeats: true
+            ))
+        }
+
+        for employeeIndex in researchers {
+            var remaining = stores[storeIndex].employees[employeeIndex].weeklyWorkCapacity
+            while remaining > 0 {
+                guard let orderIndex = stores[storeIndex].researchWorkOrders.indices
+                    .filter({
+                        stores[storeIndex].researchWorkOrders[$0].remainingEffort > 0
+                            && stores[storeIndex].researchWorkOrders[$0].createdTurn <= turn
+                    })
+                    .sorted(by: {
+                        let lhs = stores[storeIndex].researchWorkOrders[$0]
+                        let rhs = stores[storeIndex].researchWorkOrders[$1]
+                        return lhs.priority == rhs.priority ? lhs.createdTurn < rhs.createdTurn : lhs.priority > rhs.priority
+                    })
+                    .first else { break }
+                let allocation = min(remaining, stores[storeIndex].researchWorkOrders[orderIndex].remainingEffort)
+                stores[storeIndex].researchWorkOrders[orderIndex].remainingEffort -= allocation
+                stores[storeIndex].researchWorkOrders[orderIndex].completedEffort += allocation
+                stores[storeIndex].researchWorkOrders[orderIndex].accumulatedSkillEffort += allocation * stores[storeIndex].employees[employeeIndex].researchSkill
+                stores[storeIndex].employees[employeeIndex].currentWeekPerformance.workEffortUsed += allocation
+                remaining -= allocation
+
+                guard stores[storeIndex].researchWorkOrders[orderIndex].remainingEffort == 0 else { continue }
+                let order = stores[storeIndex].researchWorkOrders[orderIndex]
+                let averageSkill = order.accumulatedSkillEffort / max(1, order.completedEffort)
+                let accuracy = min(98, max(55, 50 + averageSkill / 2))
+                stores[storeIndex].researchReports.removeAll {
+                    $0.kind == order.kind && $0.targetName == order.targetName
+                }
+                stores[storeIndex].researchReports.append(ResearchReportRecord(
+                    id: UUID(),
+                    kind: order.kind,
+                    targetName: order.targetName,
+                    completedTurn: turn + 1,
+                    expiresTurn: turn + order.kind.validityWeeks,
+                    accuracyPercent: accuracy,
+                    summary: researchSummary(kind: order.kind, targetName: order.targetName, storeID: stores[storeIndex].id)
+                ))
+                stores[storeIndex].employees[employeeIndex].currentWeekPerformance.handled += 1
+                awardEmployeeExperience(employeeID: stores[storeIndex].employees[employeeIndex].id, storeIndex: storeIndex, focus: .research, successful: true)
+                if order.repeats {
+                    stores[storeIndex].researchWorkOrders[orderIndex].remainingEffort = order.requiredEffort
+                    stores[storeIndex].researchWorkOrders[orderIndex].completedEffort = 0
+                    stores[storeIndex].researchWorkOrders[orderIndex].accumulatedSkillEffort = 0
+                    stores[storeIndex].researchWorkOrders[orderIndex].createdTurn = turn + 1
+                } else {
+                    stores[storeIndex].researchWorkOrders.remove(at: orderIndex)
+                }
+            }
         }
     }
 
@@ -9195,6 +9423,7 @@ final class GameEngine: ObservableObject {
                     let commissionText = performance.commission > 0 ? "・歩合\(performance.commission.currency)" : ""
                     notes.append("\(stores[storeIndex].name) \(employee.name)：\(performance.summary)\(commissionText)")
                 }
+                stores[storeIndex].employees[employeeIndex].currentWeekPerformance = EmployeeWeeklyPerformance()
             }
             if stores[storeIndex].autoMarketing,
                let researcher = stores[storeIndex].employees.filter({ $0.assignment == .research }).max(by: { $0.researchSkill < $1.researchSkill }) {
@@ -9305,14 +9534,19 @@ final class GameEngine: ObservableObject {
                     && procurementInstructions(for: stores[index].id).contains {
                         $0.status == .active && $0.remainingBudget > 0
                     }
-                let automatedCases = (stores[index].autoSales ? stores[index].buyerArrivalsThisWeek : 0)
+                let commercialEffort = (stores[index].autoSales ? stores[index].buyerArrivalsThisWeek * 2 : 0)
                     + (stores[index].autoProcurement
-                        ? max(stores[index].sellerArrivalsThisWeek, needsInstructionHandler ? 1 : 0)
+                        ? max(stores[index].sellerArrivalsThisWeek * 2, needsInstructionHandler ? 1 : 0)
                         : 0)
-                let caseWorkers = max(0, Int(ceil(Double(automatedCases) / Double(employeeWeeklyCaseCapacity))))
-                let supportWorkers = (stores[index].autoMarketing ? 1 : 0)
-                    + (stores[index].autoService && stores[index].inventoryCount > 0 ? 1 : 0)
-                let target = min(maxEmployeesPerStore, caseWorkers + supportWorkers)
+                let caseWorkers = max(0, Int(ceil(Double(commercialEffort) / 15.0)))
+                let researchEffort = stores[index].autoMarketing
+                    ? max(13, stores[index].researchWorkOrders.reduce(0) { $0 + $1.remainingEffort })
+                    : 0
+                let researchWorkers = Int(ceil(Double(researchEffort) / 15.0))
+                let serviceWorkers = stores[index].autoService && stores[index].inventoryCount > 0
+                    ? max(1, min(stores[index].workshopBays, 2))
+                    : 0
+                let target = min(maxEmployeesPerStore, caseWorkers + researchWorkers + serviceWorkers)
                 if stores[index].staff < target, let candidate = employeeCandidates(for: stores[index].id).first {
                     stores[index].employees.append(candidate)
                     actions.append("\(candidate.name)を採用")
@@ -9359,7 +9593,11 @@ final class GameEngine: ObservableObject {
                                     }
                         )
                         let assignment: EmployeeAssignment
-                        if stores[index].autoMarketing && !stores[index].employees.contains(where: { $0.assignment == .research }) {
+                        if stores[index].autoService
+                            && stores[index].inventoryCount > 0
+                            && !stores[index].employees.contains(where: { $0.assignment == .service }) {
+                            assignment = .service
+                        } else if stores[index].autoMarketing && !stores[index].employees.contains(where: { $0.assignment == .research }) {
                             assignment = .research
                         } else if buyerNeed >= sellerNeed, stores[index].autoSales {
                             assignment = .sales
@@ -9378,9 +9616,6 @@ final class GameEngine: ObservableObject {
                 let storeID = stores[index].id
                 let inventoryRate = Double(stores[index].inventoryCount + incomingCount(for: storeID))
                     / Double(max(1, stores[index].type.capacity))
-                let appraisalReady = appraisalConfidence(for: storeID) >= 65
-                let hasRepairReadiness = stores[index].serviceBays > 0
-                    && stores[index].employees.contains(where: { $0.assignment == .service })
                 let demandCategory = VehicleCategory.allCases.max {
                     vehicleDemand($0, in: plot.district) < vehicleDemand($1, in: plot.district)
                 }
@@ -9419,6 +9654,7 @@ final class GameEngine: ObservableObject {
             }
 
             if stores[index].delegatePricing {
+                stores[index].autoSales = true
                 let stockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
                 let priceReview = stores[index].reviewScore(for: .salesPrice)
                 let reviewRequiresCorrection = (priceReview ?? 100) < 60
@@ -9439,7 +9675,35 @@ final class GameEngine: ObservableObject {
             }
 
             if stores[index].delegateMarketing {
+                stores[index].autoMarketing = true
                 let marketingAbility = manager.researchAbility
+                let researchPriorities: [(ResearchWorkKind, Int)] = [
+                    (.storeAnalysis, stores[index].lastProfit < 0 ? 50 : 20),
+                    (.eventForecast, upcomingMarketShock(within: 3) == nil ? 30 : 60),
+                    (.advertisingAnalysis, abs(stores[index].buyerArrivalsThisWeek - stores[index].sellerArrivalsThisWeek) >= 2 ? 40 : 10)
+                ]
+                for (kind, priority) in researchPriorities {
+                    if let orderIndex = stores[index].researchWorkOrders.firstIndex(where: { $0.kind == kind }) {
+                        stores[index].researchWorkOrders[orderIndex].priority = priority
+                    } else {
+                        stores[index].researchWorkOrders.append(ResearchWorkOrder(
+                            kind: kind,
+                            priority: priority,
+                            createdTurn: turn,
+                            repeats: true
+                        ))
+                    }
+                }
+                if marketingAbility >= 75,
+                   !stores[index].researchWorkOrders.contains(where: { $0.kind == .segmentSurvey }) {
+                    stores[index].researchWorkOrders.append(ResearchWorkOrder(
+                        kind: .segmentSurvey,
+                        targetName: plot.district.shortName,
+                        priority: 15,
+                        createdTurn: turn,
+                        repeats: true
+                    ))
+                }
                 let targetPolicy: MarketingAutomationPolicy = stores[index].buyerArrivalsThisWeek < stores[index].sellerArrivalsThisWeek ? .buyers : stores[index].sellerArrivalsThisWeek < stores[index].buyerArrivalsThisWeek ? .sellers : .balanced
                 let overspend = max(0, 65 - marketingAbility)
                 let target = min(360, 70 + competitorCount(in: plot.district) * 45 + max(0, stores[index].lastProfit) / 12 + overspend)
@@ -9458,12 +9722,16 @@ final class GameEngine: ObservableObject {
             }
 
             if stores[index].delegateService {
+                stores[index].autoService = true
                 let serviceAbility = manager.serviceAbility
                 let averageQuality = stores[index].inventory.isEmpty ? 100 : stores[index].inventory.reduce(0.0) { $0 + $1.quality * Double($1.count) } / Double(max(1, stores[index].inventoryCount)) * 100
                 let targetPolicy: ServiceAutomationPolicy = averageQuality < 70 ? .quality : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .cost : .balanced
                 let reviewSatisfaction = stores[index].averageReviewScore ?? 70
                 let target = reviewSatisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
                 let canAdjust = serviceAbility >= 60 || turn.isMultiple(of: 2)
+                stores[index].workshopOverflowPolicy = stores[index].managerMandate.allowsOutsourcing
+                    ? (cash < stores[index].managerMandate.minimumCashReserve * 2 ? .profitableOutsource : .alwaysOutsource)
+                    : .wait
                 var changedPolicy = false
                 if canAdjust, stores[index].servicePolicy != targetPolicy {
                     stores[index].servicePolicy = targetPolicy
@@ -10889,7 +11157,7 @@ final class GameEngine: ObservableObject {
     private func save() {
         refreshGuideProgress()
         guard persistenceEnabled else { return }
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, customerCustomizationOrders: customerCustomizationOrders, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, networkAuctionListings: networkAuctionListings, networkAuctionBidReservations: networkAuctionBidReservations, networkAuctionBidResults: networkAuctionBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, classicMarketIndex: classicMarketIndex, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, marketSignals: marketSignals, newspaperIssues: newspaperIssues, pendingVehicleTransactions: pendingVehicleTransactions, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, customerCustomizationOrders: customerCustomizationOrders, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, networkAuctionListings: networkAuctionListings, networkAuctionBidReservations: networkAuctionBidReservations, networkAuctionBidResults: networkAuctionBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, classicMarketIndex: classicMarketIndex, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, marketSignals: marketSignals, newspaperIssues: newspaperIssues, pendingVehicleTransactions: pendingVehicleTransactions, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide, ownerWorkEffortUsed: ownerWorkEffortUsed)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -11499,8 +11767,22 @@ final class GameEngine: ObservableObject {
             materialCost + 35,
             Int(Double(materialCost) * (1.35 + readiness * 0.50) * trend)
         )
-        let completionTarget = kind.usesCustomizationBay ? grade.rank + 2 : 1
-        let work = min(kind.maximumWorkWeeks, max(1, completionTarget - kind.completionInspectionWeeks))
+        let baseWork: Int = switch kind {
+        case .basicService: 5
+        case .repair: 8
+        case .refurbishment: 20
+        case .camperConversion, .circuitTuning, .kitchenCarConversion: 30
+        case .workConversion, .streetTuning, .liftSeatConversion: 18
+        case .outdoorConversion: 16
+        case .driftTuning: 24
+        case .wheelchairConversion, .mobileSalesConversion: 22
+        }
+        let workMultiplier: Double = switch grade {
+        case .low: 1.0
+        case .middle: 1.5
+        case .high: 2.0
+        }
+        let work = Int((Double(baseWork) * workMultiplier).rounded(.up))
         return (materialCost, work, revenue)
     }
 
