@@ -234,7 +234,7 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v54"
+    private static let saveKey = "UsedCarCity.save.v55"
     private static let gasolineBaseline = 155.0
     private static let gasolineRange = 105.0...205.0
     private static let nikkeiBaseline = 60_000.0
@@ -303,7 +303,7 @@ final class GameEngine: ObservableObject {
             }
         } else if CommandLine.arguments.contains("-demo-tutorial"), !hasStarted {
             startNewGame()
-        } else if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-map-zoom") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-workshop") || CommandLine.arguments.contains("-demo-hq") || CommandLine.arguments.contains("-demo-goals") || CommandLine.arguments.contains("-demo-ending") || CommandLine.arguments.contains("-demo-competition") || CommandLine.arguments.contains("-demo-construction") || CommandLine.arguments.contains("-demo-national")) && !hasStarted {
+        } else if (CommandLine.arguments.contains("-demo-map") || CommandLine.arguments.contains("-demo-map-zoom") || CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-finance") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-auction") || CommandLine.arguments.contains("-demo-workshop") || CommandLine.arguments.contains("-demo-hq") || CommandLine.arguments.contains("-demo-goals") || CommandLine.arguments.contains("-demo-ending") || CommandLine.arguments.contains("-demo-competition") || CommandLine.arguments.contains("-demo-construction") || CommandLine.arguments.contains("-demo-national")) && !hasStarted {
             prepareDemoCompany()
         }
         if CommandLine.arguments.contains("-demo-goals") {
@@ -1433,7 +1433,7 @@ final class GameEngine: ObservableObject {
             Int((Double(weeklyBuyerPool(in: plot.district)) * marketShare(for: store)).rounded())
         )
         let fourWeekDemand = weeklyDemand * 4
-        let automaticSalesCapacity = store.autoSales
+        let automaticSalesCapacity = store.salesControlMode != .owner
             ? store.employees
                 .filter { $0.assignment == .sales }
                 .reduce(0) {
@@ -1987,7 +1987,10 @@ final class GameEngine: ObservableObject {
                 store.employees.contains { $0.assignment != .unassigned }
             }
         case .automationEnabled:
-            return stores.contains { $0.autoSales || $0.autoProcurement || $0.autoMarketing || $0.autoService }
+            return stores.contains {
+                $0.salesControlMode != .owner || $0.procurementControlMode != .owner
+                    || $0.researchControlMode != .owner || $0.serviceControlMode != .owner
+            }
         }
     }
 
@@ -2229,7 +2232,7 @@ final class GameEngine: ObservableObject {
               hasProcurementEmployee(storeID: storeID),
               maxPrice >= listing.reservePrice else { return false }
         let store = stores[storeIndex]
-        if instructionID == nil, store.autoProcurement { return false }
+        if instructionID == nil, store.procurementControlMode != .owner { return false }
         let isNewManualBid = instructionID == nil
             && !networkAuctionBidReservations.contains(where: { $0.listingID == listingID })
         if isNewManualBid,
@@ -2650,17 +2653,19 @@ final class GameEngine: ObservableObject {
         guard let index = stores.firstIndex(where: { $0.id == store.id }) else { return }
         var changed = store
         changed.marketPolicy.normalize()
+        changed.priceIndex = min(1.10, max(0.90, changed.priceIndex))
+        changed.automaticServiceTargetQuality = min(95, max(70, changed.automaticServiceTargetQuality))
         if changed.marketPolicy != stores[index].marketPolicy {
             changed.pendingMarketPolicy = changed.marketPolicy
             changed.marketPolicy = stores[index].marketPolicy
         }
         changed.facilities = changed.facilities.filter { $0.minimumGridCells <= changed.plotIDs.count }
         if !changed.hasManager {
-            changed.delegateStaff = false
-            changed.delegatePricing = false
-            changed.delegateMarketing = false
-            changed.delegateProcurement = false
-            changed.delegateService = false
+            changed.managerControlsStaffing = false
+            if changed.salesControlMode == .manager { changed.salesControlMode = .employee }
+            if changed.procurementControlMode == .manager { changed.procurementControlMode = .employee }
+            if changed.researchControlMode == .manager { changed.researchControlMode = .employee }
+            if changed.serviceControlMode == .manager { changed.serviceControlMode = .employee }
         }
         stores[index] = changed
         synchronizeParcelUse(for: changed)
@@ -2850,7 +2855,7 @@ final class GameEngine: ObservableObject {
     }
 
     func employeeSalesCloseAdjustment(for storeID: UUID) -> Double {
-        guard let store = stores.first(where: { $0.id == storeID }), store.autoSales,
+        guard let store = stores.first(where: { $0.id == storeID }), store.salesControlMode != .owner,
               let employee = store.employees
             .filter({ $0.assignment == .sales })
             .max(by: { $0.salesComposite < $1.salesComposite }) else { return 0 }
@@ -3121,24 +3126,18 @@ final class GameEngine: ObservableObject {
     }
 
     func employeeMarketingScore(for storeID: UUID) -> Double {
-        guard let store = stores.first(where: { $0.id == storeID }), store.autoMarketing else { return 50 }
+        guard let store = stores.first(where: { $0.id == storeID }), store.researchControlMode != .owner else { return 50 }
         let scores = store.employees.filter { $0.assignment == .research }.map(\.researchComposite).sorted(by: >)
         guard let lead = scores.first else { return 50 }
         return min(99, lead + scores.dropFirst().reduce(0) { $0 + max(0, $1 - 50) * 0.25 })
     }
 
     func employeeMarketingEfficiency(for storeID: UUID, buyers: Bool) -> Double {
-        guard let store = stores.first(where: { $0.id == storeID }), store.autoMarketing,
+        guard let store = stores.first(where: { $0.id == storeID }), store.researchControlMode != .owner,
               store.employees.contains(where: { $0.assignment == .research }),
               currentResearchReport(storeID: storeID, kind: .advertisingAnalysis) != nil else { return 1 }
         let base = interpolatedEmployeeEffect(score: employeeMarketingScore(for: storeID), low: 0.65, high: 1.50)
-        let policyFactor: Double
-        switch (store.marketingPolicy, buyers) {
-        case (.buyers, true), (.sellers, false): policyFactor = 1.15
-        case (.buyers, false), (.sellers, true): policyFactor = 0.85
-        default: policyFactor = 1
-        }
-        return base * policyFactor
+        return base
     }
 
     func marketResearchScore(for storeID: UUID) -> Double {
@@ -4035,8 +4034,7 @@ final class GameEngine: ObservableObject {
         stores[index].managerMandate = ManagerOperatingMandate(
             specialty: mandate.specialty,
             fourWeekGrossProfitTarget: max(0, mandate.fourWeekGrossProfitTarget),
-            minimumCashReserve: max(0, mandate.minimumCashReserve),
-            allowsOutsourcing: mandate.allowsOutsourcing
+            minimumCashReserve: max(0, mandate.minimumCashReserve)
         )
         applySpecialtyPolicy(at: index, specialty: mandate.specialty)
         save()
@@ -4075,11 +4073,6 @@ final class GameEngine: ObservableObject {
         }
         policy.priorityCategories = categories
         stores[storeIndex].pendingMarketPolicy = policy
-        stores[storeIndex].delegateProcurement = specialty != .standard
-        stores[storeIndex].delegateService = specialty != .standard
-        stores[storeIndex].autoProcurement = specialty != .standard
-        stores[storeIndex].autoService = specialty != .standard
-        stores[storeIndex].autoSales = specialty != .standard
     }
 
     private func plannedWorkshop(for specialty: MarketProductKind) -> WorkshopProjectKind? {
@@ -4102,11 +4095,11 @@ final class GameEngine: ObservableObject {
         guard let index = stores.firstIndex(where: { $0.id == storeID }),
               stores[index].hasManager else { return false }
         stores[index].manager = nil
-        stores[index].delegateStaff = false
-        stores[index].delegatePricing = false
-        stores[index].delegateMarketing = false
-        stores[index].delegateProcurement = false
-        stores[index].delegateService = false
+        stores[index].managerControlsStaffing = false
+        if stores[index].salesControlMode == .manager { stores[index].salesControlMode = .employee }
+        if stores[index].procurementControlMode == .manager { stores[index].procurementControlMode = .employee }
+        if stores[index].researchControlMode == .manager { stores[index].researchControlMode = .employee }
+        if stores[index].serviceControlMode == .manager { stores[index].serviceControlMode = .employee }
         save()
         return true
     }
@@ -8036,7 +8029,7 @@ final class GameEngine: ObservableObject {
             )
             if case .customization(let kind, let grade) = shipment.dispositionPlan,
                stores[storeIndex].hasManager,
-               stores[storeIndex].delegateService {
+               stores[storeIndex].serviceControlMode == .manager {
                 let addedIDs = stores[storeIndex].inventory.filter { !existingIDs.contains($0.id) }.map(\.id)
                 for inventoryID in addedIDs {
                     guard let preview = workshopProjectPreview(
@@ -8046,7 +8039,8 @@ final class GameEngine: ObservableObject {
                         grade: grade
                     ),
                     cash - preview.cost >= stores[storeIndex].managerMandate.minimumCashReserve,
-                    stores[storeIndex].managerMandate.allowsOutsourcing || !preview.outsourced else { continue }
+                    !preview.outsourced || stores[storeIndex].workshopOverflowPolicy == .profitableOutsource
+                        || stores[storeIndex].workshopOverflowPolicy == .alwaysOutsource else { continue }
                     _ = startWorkshopProject(
                         storeID: shipment.storeID,
                         inventoryID: inventoryID,
@@ -8138,14 +8132,14 @@ final class GameEngine: ObservableObject {
     }
 
     private func resolveAutomaticSales(for storeIndex: Int) -> AutomaticSaleResult {
-        guard stores.indices.contains(storeIndex), stores[storeIndex].autoSales else { return AutomaticSaleResult() }
+        guard stores.indices.contains(storeIndex), stores[storeIndex].salesControlMode != .owner else { return AutomaticSaleResult() }
         let storeID = stores[storeIndex].id
         let handlers = stores[storeIndex].employees
             .filter { $0.assignment == .sales }
             .sorted { $0.salesComposite > $1.salesComposite }
         guard !handlers.isEmpty else { return AutomaticSaleResult() }
         var result = AutomaticSaleResult()
-        let strategy = stores[storeIndex].salesPolicy.strategy
+        let strategy: SaleNegotiationStrategy = .holdPrice
 
         for handler in handlers {
             var remainingEffort = employeeWeeklyWorkCapacity(for: handler, assignment: .sales)
@@ -8170,16 +8164,15 @@ final class GameEngine: ObservableObject {
                 let canFundTradeIn = cash + min(0, result.cashCollected) >= (tradePreview?.requiredDealerCash ?? 0)
                 let acceptTradeIn = tradePreview.map { $0.expectedTradeInGrossProfit >= 0 && canFundTradeIn } ?? false
                 let baseChance = acceptTradeIn ? (tradePreview?.closeChance ?? preview.closeChance) : preview.closeChance
-                let realizedPrice = acceptTradeIn
-                    ? preview.price
-                    : max(25, Int(
-                        (Double(preview.price) * (1 + employeeSalesPriceRealization(handler))).rounded()
-                    ))
+                let realizedPrice = preview.price
                 let priceChanceEffect = acceptTradeIn
                     ? 0
                     : buyerBudgetEffect(price: realizedPrice, lead: lead)
                         - buyerBudgetEffect(price: preview.price, lead: lead)
                 let alternativeLift = employeeAlternativeProposalAdjustment(handler, lead: lead, batch: stores[storeIndex].inventory[batchIndex])
+                let managerLift = stores[storeIndex].salesControlMode == .manager
+                    ? Double((stores[storeIndex].manager?.salesAbility ?? 50) - 50) / 500.0
+                    : 0
                 let closeChance = min(
                     0.97,
                     max(
@@ -8187,6 +8180,7 @@ final class GameEngine: ObservableObject {
                         baseChance
                             + employeeSalesCloseAdjustment(handler)
                             + alternativeLift
+                            + managerLift
                             + priceChanceEffect
                     )
                 )
@@ -9052,7 +9046,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func resolveAutomaticProcurement(for storeIndex: Int, notes: inout [String]) {
-        guard stores.indices.contains(storeIndex), stores[storeIndex].autoProcurement else { return }
+        guard stores.indices.contains(storeIndex), stores[storeIndex].procurementControlMode != .owner else { return }
         let storeID = stores[storeIndex].id
         let handlers = stores[storeIndex].employees
             .filter { $0.assignment == .procurement }
@@ -9145,7 +9139,7 @@ final class GameEngine: ObservableObject {
     }
 
     private func resolveAutomaticService(for storeIndex: Int) {
-        guard stores.indices.contains(storeIndex), stores[storeIndex].autoService else { return }
+        guard stores.indices.contains(storeIndex), stores[storeIndex].serviceControlMode != .owner else { return }
         let storeID = stores[storeIndex].id
         func projectKind(for batch: InventoryBatch) -> WorkshopProjectKind? {
             if let planned = batch.dispositionPlan.plannedProject { return planned }
@@ -9166,11 +9160,7 @@ final class GameEngine: ObservableObject {
                batch.productState != .outdoor {
                 return .outdoorConversion
             }
-            let threshold = switch stores[storeIndex].servicePolicy {
-            case .cost: 70
-            case .balanced: 80
-            case .quality: 90
-            }
+            let threshold = stores[storeIndex].automaticServiceTargetQuality
             guard Int((batch.quality * 100).rounded()) < threshold else { return nil }
             return batch.productState == .stock ? .basicService : .refurbishment
         }
@@ -9213,7 +9203,8 @@ final class GameEngine: ObservableObject {
                     if batch.dispositionPlan.protectsFromAutomaticSales,
                        stores[storeIndex].hasManager {
                         guard cash - preview.cost >= stores[storeIndex].managerMandate.minimumCashReserve,
-                              stores[storeIndex].managerMandate.allowsOutsourcing || !preview.outsourced else { return false }
+                              !preview.outsourced || stores[storeIndex].workshopOverflowPolicy == .profitableOutsource
+                                || stores[storeIndex].workshopOverflowPolicy == .alwaysOutsource else { return false }
                     }
                     guard productKind.supportsGrades || preview.outsourced else { return true }
                     let totalCost = batch.averageCost + preview.cost
@@ -9225,7 +9216,13 @@ final class GameEngine: ObservableObject {
                 }) else { return nil }
                 return (batch, preview)
             }
-            guard let selected = viable.first else {
+            let selectedCandidate = stores[storeIndex].serviceControlMode == .manager
+                ? viable.max {
+                    ($0.1.projectedSalePrice - $0.0.averageCost - $0.1.cost)
+                        < ($1.1.projectedSalePrice - $1.0.averageCost - $1.1.cost)
+                }
+                : viable.first
+            guard let selected = selectedCandidate else {
                 if stores[storeIndex].workshopOverflowPolicy == .skip,
                    let skipped = candidates.first,
                    let skippedIndex = stores[storeIndex].inventory.firstIndex(where: { $0.id == skipped.id }) {
@@ -9327,12 +9324,12 @@ final class GameEngine: ObservableObject {
         case .segmentSurvey:
             return "\(targetName ?? "指定市場")の需要、競合在庫、想定粗利を調査"
         case .advertisingAnalysis:
-            return "来店構成に基づき、\(stores.first(where: { $0.id == storeID })?.marketingPolicy.name ?? "バランス")向けの広告配分を提案"
+            return "広告費に対する販売客・買取客双方の来店効果を分析"
         }
     }
 
     private func progressAutomaticMarketing(for storeIndex: Int) {
-        guard stores.indices.contains(storeIndex), stores[storeIndex].autoMarketing else { return }
+        guard stores.indices.contains(storeIndex), stores[storeIndex].researchControlMode != .owner else { return }
         let researchers = stores[storeIndex].employees.indices
             .filter { stores[storeIndex].employees[$0].assignment == .research }
             .sorted { stores[storeIndex].employees[$0].researchSkill > stores[storeIndex].employees[$1].researchSkill }
@@ -9425,7 +9422,7 @@ final class GameEngine: ObservableObject {
                 }
                 stores[storeIndex].employees[employeeIndex].currentWeekPerformance = EmployeeWeeklyPerformance()
             }
-            if stores[storeIndex].autoMarketing,
+            if stores[storeIndex].researchControlMode != .owner,
                let researcher = stores[storeIndex].employees.filter({ $0.assignment == .research }).max(by: { $0.researchSkill < $1.researchSkill }) {
                 notes.append("\(stores[storeIndex].name) \(researcher.name)：広告効率\(Int((employeeMarketingEfficiency(for: stores[storeIndex].id, buyers: true) * 100).rounded()))%・市場予測±\(Int((marketForecastErrorRate(for: stores[storeIndex].id) * 100).rounded()))%")
             }
@@ -9529,47 +9526,50 @@ final class GameEngine: ObservableObject {
                 }
             }
 
-            if stores[index].delegateStaff {
-                let needsInstructionHandler = stores[index].autoProcurement
+            let managerOperatesAnyDomain = stores[index].salesControlMode == .manager
+                || stores[index].procurementControlMode == .manager
+                || stores[index].researchControlMode == .manager
+                || stores[index].serviceControlMode == .manager
+            if stores[index].managerControlsStaffing || managerOperatesAnyDomain {
+                let needsInstructionHandler = stores[index].procurementControlMode != .owner
                     && procurementInstructions(for: stores[index].id).contains {
                         $0.status == .active && $0.remainingBudget > 0
                     }
-                let commercialEffort = (stores[index].autoSales ? stores[index].buyerArrivalsThisWeek * 2 : 0)
-                    + (stores[index].autoProcurement
+                let commercialEffort = (stores[index].salesControlMode != .owner ? stores[index].buyerArrivalsThisWeek * 2 : 0)
+                    + (stores[index].procurementControlMode != .owner
                         ? max(stores[index].sellerArrivalsThisWeek * 2, needsInstructionHandler ? 1 : 0)
                         : 0)
                 let caseWorkers = max(0, Int(ceil(Double(commercialEffort) / 15.0)))
-                let researchEffort = stores[index].autoMarketing
+                let researchEffort = stores[index].researchControlMode != .owner
                     ? max(13, stores[index].researchWorkOrders.reduce(0) { $0 + $1.remainingEffort })
                     : 0
                 let researchWorkers = Int(ceil(Double(researchEffort) / 15.0))
-                let serviceWorkers = stores[index].autoService && stores[index].inventoryCount > 0
+                let serviceWorkers = stores[index].serviceControlMode != .owner && stores[index].inventoryCount > 0
                     ? max(1, min(stores[index].workshopBays, 2))
                     : 0
                 let target = min(maxEmployeesPerStore, caseWorkers + researchWorkers + serviceWorkers)
-                if stores[index].staff < target, let candidate = employeeCandidates(for: stores[index].id).first {
-                    stores[index].employees.append(candidate)
-                    actions.append("\(candidate.name)を採用")
-                } else if stores[index].staff > target + 2,
-                          let employee = stores[index].employees.min(by: { $0.overallSkill < $1.overallSkill }) {
-                    stores[index].employees.removeAll { $0.id == employee.id }
-                    actions.append("人事権に基づき\(employee.name)を解雇")
+                if stores[index].managerControlsStaffing {
+                    if stores[index].staff < target, let candidate = employeeCandidates(for: stores[index].id).first {
+                        stores[index].employees.append(candidate)
+                        actions.append("\(candidate.name)を採用")
+                    } else if stores[index].staff > target + 2,
+                              let employee = stores[index].employees.min(by: { $0.overallSkill < $1.overallSkill }) {
+                        stores[index].employees.removeAll { $0.id == employee.id }
+                        actions.append("人事権に基づき\(employee.name)を解雇")
+                    }
                 }
 
                 let canReassign = manager.staffingAbility >= 60 || turn.isMultiple(of: 2)
                 if canReassign {
                     let reassignmentLimit = manager.staffingAbility >= 80 ? 2 : 1
                     let enabledAssignments: [EmployeeAssignment] = [
-                        stores[index].autoSales ? .sales : nil,
-                        stores[index].autoProcurement ? .procurement : nil,
-                        stores[index].autoMarketing ? .research : nil,
-                        stores[index].autoService ? .service : nil
+                        stores[index].salesControlMode == .manager ? .sales : nil,
+                        stores[index].procurementControlMode == .manager ? .procurement : nil,
+                        stores[index].researchControlMode == .manager ? .research : nil,
+                        stores[index].serviceControlMode == .manager ? .service : nil
                     ].compactMap { $0 }
                     for _ in 0..<reassignmentLimit {
-                        guard !enabledAssignments.isEmpty,
-                              let employeeIndex = stores[index].employees.firstIndex(where: {
-                                  $0.assignment == .unassigned || !enabledAssignments.contains($0.assignment)
-                              }) else { break }
+                        guard !enabledAssignments.isEmpty else { break }
                         let buyerNeed = max(
                             0,
                             stores[index].buyerArrivalsThisWeek
@@ -9593,26 +9593,30 @@ final class GameEngine: ObservableObject {
                                     }
                         )
                         let assignment: EmployeeAssignment
-                        if stores[index].autoService
+                        if stores[index].serviceControlMode == .manager
                             && stores[index].inventoryCount > 0
                             && !stores[index].employees.contains(where: { $0.assignment == .service }) {
                             assignment = .service
-                        } else if stores[index].autoMarketing && !stores[index].employees.contains(where: { $0.assignment == .research }) {
+                        } else if stores[index].researchControlMode == .manager && !stores[index].employees.contains(where: { $0.assignment == .research }) {
                             assignment = .research
-                        } else if buyerNeed >= sellerNeed, stores[index].autoSales {
+                        } else if buyerNeed >= sellerNeed, stores[index].salesControlMode == .manager {
                             assignment = .sales
-                        } else if stores[index].autoProcurement {
+                        } else if stores[index].procurementControlMode == .manager {
                             assignment = .procurement
                         } else {
                             assignment = enabledAssignments.first!
                         }
+                        guard let employeeIndex = stores[index].employees.firstIndex(where: {
+                            $0.assignment == .unassigned
+                                || (enabledAssignments.contains($0.assignment) && $0.assignment != assignment)
+                        }) else { break }
                         stores[index].employees[employeeIndex].assignment = assignment
                         actions.append("\(stores[index].employees[employeeIndex].name)を\(assignment.name)へ配置")
                     }
                 }
             }
 
-            if stores[index].delegateProcurement {
+            if stores[index].procurementControlMode == .manager {
                 let storeID = stores[index].id
                 let inventoryRate = Double(stores[index].inventoryCount + incomingCount(for: storeID))
                     / Double(max(1, stores[index].type.capacity))
@@ -9648,34 +9652,14 @@ final class GameEngine: ObservableObject {
                         createdTurn: turn,
                         lastResult: "店長が市場と在庫から作成"
                     ))
-                    stores[index].autoProcurement = true
                     actions.append("仕入指示を作成")
                 }
             }
 
-            if stores[index].delegatePricing {
-                stores[index].autoSales = true
-                let stockRate = Double(stores[index].inventoryCount + incomingCount(for: stores[index].id)) / Double(max(1, stores[index].type.capacity))
-                let priceReview = stores[index].reviewScore(for: .salesPrice)
-                let reviewRequiresCorrection = (priceReview ?? 100) < 60
-                let targetPrice = reviewRequiresCorrection ? 0.96 : stockRate > 0.72 ? 0.96 : stockRate < 0.30 ? 1.05 : 1.0
-                let targetPolicy: SalesAutomationPolicy = reviewRequiresCorrection ? .volume : stockRate > 0.72 ? .volume : stockRate < 0.30 ? .profit : .balanced
-                let canAdjust = manager.salesAbility >= 60 || turn.isMultiple(of: 2)
-                var changedPolicy = false
-                if canAdjust, stores[index].salesPolicy != targetPolicy {
-                    stores[index].salesPolicy = targetPolicy
-                    changedPolicy = true
-                    actions.append("販売方針を\(targetPolicy.name)へ変更")
-                }
-                if canAdjust, (manager.salesAbility >= 80 || !changedPolicy), abs(stores[index].priceIndex - targetPrice) >= 0.02 {
-                    let step = manager.salesAbility >= 80 ? 0.03 : manager.salesAbility >= 60 ? 0.02 : 0.01
-                    stores[index].priceIndex += targetPrice > stores[index].priceIndex ? step : -step
-                    actions.append("価格を調整")
-                }
+            if stores[index].salesControlMode == .manager {
             }
 
-            if stores[index].delegateMarketing {
-                stores[index].autoMarketing = true
+            if stores[index].researchControlMode == .manager {
                 let marketingAbility = manager.researchAbility
                 let researchPriorities: [(ResearchWorkKind, Int)] = [
                     (.storeAnalysis, stores[index].lastProfit < 0 ? 50 : 20),
@@ -9704,45 +9688,10 @@ final class GameEngine: ObservableObject {
                         repeats: true
                     ))
                 }
-                let targetPolicy: MarketingAutomationPolicy = stores[index].buyerArrivalsThisWeek < stores[index].sellerArrivalsThisWeek ? .buyers : stores[index].sellerArrivalsThisWeek < stores[index].buyerArrivalsThisWeek ? .sellers : .balanced
-                let overspend = max(0, 65 - marketingAbility)
-                let target = min(360, 70 + competitorCount(in: plot.district) * 45 + max(0, stores[index].lastProfit) / 12 + overspend)
-                let canAdjust = marketingAbility >= 60 || turn.isMultiple(of: 2)
-                var changedPolicy = false
-                if canAdjust, stores[index].marketingPolicy != targetPolicy {
-                    stores[index].marketingPolicy = targetPolicy
-                    changedPolicy = true
-                    actions.append("集客方針を\(targetPolicy.name)へ変更")
-                }
-                if canAdjust, (marketingAbility >= 80 || !changedPolicy), abs(stores[index].advertising - target) >= 20 {
-                    let step = marketingAbility >= 80 ? 30 : marketingAbility >= 60 ? 20 : 10
-                    stores[index].advertising += target > stores[index].advertising ? step : -step
-                    actions.append("広告予算を調整")
-                }
+                actions.append("調査優先度を更新")
             }
 
-            if stores[index].delegateService {
-                stores[index].autoService = true
-                let serviceAbility = manager.serviceAbility
-                let averageQuality = stores[index].inventory.isEmpty ? 100 : stores[index].inventory.reduce(0.0) { $0 + $1.quality * Double($1.count) } / Double(max(1, stores[index].inventoryCount)) * 100
-                let targetPolicy: ServiceAutomationPolicy = averageQuality < 70 ? .quality : cash < monthlyPersonnelCost(for: stores[index]) * 2 ? .cost : .balanced
-                let reviewSatisfaction = stores[index].averageReviewScore ?? 70
-                let target = reviewSatisfaction < 72 ? 0.55 : stores[index].inventoryCount > stores[index].type.capacity * 7 / 10 ? 0.35 : 0.45
-                let canAdjust = serviceAbility >= 60 || turn.isMultiple(of: 2)
-                stores[index].workshopOverflowPolicy = stores[index].managerMandate.allowsOutsourcing
-                    ? (cash < stores[index].managerMandate.minimumCashReserve * 2 ? .profitableOutsource : .alwaysOutsource)
-                    : .wait
-                var changedPolicy = false
-                if canAdjust, stores[index].servicePolicy != targetPolicy {
-                    stores[index].servicePolicy = targetPolicy
-                    changedPolicy = true
-                    actions.append("整備方針を\(targetPolicy.name)へ変更")
-                }
-                if canAdjust, (serviceAbility >= 80 || !changedPolicy), abs(stores[index].serviceAllocation - target) >= 0.04 {
-                    let step = serviceAbility >= 80 ? 0.07 : serviceAbility >= 60 ? 0.05 : 0.03
-                    stores[index].serviceAllocation += target > stores[index].serviceAllocation ? step : -step
-                    actions.append("整備配分を調整")
-                }
+            if stores[index].serviceControlMode == .manager {
             }
 
             if !actions.isEmpty { notes.append("\(stores[index].name)店長：\(actions.joined(separator: "、"))") }

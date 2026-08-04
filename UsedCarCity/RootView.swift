@@ -16,7 +16,7 @@ struct RootView: View {
                 NationalExpansionView()
             } else if CommandLine.arguments.contains("-demo-hq") {
                 CompanyDashboardView()
-            } else if (CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-tutorial-purchase")), let store = game.stores.first {
+            } else if (CommandLine.arguments.contains("-demo-store") || CommandLine.arguments.contains("-demo-team") || CommandLine.arguments.contains("-demo-finance") || CommandLine.arguments.contains("-demo-proposal") || CommandLine.arguments.contains("-demo-catalog") || CommandLine.arguments.contains("-demo-tutorial-purchase")), let store = game.stores.first {
                 NavigationStack {
                     ScrollView {
                         StoreCommandCenterView(storeID: store.id)

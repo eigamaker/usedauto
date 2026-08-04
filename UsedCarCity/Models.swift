@@ -3152,32 +3152,19 @@ enum WorkshopOverflowPolicy: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum SalesAutomationPolicy: String, Codable, CaseIterable, Identifiable {
-    case profit
-    case balanced
-    case volume
+enum OperationControlMode: String, Codable, CaseIterable, Identifiable {
+    case owner
+    case employee
+    case manager
 
     var id: String { rawValue }
-    var name: String { switch self { case .profit: "利益重視"; case .balanced: "バランス"; case .volume: "件数重視" } }
-    var strategy: SaleNegotiationStrategy { switch self { case .profit: .holdPrice; case .balanced: .smallDiscount; case .volume: .closeDeal } }
-}
-
-enum MarketingAutomationPolicy: String, Codable, CaseIterable, Identifiable {
-    case buyers
-    case balanced
-    case sellers
-
-    var id: String { rawValue }
-    var name: String { switch self { case .buyers: "販売客重視"; case .balanced: "バランス"; case .sellers: "買取客重視" } }
-}
-
-enum ServiceAutomationPolicy: String, Codable, CaseIterable, Identifiable {
-    case cost
-    case balanced
-    case quality
-
-    var id: String { rawValue }
-    var name: String { switch self { case .cost: "コスト重視"; case .balanced: "バランス"; case .quality: "仕上がり重視" } }
+    var name: String {
+        switch self {
+        case .owner: "オーナー対応"
+        case .employee: "社員運用"
+        case .manager: "店長運用"
+        }
+    }
 }
 
 struct StoreEmployee: Identifiable, Codable, Hashable {
@@ -3476,13 +3463,11 @@ struct ManagerOperatingMandate: Codable, Hashable {
     var specialty: MarketProductKind
     var fourWeekGrossProfitTarget: Int
     var minimumCashReserve: Int
-    var allowsOutsourcing: Bool
 
     static let general = ManagerOperatingMandate(
         specialty: .standard,
         fourWeekGrossProfitTarget: 400,
-        minimumCashReserve: 500,
-        allowsOutsourcing: true
+        minimumCashReserve: 500
     )
 }
 
@@ -3587,19 +3572,13 @@ struct Store: Identifiable, Codable, Hashable {
     var priceIndex: Double
     var reputation: Double
     var serviceAllocation: Double
-    var delegateStaff: Bool
-    var delegatePricing: Bool
-    var delegateMarketing: Bool
-    var delegateProcurement: Bool
-    var delegateService: Bool
-    var autoSales: Bool
-    var autoProcurement: Bool
-    var autoMarketing: Bool
-    var autoService: Bool
+    var managerControlsStaffing: Bool
+    var salesControlMode: OperationControlMode
+    var procurementControlMode: OperationControlMode
+    var researchControlMode: OperationControlMode
+    var serviceControlMode: OperationControlMode
     var storePurchasePolicy: StorePurchasePolicy
-    var salesPolicy: SalesAutomationPolicy
-    var marketingPolicy: MarketingAutomationPolicy
-    var servicePolicy: ServiceAutomationPolicy
+    var automaticServiceTargetQuality: Int
     var lastSales: Int
     var lastRevenue: Int
     var lastProfit: Int
@@ -3650,19 +3629,13 @@ struct Store: Identifiable, Codable, Hashable {
         priceIndex = 1.0
         reputation = 0.65
         serviceAllocation = 0.35
-        delegateStaff = false
-        delegatePricing = false
-        delegateMarketing = false
-        delegateProcurement = false
-        delegateService = false
-        autoSales = false
-        autoProcurement = false
-        autoMarketing = false
-        autoService = false
+        managerControlsStaffing = false
+        salesControlMode = .owner
+        procurementControlMode = .owner
+        researchControlMode = .owner
+        serviceControlMode = .owner
         storePurchasePolicy = .standard
-        salesPolicy = .balanced
-        marketingPolicy = .balanced
-        servicePolicy = .balanced
+        automaticServiceTargetQuality = 85
         lastSales = 0
         lastRevenue = 0
         lastProfit = 0

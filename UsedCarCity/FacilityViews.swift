@@ -333,7 +333,13 @@ private struct StoreNetworkContent: View {
                             Text("在庫\(store.inventoryCount)/\(store.type.capacity)台・入庫予定\(game.incomingCount(for: store.id))台").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        let delegated = [store.delegateStaff, store.delegatePricing, store.delegateMarketing, store.delegateProcurement, store.delegateService].filter { $0 }.count
+                        let delegated = [
+                            store.managerControlsStaffing,
+                            store.salesControlMode == .manager,
+                            store.researchControlMode == .manager,
+                            store.procurementControlMode == .manager,
+                            store.serviceControlMode == .manager
+                        ].filter { $0 }.count
                         CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/5委任", color: delegated == 5 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
                     }
                     if game.stores.count > 1 {

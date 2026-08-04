@@ -422,14 +422,22 @@ struct StoreSettingsView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 13))
                         }
                         VStack(alignment: .leading, spacing: 13) {
-                            SectionTitle(title: "オーナーの市場方針", subtitle: "保存した変更は次週の来店配分から反映されます")
+                            SectionTitle(title: "店舗方針", subtitle: "保存した変更は次週の来店配分から反映されます")
                             if store.wrappedValue.pendingMarketPolicy != nil {
                                 Label("次週反映予定の方針があります", systemImage: "clock.arrow.circlepath")
                                     .font(.caption).foregroundStyle(GameTheme.orange)
                             }
-                            Text("価格水準  \(Int(store.wrappedValue.priceIndex * 100))").font(.subheadline.bold())
-                            Slider(value: store.priceIndex, in: 0.88...1.18, step: 0.01).tint(GameTheme.teal)
-                            HStack { Text("割安・販売量↑").font(.caption).foregroundStyle(.secondary); Spacer(); Text("高値・粗利↑").font(.caption).foregroundStyle(.secondary) }
+                            let pricePercent = Int(((store.wrappedValue.priceIndex - 1) * 100).rounded())
+                            Text(pricePercent == 0 ? "価格指示  相場" : "価格指示  \(pricePercent > 0 ? "＋" : "−")\(abs(pricePercent))%")
+                                .font(.subheadline.bold())
+                            Slider(value: store.priceIndex, in: 0.90...1.10, step: 0.01).tint(GameTheme.teal)
+                            HStack {
+                                Text("−10%").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Text("相場").font(.caption.bold()).foregroundStyle(GameTheme.teal)
+                                Spacer()
+                                Text("＋10%").font(.caption).foregroundStyle(.secondary)
+                            }
                             Picker("狙う用途", selection: store.marketPolicy.targetPurpose) {
                                 ForEach(CustomerPurpose.allCases) { Text($0.name).tag($0) }
                             }.pickerStyle(.menu)
@@ -503,8 +511,8 @@ struct StoreSettingsView: View {
                                     }
                                 }
                             }
-                            if store.wrappedValue.hasManager && store.wrappedValue.delegatePricing {
-                                Label("販売方針は店長へ管理委任中です。社員の自動実行とは独立しています。", systemImage: "person.crop.circle.badge.checkmark")
+                            if store.wrappedValue.salesControlMode == .manager {
+                                Label("販売業務は店長運用中です。価格指示は店長に変更されません。", systemImage: "person.crop.circle.badge.checkmark")
                                     .font(.caption).foregroundStyle(GameTheme.teal)
                             }
                         }
@@ -520,9 +528,20 @@ struct StoreSettingsView: View {
                             SectionTitle(title: "広告と整備能力", subtitle: "整備担当の工数と設備ベイは独立した制約です")
                             Text("広告予算  \(store.wrappedValue.advertising.currency)/月").font(.subheadline.bold())
                             Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...500, step: 20).tint(GameTheme.orange)
-                            Text("設定額だけを費用計上。新規店舗は0から開始し、集客を店長へ委任した場合は自動調整されます。")
+                            Text("設定額だけを費用計上し、店長運用中もこの上限は変更されません。")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                            Divider()
+                            Stepper(
+                                "商品化目標品質  \(store.wrappedValue.automaticServiceTargetQuality)",
+                                value: store.automaticServiceTargetQuality,
+                                in: 70...95,
+                                step: 5
+                            )
+                            Picker("ベイ満杯時", selection: store.workshopOverflowPolicy) {
+                                ForEach(WorkshopOverflowPolicy.allCases) { Text($0.name).tag($0) }
+                            }
+                            .pickerStyle(.menu)
                             HStack {
                                 MetricView(title: "週次工数", value: "\(store.wrappedValue.weeklyWorkshopLabor)")
                                 MetricView(
