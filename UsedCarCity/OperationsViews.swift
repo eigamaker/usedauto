@@ -351,13 +351,7 @@ private struct StoreOperatingCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(store.name).font(.headline).foregroundStyle(GameTheme.ink)
                     let businessLabel = game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store)
-                    HStack(spacing: 5) {
-                        Text("\(businessLabel)・\(store.marketPolicy.targetPurpose.name)狙い")
-                        if store.hasManager {
-                            Image(systemName: "person.crop.circle.badge.checkmark")
-                                .accessibilityLabel("店長配置済み")
-                        }
-                    }
+                    Text("\(businessLabel)・\(store.marketPolicy.targetPurpose.name)狙い")
                     .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -511,10 +505,6 @@ struct StoreSettingsView: View {
                                     }
                                 }
                             }
-                            if store.wrappedValue.salesControlMode == .manager {
-                                Label("販売業務は店長運用中です。価格指示は店長に変更されません。", systemImage: "person.crop.circle.badge.checkmark")
-                                    .font(.caption).foregroundStyle(GameTheme.teal)
-                            }
                         }
                         .gameCard()
                         if game.stores.count > 1 {
@@ -528,7 +518,7 @@ struct StoreSettingsView: View {
                             SectionTitle(title: "広告と整備能力", subtitle: "整備担当の工数と設備ベイは独立した制約です")
                             Text("広告予算  \(store.wrappedValue.advertising.currency)/月").font(.subheadline.bold())
                             Slider(value: Binding(get: { Double(store.wrappedValue.advertising) }, set: { store.wrappedValue.advertising = Int($0) }), in: 0...500, step: 20).tint(GameTheme.orange)
-                            Text("設定額だけを費用計上し、店長運用中もこの上限は変更されません。")
+                            Text("設定額だけを費用計上し、社員運用中もこの上限に沿って集客します。")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Divider()
@@ -559,11 +549,11 @@ struct StoreSettingsView: View {
                                 MetricView(title: "月額給与", value: store.wrappedValue.employeeMonthlyPayroll.currency)
                                 MetricView(
                                     title: "担当枠",
-                                    value: "1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)回"
+                                    value: "軽10〜20／他5〜10件"
                                 )
                                 MetricView(title: "固定客", value: "\(store.wrappedValue.loyalCustomers)組")
                             }
-                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。販売担当と仕入担当は、能力に応じてそれぞれ1人週\(game.employeeWeeklyCaseCapacityRange.lowerBound)〜\(game.employeeWeeklyCaseCapacityRange.upperBound)件を処理します。仕入担当は店舗買取と2種類のAAで枠を共有します。")
+                            Text("採用・担当配置・4能力研修・自動化設定は店舗画面の「店員」で行います。販売・店舗買取・AA入札は軽／コンパクト1工数、その他2工数です。仕入担当は店舗買取と2種類のAAで工数を共有します。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .gameCard()

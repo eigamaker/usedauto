@@ -690,7 +690,7 @@ struct GuideProfitLossLessonView: View {
             GuidePLRow(title: "売上高", value: finance.revenue, note: "販売した車両の合計金額")
             GuidePLRow(title: "売上原価", value: -finance.costOfSales, note: "売れた車の仕入れ値", negative: true)
             GuidePLRow(title: "売上総利益（粗利）", value: grossProfit, note: "粗利率 \(Int((grossMargin * 100).rounded()))%", total: true)
-            GuidePLRow(title: "人件費", value: -finance.personnel, note: "店員・店長の給与と歩合", negative: true)
+            GuidePLRow(title: "人件費", value: -finance.personnel, note: "店員の給与と販売歩合", negative: true)
             GuidePLRow(title: "賃料", value: -finance.rent, note: "土地・建物の月額を週按分", negative: true)
             GuidePLRow(title: "広告費", value: -finance.advertising, note: "自店が選ばれる確率を上げる投資", negative: true)
             GuidePLRow(title: "店舗・設備固定費", value: -finance.fixedCosts, note: "設備の維持費", negative: true)

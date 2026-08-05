@@ -100,6 +100,15 @@ enum VehicleCategory: String, Codable, CaseIterable, Identifiable {
         case .pickup: 235
         }
     }
+
+    /// 販売商談・店舗買取・AA入札で車両1案件を扱う基本工数。
+    /// 低価格帯を主力にする店舗は、同じ担当者工数で回転数を増やせる。
+    var transactionWorkEffort: Int {
+        switch self {
+        case .kei, .compact: 1
+        case .sedan, .minivan, .suv, .sports, .pickup: 2
+        }
+    }
 }
 
 enum VehicleOrigin: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -2817,17 +2826,14 @@ struct CompetitorProductizationOrder: Identifiable, Codable, Hashable {
 }
 
 struct CompetitorWorkforceState: Codable, Hashable {
-    var managerTenureWeeks: Int = 0
     var salesStaff: Int = 2
     var procurementStaff: Int = 1
     var serviceStaff: Int = 1
-    var managerQuality: Int = 65
 
     var totalStaff: Int { salesStaff + procurementStaff + serviceStaff }
 }
 
 enum CompetitorStaffEventKind: String, Codable, Hashable {
-    case managerChange
     case salesHire
     case procurementHire
     case technicianHire
@@ -2928,36 +2934,6 @@ struct AuctionConsignment: Identifiable, Codable, Hashable {
     var vehicleName: String {
         guard let modelID else { return category.name }
         return VehicleCatalog.entry(id: modelID)?.fullName ?? modelID
-    }
-}
-
-struct StoreManager: Codable, Hashable {
-    let name: String
-    let staffingAbility: Int
-    let salesAbility: Int
-    let procurementAbility: Int
-    let researchAbility: Int
-    let serviceAbility: Int
-    let monthlySalary: Int
-
-    var overallAbility: Int {
-        (staffingAbility + salesAbility + procurementAbility + researchAbility + serviceAbility) / 5
-    }
-    var marketingAbility: Int { researchAbility }
-    var appraisalServiceAbility: Int { serviceAbility }
-
-    init(name: String, staffingAbility: Int, salesAbility: Int, procurementAbility: Int, researchAbility: Int, serviceAbility: Int, monthlySalary: Int) {
-        self.name = name
-        self.staffingAbility = staffingAbility
-        self.salesAbility = salesAbility
-        self.procurementAbility = procurementAbility
-        self.researchAbility = researchAbility
-        self.serviceAbility = serviceAbility
-        self.monthlySalary = monthlySalary
-    }
-
-    init(name: String, staffingAbility: Int, salesAbility: Int, procurementAbility: Int, marketingAbility: Int, serviceAbility: Int, monthlySalary: Int) {
-        self.init(name: name, staffingAbility: staffingAbility, salesAbility: salesAbility, procurementAbility: procurementAbility, researchAbility: marketingAbility, serviceAbility: serviceAbility, monthlySalary: monthlySalary)
     }
 }
 
@@ -3155,14 +3131,12 @@ enum WorkshopOverflowPolicy: String, Codable, CaseIterable, Identifiable {
 enum OperationControlMode: String, Codable, CaseIterable, Identifiable {
     case owner
     case employee
-    case manager
 
     var id: String { rawValue }
     var name: String {
         switch self {
         case .owner: "オーナー対応"
         case .employee: "社員運用"
-        case .manager: "店長運用"
         }
     }
 }
@@ -3459,57 +3433,6 @@ struct CustomerReview: Identifiable, Codable, Hashable {
     }
 }
 
-struct ManagerOperatingMandate: Codable, Hashable {
-    var specialty: MarketProductKind
-    var fourWeekGrossProfitTarget: Int
-    var minimumCashReserve: Int
-
-    static let general = ManagerOperatingMandate(
-        specialty: .standard,
-        fourWeekGrossProfitTarget: 400,
-        minimumCashReserve: 500
-    )
-}
-
-enum ManagerProposalKind: String, Codable, Hashable {
-    case reposition
-    case facilityInvestment
-    case exitSpecialty
-}
-
-enum ManagerProposalStatus: String, Codable, Hashable {
-    case pending
-    case accepted
-    case declined
-    case expired
-}
-
-struct ManagerProposal: Identifiable, Codable, Hashable {
-    let id: UUID
-    let kind: ManagerProposalKind
-    let proposedSpecialty: MarketProductKind
-    let title: String
-    let rationale: String
-    let expectedFourWeekGrossProfit: Int
-    let requiredInvestment: Int
-    let createdTurn: Int
-    let expiresTurn: Int
-    var status: ManagerProposalStatus
-
-    init(id: UUID = UUID(), kind: ManagerProposalKind, proposedSpecialty: MarketProductKind, title: String, rationale: String, expectedFourWeekGrossProfit: Int, requiredInvestment: Int, createdTurn: Int, expiresTurn: Int, status: ManagerProposalStatus = .pending) {
-        self.id = id
-        self.kind = kind
-        self.proposedSpecialty = proposedSpecialty
-        self.title = title
-        self.rationale = rationale
-        self.expectedFourWeekGrossProfit = expectedFourWeekGrossProfit
-        self.requiredInvestment = requiredInvestment
-        self.createdTurn = createdTurn
-        self.expiresTurn = expiresTurn
-        self.status = status
-    }
-}
-
 struct StorePurchasePolicy: Codable, Hashable {
     var weeklyBudget: Int
     var spentBudget: Int
@@ -3572,7 +3495,6 @@ struct Store: Identifiable, Codable, Hashable {
     var priceIndex: Double
     var reputation: Double
     var serviceAllocation: Double
-    var managerControlsStaffing: Bool
     var salesControlMode: OperationControlMode
     var procurementControlMode: OperationControlMode
     var researchControlMode: OperationControlMode
@@ -3587,9 +3509,6 @@ struct Store: Identifiable, Codable, Hashable {
     var openingMonthsRemaining: Int?
     var pendingType: StoreType?
     var renovationMonthsRemaining: Int?
-    var manager: StoreManager?
-    var managerMandate: ManagerOperatingMandate
-    var managerProposals: [ManagerProposal]
     var pendingManualSales: Int
     var pendingManualRevenue: Int
     var pendingManualCOGS: Int
@@ -3629,7 +3548,6 @@ struct Store: Identifiable, Codable, Hashable {
         priceIndex = 1.0
         reputation = 0.65
         serviceAllocation = 0.35
-        managerControlsStaffing = false
         salesControlMode = .owner
         procurementControlMode = .owner
         researchControlMode = .owner
@@ -3644,9 +3562,6 @@ struct Store: Identifiable, Codable, Hashable {
         self.openingMonthsRemaining = openingMonthsRemaining
         pendingType = nil
         renovationMonthsRemaining = nil
-        manager = nil
-        managerMandate = .general
-        managerProposals = []
         pendingManualSales = 0
         pendingManualRevenue = 0
         pendingManualCOGS = 0
@@ -3704,7 +3619,6 @@ struct Store: Identifiable, Codable, Hashable {
     }
     var isOperational: Bool { openingMonthsRemaining == nil }
     var isRenovating: Bool { pendingType != nil && renovationMonthsRemaining != nil }
-    var hasManager: Bool { manager != nil }
     var manualSalesThisWeek: Int { pendingManualSales }
     var manualNegotiationsThisWeek: Int { pendingManualNegotiations }
     var purchaseNegotiationsThisWeek: Int { pendingPurchaseNegotiations }
@@ -4098,7 +4012,7 @@ enum WeeklyReportCategory: String, CaseIterable, Identifiable {
         let marketTerms = ["市場", "競合", "ガソリン", "日経", "需要", "価格戦争", "新型", "地価"]
         if marketTerms.contains(where: note.contains) { return .market }
 
-        let operationsTerms = ["社員", "店長", "整備", "完成", "建設", "改装", "店舗外観", "開店", "引き抜き", "仕入担当"]
+        let operationsTerms = ["社員", "整備", "完成", "建設", "改装", "店舗外観", "開店", "引き抜き", "仕入担当"]
         if operationsTerms.contains(where: note.contains) { return .operations }
 
         return .management

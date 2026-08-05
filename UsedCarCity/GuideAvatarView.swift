@@ -207,7 +207,7 @@ struct GuideAvatarView: View {
     }
 }
 
-/// 顧客・店員・店長に使う、ゲーム内共通の人物アバター。
+/// 顧客・店員に使う、ゲーム内共通の人物アバター。
 /// モデルには画像情報を保存せず、人物のIDや名前から同じ見た目を再現します。
 struct CharacterAvatarView: View {
     let role: CharacterAvatarRole
@@ -456,7 +456,6 @@ enum CharacterAvatarRole: Equatable {
     case staffProcurement
     case staffResearch
     case staffService
-    case manager
 
     var backgroundColors: [Color] {
         switch self {
@@ -464,7 +463,7 @@ enum CharacterAvatarRole: Equatable {
         case .affluentCustomer: [Color(red: 0.91, green: 0.82, blue: 0.55), Color(red: 0.56, green: 0.39, blue: 0.19)]
         case .craftsmanCustomer: [Color(red: 0.98, green: 0.76, blue: 0.42), Color(red: 0.83, green: 0.38, blue: 0.20)]
         case .outdoorCustomer, .camperCustomer: [Color(red: 0.68, green: 0.86, blue: 0.64), Color(red: 0.22, green: 0.55, blue: 0.42)]
-        case .corporateCustomer, .manager: [Color(red: 0.52, green: 0.75, blue: 0.88), GameTheme.navy]
+        case .corporateCustomer: [Color(red: 0.52, green: 0.75, blue: 0.88), GameTheme.navy]
         case .seller: [Color(red: 0.91, green: 0.82, blue: 0.72), Color(red: 0.66, green: 0.52, blue: 0.43)]
         case .valueCustomer: [Color(red: 0.76, green: 0.90, blue: 0.93), GameTheme.teal]
         case .staffGeneral, .staffSales, .staffProcurement, .staffResearch, .staffService:
@@ -475,7 +474,7 @@ enum CharacterAvatarRole: Equatable {
     var clothingColor: Color {
         switch self {
         case .familyCustomer: Color(red: 0.86, green: 0.35, blue: 0.31)
-        case .affluentCustomer, .corporateCustomer, .manager: GameTheme.navy
+        case .affluentCustomer, .corporateCustomer: GameTheme.navy
         case .craftsmanCustomer, .staffService: Color(red: 0.92, green: 0.48, blue: 0.17)
         case .outdoorCustomer: Color(red: 0.24, green: 0.51, blue: 0.30)
         case .camperCustomer: Color(red: 0.17, green: 0.45, blue: 0.57)
@@ -495,7 +494,7 @@ enum CharacterAvatarRole: Equatable {
         case .craftsmanCustomer, .staffService: GameTheme.orange
         case .outdoorCustomer: Color.green
         case .camperCustomer: Color.cyan
-        case .corporateCustomer, .manager: GameTheme.mint
+        case .corporateCustomer: GameTheme.mint
         case .seller: Color.brown
         case .valueCustomer: GameTheme.teal
         case .staffSales: Color.blue
@@ -520,7 +519,6 @@ enum CharacterAvatarRole: Equatable {
         case .staffProcurement: "car.badge.gearshape"
         case .staffResearch: "chart.line.uptrend.xyaxis"
         case .staffService: "wrench.adjustable.fill"
-        case .manager: "star.fill"
         }
     }
 
@@ -531,7 +529,7 @@ enum CharacterAvatarRole: Equatable {
         self == .affluentCustomer || self == .corporateCustomer || self == .staffResearch
     }
     var wearsTie: Bool {
-        self == .affluentCustomer || self == .corporateCustomer || self == .manager
+        self == .affluentCustomer || self == .corporateCustomer
     }
     var wearsCollar: Bool {
         wearsTie || self == .staffSales || self == .staffProcurement || self == .staffResearch
@@ -593,10 +591,6 @@ extension StoreEmployee {
     var characterAvatarSeed: Int { id.characterAvatarSeed }
 }
 
-extension StoreManager {
-    var characterAvatarSeed: Int { name.characterAvatarSeed }
-}
-
 private extension UUID {
     var characterAvatarSeed: Int {
         uuidString.unicodeScalars.reduce(17) { ($0 &* 31) &+ Int($1.value) }
@@ -651,7 +645,7 @@ private struct Triangle: Shape {
             CharacterAvatarView(role: .craftsmanCustomer, seed: 3, size: 64)
             CharacterAvatarView(role: .outdoorCustomer, seed: 4, size: 64)
             CharacterAvatarView(role: .staffSales, seed: 5, size: 64)
-            CharacterAvatarView(role: .manager, seed: 6, size: 64)
+            CharacterAvatarView(role: .staffProcurement, seed: 6, size: 64)
         }
     }
     .padding()

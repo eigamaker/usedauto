@@ -1659,66 +1659,13 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("出品車") && $0.contains("成約") }) == true)
     }
 
-    func testDelegatedManagerAdjustsStoreOperations() {
-        let game = GameEngine()
-        game.resetGame()
-        startPlayableGame(game)
-        game.cash = 100_000
-        var store = game.stores[0]
-        XCTAssertTrue(game.hireManager(for: store.id))
-        store = game.stores[0]
-        store.delegateStaff = true
-        store.delegatePricing = true
-        store.delegateMarketing = true
-        store.delegateService = true
-        let advertising = store.advertising
-        let service = store.serviceAllocation
-        game.updateStore(store)
-
-        game.advanceWeek()
-
-        XCTAssertTrue(game.lastReport?.notes.contains(where: { $0.contains("店長") }) == true)
-        XCTAssertTrue(game.stores[0].advertising != advertising || game.stores[0].serviceAllocation != service)
-    }
-
-    func testManagerDelegatesProcurementPolicyWithoutProcessingCases() {
-        let game = GameEngine()
-        game.resetGame()
-        startPlayableGame(game)
-        game.cash = 100_000
-        let storeID = game.stores[0].id
-        game.procurementInstructions.removeAll()
-        game.stores[0].employees = []
-        XCTAssertTrue(game.hireManager(for: storeID))
-        game.stores[0].delegateProcurement = true
-
-        game.advanceWeek()
-
-        let cautious = try! XCTUnwrap(game.procurementInstructions(for: storeID).first)
-        XCTAssertFalse(cautious.categories.isEmpty)
-        XCTAssertGreaterThanOrEqual(cautious.minimumGrossProfit, 0)
-        XCTAssertTrue(game.stores[0].employees.isEmpty, "店長は仕入担当の実働を代行しない")
-
-        game.stores[0].employees = [StoreEmployee(
-            name: "査定整備責任者", salesSkill: 40, procurementSkill: 30,
-            researchSkill: 50, serviceSkill: 90,
-            monthlySalary: 52, assignment: .service
-        )]
-        game.advanceWeek()
-
-        let expanded = try! XCTUnwrap(game.procurementInstructions(for: storeID).first)
-        XCTAssertFalse(expanded.categories.isEmpty)
-        XCTAssertEqual(game.stores[0].employees[0].lastWeekPerformance.handled, 0)
-    }
-
-    func testStaffCanBeHiredAndFiredWithoutManager() {
+    func testStaffCanBeHiredAndFired() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
         game.cash = 100_000
         let storeID = game.stores[0].id
 
-        XCTAssertFalse(game.stores[0].hasManager)
         XCTAssertEqual(game.stores[0].staff, 0)
         XCTAssertEqual(game.weeklyOpportunityCapacity(storeID: storeID), 7)
 
@@ -2285,7 +2232,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].employees[0].lastWeekPerformance.handled, 1)
     }
 
-    func testEmployeeAutomationWorksWithoutManagerAndRespectsSalesToggle() {
+    func testEmployeeAutomationRespectsSalesToggle() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, plan: .discount)
@@ -2302,7 +2249,6 @@ final class GameEngineTests: XCTestCase {
 
         game.advanceWeek()
         XCTAssertEqual(game.stores[0].employees[0].lastWeekPerformance.handled, 0)
-        XCTAssertFalse(game.stores[0].hasManager)
 
         game.stores[0].autoSales = true
         game.stores[0].salesPolicy = .volume
@@ -2320,7 +2266,6 @@ final class GameEngineTests: XCTestCase {
         game.advanceWeek()
 
         XCTAssertEqual(game.stores[0].employees[0].lastWeekPerformance.handled, 1)
-        XCTAssertFalse(game.stores[0].hasManager)
     }
 
     func testAutomaticSalesCommissionUsesOnlyPositiveGrossProfitAndHitsPersonnelCost() {
@@ -2705,57 +2650,18 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(game.cityEvents.contains { $0.kind == .staffPoaching && !$0.isPositive })
     }
 
-    func testManagerCanBeFiredAndDelegationIsCleared() {
-        let game = GameEngine()
-        game.resetGame()
-        startPlayableGame(game)
-        game.cash = 100_000
-        let storeID = game.stores[0].id
-        let candidate = game.managerCandidate(for: storeID)
-
-        XCTAssertNotNil(candidate)
-        XCTAssertTrue(game.hireManager(for: storeID))
-        XCTAssertEqual(game.stores[0].manager, candidate)
-
-        var store = game.stores[0]
-        store.delegateStaff = true
-        store.delegatePricing = true
-        store.delegateMarketing = true
-        store.delegateService = true
-        store.autoSales = true
-        store.autoProcurement = true
-        store.autoMarketing = true
-        store.autoService = true
-        store.salesPolicy = .profit
-        game.updateStore(store)
-
-        XCTAssertTrue(game.fireManager(for: storeID))
-        XCTAssertFalse(game.stores[0].hasManager)
-        XCTAssertNil(game.stores[0].manager)
-        XCTAssertFalse(game.stores[0].delegateStaff)
-        XCTAssertFalse(game.stores[0].delegatePricing)
-        XCTAssertFalse(game.stores[0].delegateMarketing)
-        XCTAssertFalse(game.stores[0].delegateService)
-        XCTAssertTrue(game.stores[0].autoSales)
-        XCTAssertTrue(game.stores[0].autoProcurement)
-        XCTAssertTrue(game.stores[0].autoMarketing)
-        XCTAssertTrue(game.stores[0].autoService)
-        XCTAssertEqual(game.stores[0].salesPolicy, .profit)
-    }
-
-    func testOwnerCanIncreaseAdvertisingWithoutManager() {
+    func testOwnerCanIncreaseAdvertising() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
         let storeID = game.stores[0].id
         let advertising = game.stores[0].advertising
 
-        XCTAssertFalse(game.stores[0].hasManager)
         XCTAssertTrue(game.increaseAdvertisingBudget(for: storeID, by: 40))
         XCTAssertEqual(game.stores[0].advertising, advertising + 40)
     }
 
-    func testStaffAndManagerSalaryAreFullyRecordedAcrossFourWeeks() {
+    func testStaffSalaryIsFullyRecordedAcrossFourWeeks() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game)
@@ -2763,7 +2669,6 @@ final class GameEngineTests: XCTestCase {
         let storeID = game.stores[0].id
 
         XCTAssertTrue(game.hireStaff(for: storeID))
-        XCTAssertTrue(game.hireManager(for: storeID))
         let monthlyPersonnel = game.monthlyPersonnelCost(for: game.stores[0])
         var recordedPersonnel = 0
 
@@ -3195,7 +3100,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.weekOfMonth, 1)
     }
 
-    func testManagerDelegationDoesNotBlockOwnerManualSales() {
+    func testEmployeeOperationDoesNotBlockOwnerManualSales() {
         let game = GameEngine()
         game.resetGame()
         startPlayableGame(game, plan: .discount)
@@ -3210,10 +3115,9 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.stores[0].manualNegotiationsThisWeek, 1)
         XCTAssertEqual(game.stores[0].inventoryCount, result?.succeeded == true ? inventoryBefore - 1 : inventoryBefore)
 
-        XCTAssertTrue(game.hireManager(for: store.id))
-        var managedStore = game.stores[0]
-        managedStore.delegatePricing = true
-        game.updateStore(managedStore)
+        var employeeOperatedStore = game.stores[0]
+        employeeOperatedStore.salesControlMode = .employee
+        game.updateStore(employeeOperatedStore)
         XCTAssertTrue(game.canSellManually(storeID: store.id))
     }
 
@@ -3300,10 +3204,12 @@ final class GameEngineTests: XCTestCase {
         game.advanceWeek()
         XCTAssertLessThan(game.marketShare(for: game.stores[0]), originalShare)
         for store in game.stores where game.plot(id: store.plotID)?.district == district {
-            XCTAssertTrue(game.hireManager(for: store.id))
-            var delegated = game.stores.first(where: { $0.id == store.id })!
-            delegated.delegatePricing = true
-            game.updateStore(delegated)
+            let candidate = game.employeeCandidates(for: store.id).first!
+            XCTAssertTrue(game.hireEmployee(candidate.id, for: store.id))
+            XCTAssertTrue(game.assignEmployee(candidate.id, at: store.id, to: .sales))
+            var employeeOperatedStore = game.stores.first(where: { $0.id == store.id })!
+            employeeOperatedStore.salesControlMode = .employee
+            game.updateStore(employeeOperatedStore)
         }
         let availableBuyers = game.weeklyBuyerPool(in: district)
         game.advanceWeek()
@@ -3471,28 +3377,6 @@ final class GameEngineTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(game.stores[0].lastSales, 2)
         XCTAssertEqual(game.stores[0].inventoryCount, 2 - game.stores[0].lastSales)
-    }
-
-    func testManagerControlsPoliciesWithoutTakingOwnerCases() {
-        let game = GameEngine()
-        game.resetGame()
-        startPlayableGame(game, plan: .discount)
-        game.cash = 100_000
-        let storeID = game.stores[0].id
-        let purchaseCase = game.purchaseCases.first!
-
-        XCTAssertTrue(game.hireManager(for: storeID))
-        var store = game.stores[0]
-        store.delegatePricing = true
-        game.updateStore(store)
-
-        XCTAssertTrue(game.canNegotiatePurchaseCase(purchaseCase.id))
-        XCTAssertTrue(game.canSellManually(storeID: storeID))
-
-        XCTAssertTrue(game.canNegotiatePurchaseCase(purchaseCase.id))
-        if case .unavailable = game.negotiatePurchaseCase(purchaseCase.id, offerPercent: 100) {
-            XCTFail("Management delegation must not take the case away from the owner")
-        }
     }
 
     func testAdvertisingAndReputationRaiseShareWithoutCreatingRegionalDemand() {
@@ -5373,12 +5257,7 @@ final class GameEngineTests: XCTestCase {
             categories: [.suv],
             modelIDs: []
         )
-        game.stores[0].manager = StoreManager(
-            name: "保存店長", staffingAbility: 70, salesAbility: 71,
-            procurementAbility: 88, researchAbility: 72,
-            serviceAbility: 76, monthlySalary: 60
-        )
-        game.stores[0].delegateProcurement = true
+        game.stores[0].procurementControlMode = .employee
         let savedInstructionID = game.createProcurementInstruction(
             storeID: game.stores[0].id,
             totalBudget: 900,
@@ -5497,8 +5376,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(game.procurementInstructions.first?.id, savedInstructionID)
         XCTAssertEqual(game.procurementInstructions.first?.minimumGrossProfit, 55)
         XCTAssertEqual(game.procurementInstructions.first?.categories, [.suv])
-        XCTAssertTrue(game.stores[0].delegateProcurement)
-        XCTAssertEqual(game.stores[0].manager?.procurementAbility, 88)
+        XCTAssertEqual(game.stores[0].procurementControlMode, .employee)
         XCTAssertFalse(game.networkAuctionListings.isEmpty)
         XCTAssertEqual(game.stores[0].marketPolicy.targetPurpose, .outdoor)
         XCTAssertEqual(game.stores[0].marketPolicy.acceptedConditions, [.normal, .rough, .faulty])
@@ -6033,25 +5911,6 @@ final class GameEngineTests: XCTestCase {
         let arrived = try XCTUnwrap(game.stores[0].inventory.first { $0.modelID == model.id })
         XCTAssertTrue(arrived.isProtectedFromAutomaticSales)
         XCTAssertEqual(arrived.dispositionPlan.plannedProject, .camperConversion)
-    }
-
-    func testManagerCannotChangeStaffWithoutExplicitHumanResourcesAuthority() throws {
-        let game = GameEngine(persistenceEnabled: false)
-        startPlayableGame(game, simulationSeed: 125)
-        game.cash = 100_000
-        let storeID = try XCTUnwrap(game.stores.first?.id)
-        XCTAssertTrue(game.hireManager(for: storeID))
-        game.stores[0].employees = [StoreEmployee(
-            name: "維持対象", salesSkill: 60, procurementSkill: 60,
-            researchSkill: 60, serviceSkill: 60, monthlySalary: 50,
-            assignment: .sales
-        )]
-        game.stores[0].delegateStaff = false
-        let employeeIDs = game.stores[0].employees.map(\.id)
-
-        for _ in 0..<3 { game.advanceWeek() }
-
-        XCTAssertEqual(game.stores[0].employees.map(\.id), employeeIDs)
     }
 
     func testMobileSalesAndKitchenCarAreIndependentMarketProducts() {

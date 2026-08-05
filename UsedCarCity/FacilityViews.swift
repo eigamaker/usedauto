@@ -324,7 +324,7 @@ private struct StoreNetworkContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫を融通し、社員自動化と店長への管理委任を確認")
+            SectionTitle(title: "店舗ネットワーク", subtitle: "在庫の融通と各店舗の社員運用状況を確認")
             ForEach(game.stores) { store in
                 VStack(alignment: .leading, spacing: 7) {
                     HStack {
@@ -333,14 +333,17 @@ private struct StoreNetworkContent: View {
                             Text("在庫\(store.inventoryCount)/\(store.type.capacity)台・入庫予定\(game.incomingCount(for: store.id))台").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        let delegated = [
-                            store.managerControlsStaffing,
-                            store.salesControlMode == .manager,
-                            store.researchControlMode == .manager,
-                            store.procurementControlMode == .manager,
-                            store.serviceControlMode == .manager
-                        ].filter { $0 }.count
-                        CapsuleLabel(text: delegated == 0 ? "直営" : "\(delegated)/5委任", color: delegated == 5 ? GameTheme.teal : GameTheme.navy, icon: delegated == 0 ? "person.fill" : "person.badge.key.fill")
+                        let employeeOperated = [
+                            store.salesControlMode,
+                            store.researchControlMode,
+                            store.procurementControlMode,
+                            store.serviceControlMode
+                        ].filter { $0 == .employee }.count
+                        CapsuleLabel(
+                            text: employeeOperated == 0 ? "オーナー運用" : "社員運用 \(employeeOperated)/4",
+                            color: employeeOperated == 4 ? GameTheme.teal : GameTheme.navy,
+                            icon: employeeOperated == 0 ? "person.fill" : "person.3.fill"
+                        )
                     }
                     if game.stores.count > 1 {
                         ForEach(store.inventory.filter { $0.count > 0 && !$0.isInWorkshop }) { batch in
@@ -745,7 +748,8 @@ private struct AuctionBidRow: View {
     }
 
     private var bidActionButton: some View {
-        Button(reserved ? "入札額を変更" : "この上限で入札") {
+        let workEffort = game.transactionWorkEffort(for: listing.category)
+        return Button(reserved ? "入札額を変更" : "この上限で入札（\(workEffort)工数）") {
             result(
                 game.reserveBid(listingID: listing.id, storeID: storeID, maxPrice: maxPrice)
                     ? "上限\(maxPrice.currency)で入札しました。結果は次の週間処理で確定します"
@@ -755,6 +759,7 @@ private struct AuctionBidRow: View {
         .buttonStyle(.borderedProminent)
         .tint(listing.lane.tint)
         .frame(maxWidth: .infinity)
+        .disabled(!reserved && game.ownerRemainingWorkEffort < workEffort)
     }
 
     private var cancelBidButton: some View {
