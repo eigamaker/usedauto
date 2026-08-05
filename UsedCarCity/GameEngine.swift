@@ -99,7 +99,10 @@ final class GameEngine: ObservableObject {
     @Published private(set) var nikkeiAverage: Double = 60_000
     @Published private(set) var classicMarketIndex: Double = 1.0
     @Published private(set) var marketDemandIndex: Double = 1.0
-    @Published var activeMarketShocks: [ActiveMarketShock] = []
+    @Published private(set) var economicState = EconomicState()
+    @Published private(set) var economicHistory: [EconomicWeekRecord] = []
+    @Published private(set) var scheduledEconomicEvents: [ScheduledEconomicEvent] = []
+    @Published private(set) var activeEconomicEvents: [ActiveEconomicEvent] = []
     @Published var careerStatistics = CareerStatistics()
     @Published var priceWarChallenges: [PriceWarChallenge] = []
     @Published var financialDistressWeeks = 0
@@ -175,13 +178,10 @@ final class GameEngine: ObservableObject {
         let nikkeiAverage: Double
         let classicMarketIndex: Double
         let marketDemandIndex: Double
-        let gasolineTrendTarget: Double
-        let nikkeiTrendTarget: Double
-        let demandTrendTarget: Double
-        let gasolineMomentum: Double
-        let nikkeiMomentum: Double
-        let demandMomentum: Double
-        let activeMarketShocks: [ActiveMarketShock]
+        let economicState: EconomicState
+        let economicHistory: [EconomicWeekRecord]
+        let scheduledEconomicEvents: [ScheduledEconomicEvent]
+        let activeEconomicEvents: [ActiveEconomicEvent]
         let careerStatistics: CareerStatistics
         let priceWarChallenges: [PriceWarChallenge]
         let tutorialStep: TutorialStep?
@@ -234,17 +234,11 @@ final class GameEngine: ObservableObject {
         let vehicleIssue: VehicleIssueRecord?
     }
 
-    private static let saveKey = "UsedCarCity.save.v56"
+    private static let saveKey = "UsedCarCity.save.v57"
     private static let gasolineBaseline = 155.0
-    private static let gasolineRange = 105.0...205.0
+    private static let gasolineRange = 95.0...240.0
     private static let nikkeiBaseline = 60_000.0
     private static let nikkeiRange = 15_000.0...120_000.0
-    private var gasolineTrendTarget = 155.0
-    private var nikkeiTrendTarget = 60_000.0
-    private var demandTrendTarget = 1.0
-    private var gasolineMomentum = 0.0
-    private var nikkeiMomentum = 0.0
-    private var demandMomentum = 0.0
     private static let employeeRoster = [
         StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000001")!, name: "山田 悠斗", salesSkill: 62, appraisalSkill: 48, procurementSkill: 55, marketingSkill: 58, serviceSkill: 45, marketResearchSkill: 52, compensation: .fixed),
         StoreEmployee(id: UUID(uuidString: "10000000-0000-0000-0000-000000000002")!, name: "小林 美月", salesSkill: 74, appraisalSkill: 55, procurementSkill: 61, marketingSkill: 70, serviceSkill: 48, marketResearchSkill: 68, compensation: .balanced),
@@ -379,34 +373,36 @@ final class GameEngine: ObservableObject {
     var gasolinePricePerLiter: Int { Int(gasolinePrice.rounded()) }
     var nikkeiAverageYen: Int { Int(nikkeiAverage.rounded()) }
     var marketDemandPercentage: Int { Int((marketDemandIndex * 100).rounded()) }
-    var customerTrafficIndex: Double {
-        marketDemandIndex * min(1.45, max(0.65, pow(economicIndex, 1.65)))
-    }
+    var customerTrafficIndex: Double { marketDemandIndex }
     var customerTrafficPercentage: Int { Int((customerTrafficIndex * 100).rounded()) }
+
+    var householdPurchasingPowerIndex: Double {
+        let fuelBurden = min(1.5, max(-0.8, (economicState.gasolinePrice - 155) / 45))
+        return min(1.35, max(0.65,
+            1
+                + (economicState.realActivityIndex - 1) * 0.45
+                + (economicState.consumerConfidenceIndex - 1) * 0.25
+                - (economicState.costPressureIndex - 1) * 0.25
+                - fuelBurden * 0.15
+        ))
+    }
 
     /// Existing vehicle-demand calculations continue to consume a normalized
     /// value while the player sees the familiar yen-per-litre market price.
     var fuelPriceIndex: Double {
         get { gasolinePrice / Self.gasolineBaseline }
-        set { gasolinePrice = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound, newValue * Self.gasolineBaseline)) }
+        set {
+            gasolinePrice = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound, newValue * Self.gasolineBaseline))
+            economicState.gasolinePrice = gasolinePrice
+        }
     }
 
-    /// Maps the visible Nikkei average onto the deliberately narrower gameplay
-    /// range used by pricing, financing and customer simulations.
+    /// Existing callers continue to consume a normalized real-economy value,
+    /// but it is no longer derived from the visible stock index.
     var economicIndex: Double {
-        get {
-            if nikkeiAverage <= Self.nikkeiBaseline {
-                return 0.72 + (nikkeiAverage - Self.nikkeiRange.lowerBound) / (Self.nikkeiBaseline - Self.nikkeiRange.lowerBound) * 0.28
-            }
-            return 1.0 + (nikkeiAverage - Self.nikkeiBaseline) / (Self.nikkeiRange.upperBound - Self.nikkeiBaseline) * 0.28
-        }
+        get { economicState.realActivityIndex }
         set {
-            let normalized = min(1.28, max(0.72, newValue))
-            if normalized <= 1 {
-                nikkeiAverage = Self.nikkeiRange.lowerBound + (normalized - 0.72) / 0.28 * (Self.nikkeiBaseline - Self.nikkeiRange.lowerBound)
-            } else {
-                nikkeiAverage = Self.nikkeiBaseline + (normalized - 1) / 0.28 * (Self.nikkeiRange.upperBound - Self.nikkeiBaseline)
-            }
+            economicState.realActivityIndex = min(1.30, max(0.70, newValue))
         }
     }
     var availableVehicleCatalog: [VehicleCatalogEntry] {
@@ -682,19 +678,16 @@ final class GameEngine: ObservableObject {
         ownerWorkEffortUsed = 0
         competitorAuctionSlotsRemaining = [:]; competitorAuctionBudgetRemaining = [:]
         simulationSeed = requestedSeed ?? Int.random(in: 1...Int.max / 4)
+        economicState = EconomicState()
+        economicHistory = []
+        activeEconomicEvents = []
+        scheduledEconomicEvents = makeEconomicEventSchedule()
         companyExpertise = BusinessExpertise()
         nationalBrandStrength = 0.48
         gasolinePrice = Self.gasolineBaseline
         nikkeiAverage = Self.nikkeiBaseline
         classicMarketIndex = 1.0
         marketDemandIndex = 1.0
-        gasolineTrendTarget = Self.gasolineBaseline
-        nikkeiTrendTarget = Self.nikkeiBaseline
-        demandTrendTarget = 1.0
-        gasolineMomentum = 0
-        nikkeiMomentum = 0
-        demandMomentum = 0
-        activeMarketShocks = []
         careerStatistics = CareerStatistics(); priceWarChallenges = []; financialDistressWeeks = 0; finance = FinanceSnapshot(); lastReport = nil; lastMonthlyReport = nil; weeklyPresentationStage = nil; weeklyPresentationQueue = []; gameOver = false; tutorialStep = nil; tutorialPlotID = nil
         guide = .dismissed
         guideStorePanelRequest = nil
@@ -724,10 +717,15 @@ final class GameEngine: ObservableObject {
         includesMonthlyPL: Bool
     ) {
         var stages: [WeeklyPresentationStage] = []
+        if newspaperIssues.first?.isBreaking == true {
+            stages.append(.newspaper)
+        }
         if includesWeeklyReport { stages.append(.weeklyReport) }
         if includesMonthlyPL { stages.append(.monthlyPL) }
         // 新しい週の市況は、自動週次レポート設定に関係なく必ず知らせる。
-        stages.append(.newspaper)
+        if newspaperIssues.first?.isBreaking != true {
+            stages.append(.newspaper)
+        }
         weeklyPresentationStage = stages.first
         weeklyPresentationQueue = Array(stages.dropFirst())
     }
@@ -770,13 +768,10 @@ final class GameEngine: ObservableObject {
         nikkeiAverage = saved.nikkeiAverage
         classicMarketIndex = saved.classicMarketIndex
         marketDemandIndex = saved.marketDemandIndex
-        gasolineTrendTarget = saved.gasolineTrendTarget
-        nikkeiTrendTarget = saved.nikkeiTrendTarget
-        demandTrendTarget = saved.demandTrendTarget
-        gasolineMomentum = saved.gasolineMomentum
-        nikkeiMomentum = saved.nikkeiMomentum
-        demandMomentum = saved.demandMomentum
-        activeMarketShocks = saved.activeMarketShocks
+        economicState = saved.economicState
+        economicHistory = saved.economicHistory
+        scheduledEconomicEvents = saved.scheduledEconomicEvents
+        activeEconomicEvents = saved.activeEconomicEvents
         careerStatistics = saved.careerStatistics
         priceWarChallenges = saved.priceWarChallenges
         tutorialStep = saved.tutorialStep
@@ -926,9 +921,24 @@ final class GameEngine: ObservableObject {
         let newModelLift = age <= 13 ? 1.22 : age <= 39 ? 1.12 : age <= 78 ? 1.05 : 1.0
         let economyEffect: Double
         switch model.category {
-        case .suv, .sports, .sedan: economyEffect = 0.72 + economicIndex * 0.28
-        case .kei, .compact: economyEffect = 1.10 - (economicIndex - 1) * 0.20
-        default: economyEffect = 0.88 + economicIndex * 0.12
+        case .suv, .sports, .sedan:
+            economyEffect = min(1.35, max(0.65,
+                1 + (householdPurchasingPowerIndex - 1) * 0.85
+                    + (economicState.consumerConfidenceIndex - 1) * 0.35
+            ))
+        case .kei, .compact:
+            economyEffect = min(1.28, max(0.82,
+                1 - (householdPurchasingPowerIndex - 1) * 0.45
+            ))
+        case .pickup:
+            economyEffect = min(1.30, max(0.70,
+                1 + (economicState.realActivityIndex - 1) * 0.70
+                    + (economicState.creditAvailabilityIndex - 1) * 0.30
+            ))
+        case .minivan:
+            economyEffect = min(1.20, max(0.80,
+                1 + (householdPurchasingPowerIndex - 1) * 0.30
+            ))
         }
         let newerGenerations = VehicleCatalog.releasedNewCars(through: turn).filter {
             $0.maker == model.maker && $0.category == model.category && $0.launchTurn > model.launchTurn
@@ -939,6 +949,7 @@ final class GameEngine: ObservableObject {
 
     func powertrainDemandFactor(for model: VehicleCatalogEntry, in kind: DistrictKind) -> Double {
         let transition = min(1, max(0, Double(turn) / Double(maxTurns)))
+        let fuelSignal = min(1.5, max(-1.0, (gasolinePrice - Self.gasolineBaseline) / 45))
         switch model.powertrain {
         case .electric:
             let infrastructure: Double
@@ -951,15 +962,15 @@ final class GameEngine: ObservableObject {
             case .industrial: infrastructure = 0.88
             }
             let commercialPenalty = [.minivan, .pickup].contains(model.category) ? 0.90 + transition * 0.10 : 1.0
-            return min(1.75, max(0.52, (0.68 + transition * 0.72 + (fuelPriceIndex - 1) * 0.55) * infrastructure * commercialPenalty))
+            return min(1.85, max(0.48, (0.82 + transition * 0.50 + fuelSignal * 0.30) * infrastructure * commercialPenalty))
         case .hybrid:
-            return min(1.38, max(0.82, 1.02 + transition * 0.12 + (fuelPriceIndex - 1) * 0.24))
+            return min(1.45, max(0.78, 1.00 + transition * 0.12 + fuelSignal * 0.16))
         case .gasoline:
             let efficientSegment = [.kei, .compact].contains(model.category) ? 0.08 : 0
-            return min(1.18, max(0.62, 1.06 - transition * 0.30 - max(0, fuelPriceIndex - 1) * 0.30 + efficientSegment))
+            return min(1.32, max(0.55, 1.06 - transition * 0.20 - fuelSignal * 0.22 + efficientSegment))
         case .diesel:
             let workVehicle = [.minivan, .pickup].contains(model.category) ? 0.13 : 0
-            return min(1.22, max(0.66, 1.00 - transition * 0.22 - max(0, fuelPriceIndex - 1) * 0.12 + workVehicle))
+            return min(1.30, max(0.60, 1.00 - transition * 0.16 - fuelSignal * 0.10 + workVehicle))
         }
     }
 
@@ -1473,7 +1484,7 @@ final class GameEngine: ObservableObject {
         let grossProfitLow = salesLow * averageMargin
         let grossProfitHigh = salesHigh * averageMargin
         let monthlyRent = store.acquisition == .lease
-            ? store.plotIDs.compactMap { self.plot(id: $0)?.monthlyRent }.reduce(0, +)
+            ? store.leaseContracts.reduce(0) { $0 + $1.monthlyRent }
             : 0
         let fourWeekCashExpenses = monthlyPersonnelCost(for: store) + monthlyRent + store.advertising + store.type.monthlyFixedCost + store.facilityMonthlyCost
         let fourWeekDepreciation = (store.type.buildCost + store.facilityInvestment) / 240
@@ -1520,7 +1531,7 @@ final class GameEngine: ObservableObject {
         let salesHigh = forecasts.reduce(0) { $0 + $1.salesHigh }
         let grossLow = forecasts.reduce(0) { $0 + $1.grossProfitLow }
         let grossHigh = forecasts.reduce(0) { $0 + $1.grossProfitHigh }
-        let interest = debt / 9_600 * 4
+        let interest = weeklyInterestExpense * 4
         let profitLow = forecasts.reduce(0) { $0 + $1.operatingProfitLow } - interest
         let profitHigh = forecasts.reduce(0) { $0 + $1.operatingProfitHigh } - interest
         let cashDeltaLow = forecasts.reduce(0) { $0 + ($1.endingCashLow - cash) } - interest
@@ -1719,10 +1730,11 @@ final class GameEngine: ObservableObject {
         mode: AcquisitionMode,
         facilities: Set<StoreFacility> = []
     ) -> Int {
-        landAcquisitionCost(for: footprint, mode: mode)
-            + demolitionCost(for: footprint)
+        let constructionBase = demolitionCost(for: footprint)
             + type.buildCost
             + facilities.reduce(0) { $0 + $1.installationCost }
+        let adjustedConstruction = Int((Double(constructionBase) * economicCostMultipliers.construction).rounded())
+        return landAcquisitionCost(for: footprint, mode: mode) + adjustedConstruction
     }
 
     @discardableResult
@@ -1752,6 +1764,14 @@ final class GameEngine: ObservableObject {
             plotIDs: footprint.map(\.id),
             type: type,
             acquisition: mode,
+            leaseContracts: mode == .lease ? footprint.map {
+                PlotLeaseContract(
+                    plotID: $0.id,
+                    monthlyRent: $0.monthlyRent,
+                    nextReviewTurn: turn + 48,
+                    announcedMonthlyRent: nil
+                )
+            } : [],
             marketPolicy: marketPolicy,
             facilities: facilities,
             inventory: [],
@@ -2690,6 +2710,39 @@ final class GameEngine: ObservableObject {
     var maxEmployeesPerStore: Int { 15 }
     var employeeTrainingCost: Int { 30 }
 
+    private var currentHiringWageMultiplier: Double {
+        min(1.25, max(0.85,
+            1
+                + (economicState.realActivityIndex - 1) * 0.45
+                + (economicState.costPressureIndex - 1) * 0.35
+        ))
+    }
+
+    private func updateAnnualWages(at currentTurn: Int, notes: inout [String]) {
+        guard currentTurn > 0 else { return }
+        if currentTurn % 48 == 44 {
+            let estimatedRaise = min(8, max(0, Int(((currentHiringWageMultiplier - 1) * 100).rounded())))
+            notes.append("給与改定予告：4週後の年次改定は平均約+\(estimatedRaise)%の見込みです")
+            return
+        }
+        guard currentTurn.isMultiple(of: 48) else { return }
+        let raiseRate = min(0.08, max(0, currentHiringWageMultiplier - 1))
+        guard raiseRate > 0 else {
+            notes.append("年次給与改定：景気と採用相場を踏まえ、在籍社員の給与を据え置きました")
+            return
+        }
+        for storeIndex in stores.indices {
+            for employeeIndex in stores[storeIndex].employees.indices {
+                let salary = stores[storeIndex].employees[employeeIndex].monthlySalary
+                stores[storeIndex].employees[employeeIndex].monthlySalary = max(
+                    salary + 1,
+                    Int((Double(salary) * (1 + raiseRate)).rounded())
+                )
+            }
+        }
+        notes.append("年次給与改定：採用相場と物価を反映し、在籍社員の給与を平均+\(Int((raiseRate * 100).rounded()))%改定しました")
+    }
+
     func monthlyPersonnelCost(for store: Store) -> Int {
         store.employeeMonthlyPayroll
     }
@@ -2795,7 +2848,7 @@ final class GameEngine: ObservableObject {
                 commissionRate: compensation.commissionRate
             )
             candidate.monthlySalary = Int(
-                (Double(candidate.marketMonthlySalary) * compensation.salaryFactor).rounded()
+                (Double(candidate.marketMonthlySalary) * compensation.salaryFactor * currentHiringWageMultiplier).rounded()
             )
             return candidate
         }
@@ -3534,7 +3587,7 @@ final class GameEngine: ObservableObject {
         let gasoline = forecastRange(value: Int(projection.gasoline.rounded()), storeID: storeID, horizonWeeks: horizon, seedSalt: 17)
         let nikkei = forecastRange(value: Int(projection.nikkei.rounded()), storeID: storeID, horizonWeeks: horizon, seedSalt: 29)
         let demand = forecastRange(value: Int((projection.demand * 100).rounded()), storeID: storeID, horizonWeeks: horizon, seedSalt: 43)
-        let event = upcomingMarketShock(within: horizon)
+        let event = upcomingEconomicEvent(within: horizon)
         let shortTerm: String
         if let event {
             if !hasMarketResearcher(storeID: storeID)
@@ -3543,7 +3596,7 @@ final class GameEngine: ObservableObject {
             } else if marketResearchScore(for: storeID) >= 70 {
                 shortTerm = "\(horizon)週以内：\(event.title)の可能性が高い"
             } else {
-                shortTerm = event.eventKind == .fuelPrice
+                shortTerm = event.cityEventKind == .fuelPrice
                     ? "2週以内：燃料相場を大きく動かす供給・需要イベントの兆候"
                     : "2週以内：景気を大きく動かすイベントの兆候"
             }
@@ -3551,23 +3604,10 @@ final class GameEngine: ObservableObject {
             shortTerm = "\(horizon)週先まで大型イベントの兆候なし"
         }
 
-        let gasDirection = gasolineTrendTarget - gasolinePrice
-        let nikkeiDirection = nikkeiTrendTarget - nikkeiAverage
-        let demandDirection = demandTrendTarget - marketDemandIndex
+        let gasDirection = projection.gasoline - gasolinePrice
+        let nikkeiDirection = projection.nikkei - nikkeiAverage
+        let demandDirection = projection.demand - marketDemandIndex
         let longTerm = "長期：燃料\(trendWord(gasDirection, threshold: 4))・日経\(trendWord(nikkeiDirection, threshold: 4_000))・需要\(trendWord(demandDirection, threshold: 0.04))"
-
-        let action: String
-        if projection.demand >= marketDemandIndex + 0.015 {
-            action = "需要増に備え、回転の速い車種を先行確保。欠品前にAA・業販の上限を見直す"
-        } else if projection.demand <= marketDemandIndex - 0.015 {
-            action = "需要減に備え、長期在庫を値下げ・AA出品。仕入れ量と固定費を絞る"
-        } else if projection.gasoline >= gasolinePrice + 3 {
-            action = "燃料高に備え、軽・コンパクト・ハイブリッドを確保。燃費重視の業態へ寄せる"
-        } else if projection.nikkei >= nikkeiAverage + 2_000 {
-            action = "景気上向きに備え、高品質SUV・輸入車の在庫を厚くする"
-        } else {
-            action = "相場は安定。現在の在庫回転を維持し、不採算車だけを処分する"
-        }
         return MarketIntelligenceReport(
             horizonWeeks: horizon,
             accuracyPercent: Int(((1 - error) * 100).rounded()),
@@ -3576,7 +3616,6 @@ final class GameEngine: ObservableObject {
             demandRange: demand,
             shortTermOutlook: shortTerm,
             longTermOutlook: longTerm,
-            recommendedAction: action,
             upcomingEvent: event
         )
     }
@@ -3607,20 +3646,20 @@ final class GameEngine: ObservableObject {
 
         let economyHeadline: String
         let economyBody: String
-        if let shock = activeMarketShocks.first {
-            economyHeadline = shock.kind.title
-            economyBody = "\(shock.kind.detail)。\(powertrainMarketCommentary())"
-        } else if marketDemandIndex < 0.92 || demandMomentum < -0.006 {
+        if let event = activeEconomicEvents.first {
+            economyHeadline = event.kind.title
+            economyBody = "\(economicEventDetail(event.kind, durationWeeks: event.remainingWeeks))。\(powertrainMarketCommentary())"
+        } else if marketDemandIndex < 0.92 || (economicHistory.last?.state.usedCarDemandIndex ?? marketDemandIndex) - (economicHistory.dropLast().last?.state.usedCarDemandIndex ?? marketDemandIndex) < -0.006 {
             economyHeadline = "消費者の慎重姿勢、中古車選びにも変化"
             economyBody = "景気の減速を受け、購入価格と維持費を重視する動きが広がっています。再生車や小型車への関心が強まる一方、高額車は販売期間が長くなる可能性があります。"
-        } else if marketDemandIndex > 1.08 || demandMomentum > 0.006 {
+        } else if marketDemandIndex > 1.08 || (economicHistory.last?.state.usedCarDemandIndex ?? marketDemandIndex) - (economicHistory.dropLast().last?.state.usedCarDemandIndex ?? marketDemandIndex) > 0.006 {
             economyHeadline = "消費意欲が回復、高品質車へ追い風"
             economyBody = "景気の持ち直しを背景に、状態のよいSUVや高級車を検討する客が増えています。仕入価格も上向きやすいため、販売価格だけでなく在庫回転の見極めが重要になりそうです。"
         } else {
             economyHeadline = "中古車市場は落ち着いた商い"
             economyBody = "大きな景気変動は見られず、購入客は価格と用途を比較しながら慎重に車を選んでいます。\(powertrainMarketCommentary())"
         }
-        articles.append(NewspaperArticle(section: "景気・燃料", headline: economyHeadline, body: economyBody, systemImage: "chart.line.uptrend.xyaxis", isPositive: marketDemandIndex >= 1))
+        articles.append(NewspaperArticle(section: "景気・燃料", headline: economyHeadline, body: economyBody, systemImage: "chart.line.uptrend.xyaxis", isPositive: marketDemandIndex >= 1, researchKind: .marketCauseAnalysis))
 
         if let storeID = researchStoreID {
             let signals = MarketProductKind.allCases.filter(\.isNiche).compactMap {
@@ -3632,7 +3671,8 @@ final class GameEngine: ObservableObject {
                     headline: signal.kind.name,
                     body: narrativeBody(for: signal),
                     systemImage: signal.startRange.lowerBound <= turn ? "flame.fill" : "newspaper.fill",
-                    isPositive: true
+                    isPositive: true,
+                    researchKind: .segmentSurvey
                 ))
             }
         }
@@ -3654,7 +3694,8 @@ final class GameEngine: ObservableObject {
                 headline: event.title,
                 body: event.detail,
                 systemImage: event.kind.icon,
-                isPositive: event.isPositive
+                isPositive: event.isPositive,
+                researchKind: [.fuelPrice, .economy].contains(event.kind) ? .marketCauseAnalysis : nil
             ))
         }
 
@@ -3683,18 +3724,87 @@ final class GameEngine: ObservableObject {
             ))
         }
 
+        let currentRecord = economicHistory.last
+        let priorRecord = economicHistory.dropLast().last
+        let gasChange = (currentRecord?.state.gasolinePrice ?? gasolinePrice)
+            - (priorRecord?.state.gasolinePrice ?? gasolinePrice)
+        let nikkeiChange = (currentRecord?.state.nikkeiAverage ?? nikkeiAverage)
+            - (priorRecord?.state.nikkeiAverage ?? nikkeiAverage)
+        let demandChange = (currentRecord?.state.usedCarDemandIndex ?? marketDemandIndex)
+            - (priorRecord?.state.usedCarDemandIndex ?? marketDemandIndex)
+        let landChange = (currentRecord?.cityLandPriceIndex ?? cityLandPriceIndex)
+            - (priorRecord?.cityLandPriceIndex ?? cityLandPriceIndex)
         let facts = [
-            NewspaperMarketFact(id: "gas", label: "ガソリン", value: "\(gasolinePricePerLiter)円/L", direction: trendWord(gasolineMomentum, threshold: 0.35)),
-            NewspaperMarketFact(id: "nikkei", label: "日経平均", value: "\(nikkeiAverageYen.formatted())円", direction: trendWord(nikkeiMomentum, threshold: 300)),
-            NewspaperMarketFact(id: "demand", label: "中古車需要", value: "\(marketDemandPercentage)%", direction: trendWord(demandMomentum, threshold: 0.002)),
-            NewspaperMarketFact(id: "ev", label: "中古EV比率", value: "\(usedMarketEVShare)%", direction: powertrainDemandFactorForNewspaper(.electric))
+            NewspaperMarketFact(
+                id: "nikkei", kind: .nikkei, label: "日経平均",
+                value: "\(nikkeiAverageYen.formatted())円",
+                direction: "前週 \(signedYen(nikkeiChange))",
+                severity: metricSeverity(.nikkei),
+                history: economicHistory.suffix(12).map { NewspaperMetricPoint(turn: $0.turn, value: $0.state.nikkeiAverage) }
+            ),
+            NewspaperMarketFact(
+                id: "gas", kind: .gasoline, label: "ガソリン",
+                value: "\(gasolinePricePerLiter)円/L",
+                direction: "前週 \(signedYen(gasChange))/L",
+                severity: metricSeverity(.gasoline),
+                history: economicHistory.suffix(12).map { NewspaperMetricPoint(turn: $0.turn, value: $0.state.gasolinePrice) }
+            ),
+            NewspaperMarketFact(
+                id: "demand", kind: .usedCarDemand, label: "中古車需要",
+                value: "\(marketDemandPercentage)%",
+                direction: String(format: "前週 %+.1fpt", demandChange * 100),
+                severity: metricSeverity(.usedCarDemand),
+                history: economicHistory.suffix(12).map { NewspaperMetricPoint(turn: $0.turn, value: $0.state.usedCarDemandIndex * 100) }
+            ),
+            NewspaperMarketFact(
+                id: "land", kind: .cityLand, label: "市内地価",
+                value: String(format: "%.1f", cityLandPriceIndex * 100),
+                direction: String(format: "前週 %+.2fpt", landChange * 100),
+                severity: metricSeverity(.cityLand),
+                history: economicHistory.suffix(12).map { NewspaperMetricPoint(turn: $0.turn, value: $0.cityLandPriceIndex * 100) }
+            )
         ]
+        let isBreaking = facts.contains { $0.severity >= .major }
+            || activeEconomicEvents.contains { $0.startedTurn == turn && $0.kind.isMajor }
         return MarketNewspaperIssue(
             id: UUID(), year: year, month: month, week: weekOfMonth, turn: turn,
             leadHeadline: articles.first?.headline ?? "今週の自動車市場",
+            isBreaking: isBreaking,
             articles: articles,
             facts: facts
         )
+    }
+
+    private func metricSeverity(_ kind: EconomicMetricKind) -> EconomicSeverity {
+        guard let current = economicHistory.last else { return .normal }
+        let previous = economicHistory.dropLast().last
+        switch kind {
+        case .nikkei:
+            let prior = previous?.state.nikkeiAverage ?? current.state.nikkeiAverage
+            let rate = abs(current.state.nikkeiAverage - prior) / max(1, prior)
+            if rate >= 0.10 { return .emergency }
+            if rate >= 0.05 { return .major }
+            if rate >= 0.02 { return .notable }
+        case .gasoline:
+            let change = abs(current.state.gasolinePrice - (previous?.state.gasolinePrice ?? current.state.gasolinePrice))
+            if change >= 15 || current.state.gasolinePrice >= 200 { return .emergency }
+            if change >= 8 || current.state.gasolinePrice >= 180 { return .major }
+            if change >= 3 || current.state.gasolinePrice <= 120 { return .notable }
+        case .usedCarDemand:
+            let change = abs(current.state.usedCarDemandIndex - (previous?.state.usedCarDemandIndex ?? current.state.usedCarDemandIndex))
+            if change >= 0.12 { return .emergency }
+            if change >= 0.07 { return .major }
+            if change >= 0.03 { return .notable }
+        case .cityLand:
+            let comparison = economicHistory.dropLast().suffix(4).first?.cityLandPriceIndex
+                ?? previous?.cityLandPriceIndex
+                ?? current.cityLandPriceIndex
+            let rate = abs(current.cityLandPriceIndex - comparison) / max(0.01, comparison)
+            if rate >= 0.06 { return .emergency }
+            if rate >= 0.03 { return .major }
+            if rate >= 0.01 { return .notable }
+        }
+        return .normal
     }
 
     private func powertrainDemandFactorForNewspaper(_ powertrain: VehiclePowertrain) -> String {
@@ -3764,7 +3874,8 @@ final class GameEngine: ObservableObject {
             headline: "\(competitor.name)、\(direction)",
             body: "推定在庫は\(inventoryRange.lowerBound)〜\(inventoryRange.upperBound)台。\(priorities.isEmpty ? competitor.strategy : priorities + "を軸にした品ぞろえ")が特徴です。\(accuracyText) 顧客からは、\(voice)。",
             systemImage: "building.2.fill",
-            isPositive: profit >= 0
+            isPositive: profit >= 0,
+            researchKind: .competitorAnalysis
         )
     }
 
@@ -4708,13 +4819,25 @@ final class GameEngine: ObservableObject {
         guard footprint.count >= newType.requiredGridCells else { return false }
         let existingIDs = Set(stores[index].plotIDs)
         let added = footprint.filter { !existingIDs.contains($0.id) }
-        let expansionCost = landAcquisitionCost(for: added, mode: stores[index].acquisition) + demolitionCost(for: added)
-        let cost = max(600, max(0, newType.buildCost - stores[index].type.buildCost) * 65 / 100) + expansionCost
+        let expansionLandCost = landAcquisitionCost(for: added, mode: stores[index].acquisition)
+        let constructionBase = demolitionCost(for: added)
+            + max(600, max(0, newType.buildCost - stores[index].type.buildCost) * 65 / 100)
+        let cost = expansionLandCost + Int((Double(constructionBase) * economicCostMultipliers.construction).rounded())
         guard cash >= cost else { return false }
         cash -= cost
         finance.investingCF -= cost
         stores[index].pendingType = newType
         stores[index].plotIDs = footprint.map(\.id)
+        if stores[index].acquisition == .lease {
+            stores[index].leaseContracts.append(contentsOf: added.map {
+                PlotLeaseContract(
+                    plotID: $0.id,
+                    monthlyRent: $0.monthlyRent,
+                    nextReviewTurn: turn + 48,
+                    announcedMonthlyRent: nil
+                )
+            })
+        }
         for cell in added {
             guard let plotIndex = plots.firstIndex(where: { $0.id == cell.id }) else { continue }
             plots[plotIndex].occupant = .player(storeID: storeID)
@@ -4850,7 +4973,7 @@ final class GameEngine: ObservableObject {
               regionalOperation(for: cityID) != nil,
               let storeIndex = stores.firstIndex(where: { $0.id == storeID }),
               stores[storeIndex].inventory.filter({ $0.category == category }).reduce(0, { $0 + $1.count }) >= count else { return false }
-        let shippingCost = city.shippingCostPerVehicle * count
+        let shippingCost = Int((Double(city.shippingCostPerVehicle * count) * economicCostMultipliers.logistics).rounded())
         guard cash >= shippingCost else { return false }
         guard let removed = removeInventory(category: category, count: count, from: storeIndex) else { return false }
         let unitCost = removed.averageCost
@@ -5199,7 +5322,7 @@ final class GameEngine: ObservableObject {
         } else {
             gradeCostMultiplier = 1
         }
-        baseCost = max(1, Int((Double(baseCost) * gradeCostMultiplier).rounded()))
+        baseCost = max(1, Int((Double(baseCost) * gradeCostMultiplier * economicCostMultipliers.repair).rounded()))
         let outsourceBaselineCost = Int((Double(baseCost) * partner.costMultiplier).rounded())
         let staffDiscount = outsourced || serviceEmployees.isEmpty
             ? 0
@@ -5436,12 +5559,36 @@ final class GameEngine: ObservableObject {
     }
 
     var borrowingLimit: Int {
-        let base = borrowingLimitBeforeCredit
+        let creditMarketMultiplier = 0.65
+            + (economicState.creditAvailabilityIndex - 0.55) / (1.25 - 0.55) * 0.50
+        let base = Int((Double(borrowingLimitBeforeCredit) * creditMarketMultiplier).rounded())
         switch creditRating {
         case "C": return base * 3 / 4
         case "B": return base * 9 / 10
         default: return base
         }
+    }
+
+    var effectiveAnnualBorrowingRatePercent: Double {
+        let spread: Double = switch creditRating {
+        case "C": 5.0
+        case "B": 3.0
+        default: 1.5
+        }
+        return min(13, economicState.baseInterestRatePercent + spread)
+    }
+
+    var creditMarketConditionLabel: String {
+        switch economicState.creditAvailabilityIndex {
+        case ..<0.82: "信用収縮"
+        case ..<0.95: "融資慎重"
+        case 1.08...: "融資積極"
+        default: "通常"
+        }
+    }
+
+    private var weeklyInterestExpense: Int {
+        max(0, Int((Double(debt) * effectiveAnnualBorrowingRatePercent / 100 / 52).rounded()))
     }
 
     private var borrowingLimitBeforeCredit: Int {
@@ -5473,6 +5620,8 @@ final class GameEngine: ObservableObject {
         var weeklyNegotiations = 0
         var weeklyTradeIns = 0
         var notes: [String] = []
+        updateLeaseContracts(at: turn, notes: &notes)
+        updateAnnualWages(at: turn, notes: &notes)
         procurementWeekActivities = [:]
         beginProcurementWeek()
         beginEmployeeWeek()
@@ -5536,10 +5685,13 @@ final class GameEngine: ObservableObject {
                 notes.append("\(stores[index].name)社員：販売商談と同時に下取り車\(automatic.tradeIns)台を在庫化")
             }
             let staffCost = weeklyPersonnelCost(for: stores[index]) + automatic.commission
-            let combinedRent = stores[index].plotIDs.compactMap { self.plot(id: $0)?.monthlyRent }.reduce(0, +)
+            let combinedRent = stores[index].leaseContracts.reduce(0) { $0 + $1.monthlyRent }
             let storeRent = stores[index].acquisition == .lease ? max(1, combinedRent / 4) : 0
             let weeklyAdvertising = stores[index].advertising / 4
-            let weeklyFixedCost = (stores[index].type.monthlyFixedCost + stores[index].facilityMonthlyCost) / 4
+            let weeklyFixedCost = Int((
+                Double(stores[index].type.monthlyFixedCost + stores[index].facilityMonthlyCost)
+                    * economicCostMultipliers.storeOverhead / 4
+            ).rounded())
             let storeDepreciation = (stores[index].type.buildCost + stores[index].facilityInvestment) / 960
             let storeClaimCosts = claimCostsByStore[stores[index].id] ?? 0
             let storeProfit = storeRevenue - storeCOGS - staffCost - storeRent - weeklyAdvertising - weeklyFixedCost - storeDepreciation - storeClaimCosts
@@ -5572,11 +5724,16 @@ final class GameEngine: ObservableObject {
         revenue += regional.revenue
         revenueToCollect += regional.revenue
         costOfSales += regional.costOfSales
-        personnel += regional.fixedCosts
+        personnel += Int((Double(regional.fixedCosts) * economicCostMultipliers.storeOverhead).rounded())
         ads += regional.advertising
 
-        let fixed = stores.filter(\.isOperational).reduce(0) { $0 + ($1.type.monthlyFixedCost + $1.facilityMonthlyCost) / 4 }
-        let interest = debt / 9_600
+        let fixed = stores.filter(\.isOperational).reduce(0) {
+            $0 + Int((
+                Double($1.type.monthlyFixedCost + $1.facilityMonthlyCost)
+                    * economicCostMultipliers.storeOverhead / 4
+            ).rounded())
+        }
+        let interest = weeklyInterestExpense
         let operatingProfit = revenue - costOfSales - personnel - rent - ads - depreciation - fixed - interest - claimCosts
         var cashChange = revenueToCollect - personnel - rent - ads - fixed - interest - claimCosts
         cash += cashChange
@@ -6243,7 +6400,8 @@ final class GameEngine: ObservableObject {
 
     /// 月額広告0〜500で集客係数0.80〜1.60。広告投資の差が来客へ明確に表れる。
     func advertisingAttractionFactor(_ advertising: Int) -> Double {
-        0.80 + 0.80 * min(1, max(0, Double(advertising) / 500))
+        let effectiveAdvertising = Double(advertising) / economicCostMultipliers.advertising
+        return 0.80 + 0.80 * min(1, max(0, effectiveAdvertising / 500))
     }
 
     func sellerAttractionFactor(for store: Store, category: VehicleCategory, origin: VehicleOrigin? = nil) -> Double {
@@ -6308,6 +6466,103 @@ final class GameEngine: ObservableObject {
         return Double(value) / 10_000.0
     }
 
+    private func makeEconomicEventSchedule() -> [ScheduledEconomicEvent] {
+        let majorKinds: [EconomicEventKind] = [
+            .globalEquityCrash, .housingCreditCrisis, .broadEconomicBoom,
+            .aiInvestmentBoom, .aiValuationCorrection, .geopoliticalOilCrisis
+        ]
+        let mediumKinds: [EconomicEventKind] = [
+            .newCarSupplyShortage, .exportDemandSurge, .monetaryTightening,
+            .monetaryEasing, .logisticsDisruption, .regionalFactoryInvestment
+        ]
+        let majorCount = 3 + Int(transactionRoll(seed: simulationSeed &+ 701_003) * 3)
+        let mediumCount = 8 + Int(transactionRoll(seed: simulationSeed &+ 701_009) * 5)
+        var result: [ScheduledEconomicEvent] = []
+        var majorStarts: [Int] = []
+
+        for index in 0..<majorCount {
+            let slotStart = 24 + index * (432 / majorCount)
+            let slotWidth = max(24, 432 / majorCount)
+            var start = slotStart + Int(transactionRoll(seed: simulationSeed &+ 701_101 + index * 37) * Double(slotWidth))
+            start = min(maxTurns - 24, max(24, start))
+            if let prior = majorStarts.last, start - prior < 48 {
+                start = min(maxTurns - 24, prior + 48)
+            }
+            majorStarts.append(start)
+            let kindIndex = min(
+                majorKinds.count - 1,
+                Int(transactionRoll(seed: simulationSeed &+ 701_201 + index * 41) * Double(majorKinds.count))
+            )
+            let kind = majorKinds[kindIndex]
+            let duration = eventDuration(kind, seed: 701_301 + index * 43)
+            let signalWeeks = eventSignalWeeks(kind, seed: 701_401 + index * 47)
+            result.append(ScheduledEconomicEvent(
+                id: deterministicEmployeeID(seed: simulationSeed &+ 900_000 + index),
+                kind: kind,
+                startTurn: start,
+                durationWeeks: duration,
+                signalStartTurn: max(0, start - signalWeeks),
+                severity: 0.85 + transactionRoll(seed: simulationSeed &+ 701_501 + index * 53) * 0.30
+            ))
+        }
+
+        for index in 0..<mediumCount {
+            let rawStart = 8 + Int(transactionRoll(seed: simulationSeed &+ 702_101 + index * 59) * Double(maxTurns - 16))
+            var start = rawStart
+            while result.contains(where: { $0.startTurn == start }) {
+                start = min(maxTurns - 4, start + 1)
+            }
+            let kindIndex = min(
+                mediumKinds.count - 1,
+                Int(transactionRoll(seed: simulationSeed &+ 702_201 + index * 61) * Double(mediumKinds.count))
+            )
+            let kind = mediumKinds[kindIndex]
+            let duration = eventDuration(kind, seed: 702_301 + index * 67)
+            for _ in 0..<120 where result.contains(where: { existing in
+                let overlaps = start < existing.startTurn + existing.durationWeeks
+                    && existing.startTurn < start + duration
+                return overlaps && economicEventsConflict(kind, existing.kind)
+            }) {
+                let next = min(maxTurns - duration, start + 4)
+                guard next != start else { break }
+                start = next
+            }
+            result.append(ScheduledEconomicEvent(
+                id: deterministicEmployeeID(seed: simulationSeed &+ 910_000 + index),
+                kind: kind,
+                startTurn: start,
+                durationWeeks: duration,
+                signalStartTurn: max(0, start - eventSignalWeeks(kind, seed: 702_401 + index * 71)),
+                severity: 0.70 + transactionRoll(seed: simulationSeed &+ 702_501 + index * 73) * 0.35
+            ))
+        }
+        return result.sorted { $0.startTurn < $1.startTurn }
+    }
+
+    private func economicEventsConflict(_ lhs: EconomicEventKind, _ rhs: EconomicEventKind) -> Bool {
+        let pair = Set([lhs, rhs])
+        return pair == Set([.broadEconomicBoom, .housingCreditCrisis])
+            || pair == Set([.broadEconomicBoom, .globalEquityCrash])
+            || pair == Set([.aiInvestmentBoom, .aiValuationCorrection])
+            || pair == Set([.monetaryTightening, .monetaryEasing])
+    }
+
+    private func eventDuration(_ kind: EconomicEventKind, seed: Int) -> Int {
+        let range = kind.durationWeeks
+        return range.lowerBound + Int(
+            transactionRoll(seed: simulationSeed &+ seed)
+                * Double(range.upperBound - range.lowerBound + 1)
+        )
+    }
+
+    private func eventSignalWeeks(_ kind: EconomicEventKind, seed: Int) -> Int {
+        let range = kind.signalWeeks
+        return range.lowerBound + Int(
+            transactionRoll(seed: simulationSeed &+ seed)
+                * Double(range.upperBound - range.lowerBound + 1)
+        )
+    }
+
     private func weeklyMarketShock(seed: Int) -> Double {
         let roll = transactionRoll(seed: seed)
         if roll < 0.06 { return 0.08 }
@@ -6320,44 +6575,21 @@ final class GameEngine: ObservableObject {
         let previousGasoline = gasolinePrice
         let previousNikkei = nikkeiAverage
         let previousDemand = marketDemandIndex
-
-        refreshMarketTrendTargetsIfNeeded()
-        triggerMarketShockIfNeeded(notes: &notes)
-
-        let gasolineDesiredStep = min(1.8, max(-1.8, (gasolineTrendTarget - gasolinePrice) / 18))
-        gasolineMomentum = gasolineMomentum * 0.84 + gasolineDesiredStep * 0.16
-        let gasolineNoise = (transactionRoll(seed: turn * 227 + 91) - 0.5) * 0.6
-
-        let nikkeiDesiredStep = min(2_500.0, max(-2_500.0, (nikkeiTrendTarget - nikkeiAverage) / 20))
-        nikkeiMomentum = nikkeiMomentum * 0.85 + nikkeiDesiredStep * 0.15
-        let nikkeiNoise = (transactionRoll(seed: turn * 211 + 73) - 0.5) * 120
-
-        let demandDesiredStep = min(0.012, max(-0.012, (demandTrendTarget - marketDemandIndex) / 18))
-        demandMomentum = demandMomentum * 0.86 + demandDesiredStep * 0.14
-        let demandNoise = (transactionRoll(seed: turn * 193 + 47) - 0.5) * 0.0012
-
-        let gasolineShock = activeMarketShocks.reduce(0.0) { $0 + $1.kind.gasolineWeeklyChange }
-        let nikkeiShock = activeMarketShocks.reduce(0.0) { $0 + $1.kind.nikkeiWeeklyChange }
-        let demandShock = activeMarketShocks.reduce(0.0) { $0 + $1.kind.demandWeeklyChange }
-
-        gasolinePrice = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound, gasolinePrice + gasolineMomentum + gasolineNoise + gasolineShock))
-        nikkeiAverage = min(Self.nikkeiRange.upperBound, max(Self.nikkeiRange.lowerBound, nikkeiAverage + nikkeiMomentum + nikkeiNoise + nikkeiShock))
+        let resolvingTurn = turn + 1
+        activateEconomicEvents(at: resolvingTurn, notes: &notes)
+        economicState = nextEconomicState(
+            from: economicState,
+            at: resolvingTurn,
+            activeEvents: activeEconomicEvents
+        )
+        gasolinePrice = economicState.gasolinePrice
+        nikkeiAverage = economicState.nikkeiAverage
+        marketDemandIndex = economicState.usedCarDemandIndex
         let nikkeiReturn = previousNikkei > 0 ? (nikkeiAverage - previousNikkei) / previousNikkei : 0
         classicMarketIndex = min(
             4.0,
             max(0.85, classicMarketIndex * Self.classicMarketChangeFactor(forNikkeiReturn: nikkeiReturn))
         )
-        marketDemandIndex = min(1.35, max(0.65, marketDemandIndex + demandMomentum + demandNoise + demandShock))
-
-        if gasolinePrice == Self.gasolineRange.lowerBound || gasolinePrice == Self.gasolineRange.upperBound { gasolineMomentum *= 0.3 }
-        if nikkeiAverage == Self.nikkeiRange.lowerBound || nikkeiAverage == Self.nikkeiRange.upperBound { nikkeiMomentum *= 0.3 }
-        if marketDemandIndex == 0.65 || marketDemandIndex == 1.35 { demandMomentum *= 0.3 }
-
-        activeMarketShocks = activeMarketShocks.compactMap { shock in
-            var updated = shock
-            updated.remainingWeeks -= 1
-            return updated.remainingWeeks > 0 ? updated : nil
-        }
 
         let gasolineChange = gasolinePrice - previousGasoline
         let nikkeiChange = nikkeiAverage - previousNikkei
@@ -6365,18 +6597,222 @@ final class GameEngine: ObservableObject {
         if abs(gasolineChange) >= 3 {
             notes.append("ガソリン価格が前週から\(signedYen(gasolineChange))/L動き、\(gasolinePricePerLiter)円/Lになりました")
         }
-        if abs(nikkeiChange) >= 2_500 {
+        if abs(nikkeiChange / max(1, previousNikkei)) >= 0.02 {
             notes.append("日経平均が前週から\(signedYen(nikkeiChange))動き、\(nikkeiAverageYen.formatted())円になりました")
         }
         if abs(demandChange) >= 0.03 {
             notes.append("中古車需要は前週比\(String(format: "%+.0f", demandChange * 100))ポイント、現在\(marketDemandPercentage)%です")
         }
 
-        if turn.isMultiple(of: 12), activeMarketShocks.isEmpty {
+        let strongestSeverity = economicSeverity(
+            gasolineChange: gasolineChange,
+            nikkeiChange: nikkeiChange,
+            previousNikkei: previousNikkei,
+            demandChange: demandChange
+        )
+        economicHistory.append(EconomicWeekRecord(
+            turn: resolvingTurn,
+            state: economicState,
+            cityLandPriceIndex: cityLandPriceIndex,
+            strongestSeverity: strongestSeverity,
+            activeEventIDs: activeEconomicEvents.map(\.id)
+        ))
+        economicHistory = Array(economicHistory.suffix(52))
+        activeEconomicEvents = activeEconomicEvents.compactMap { event in
+            var updated = event
+            updated.elapsedWeeks += 1
+            return updated.elapsedWeeks < updated.durationWeeks ? updated : nil
+        }
+
+        if turn.isMultiple(of: 12), activeEconomicEvents.isEmpty {
             let direction = gasolineChange >= 0 ? "上昇" : "下落"
             let detail = "ガソリン\(gasolinePricePerLiter)円/L・日経平均\(nikkeiAverageYen.formatted())円・中古車需要\(marketDemandPercentage)%"
             recordCityEvent(CityEvent(turn: turn + 1, kind: .fuelPrice, title: "市場トレンド：燃料価格が\(direction)", detail: detail, isPositive: gasolinePrice <= Self.gasolineBaseline))
         }
+    }
+
+    private struct EconomicImpact {
+        var realActivity = 0.0
+        var confidence = 0.0
+        var credit = 0.0
+        var costPressure = 0.0
+        var interestRate = 0.0
+        var gasoline = 0.0
+        var nikkei = 0.0
+    }
+
+    private func activateEconomicEvents(at resolvingTurn: Int, notes: inout [String]) {
+        let starting = scheduledEconomicEvents.filter { $0.startTurn == resolvingTurn }
+        for event in starting where !activeEconomicEvents.contains(where: { $0.id == event.id }) {
+            let active = ActiveEconomicEvent(
+                id: event.id,
+                kind: event.kind,
+                startedTurn: resolvingTurn,
+                durationWeeks: event.durationWeeks,
+                elapsedWeeks: 0,
+                severity: event.severity
+            )
+            activeEconomicEvents.append(active)
+            notes.append("経済イベント：\(event.kind.title)")
+            recordCityEvent(CityEvent(
+                turn: resolvingTurn,
+                kind: event.kind.cityEventKind,
+                title: event.kind.title,
+                detail: economicEventDetail(event.kind, durationWeeks: event.durationWeeks),
+                isPositive: event.kind.isPositive
+            ))
+        }
+    }
+
+    private func economicEventDetail(_ kind: EconomicEventKind, durationWeeks: Int) -> String {
+        let effect: String = switch kind {
+        case .globalEquityCrash: "株価と消費者心理が急落します。信用市場へ波及しなければ、実体経済への影響は比較的短期に留まります"
+        case .housingCreditCrisis: "信用収縮が企業活動、家計、自動車需要、地価へ段階的に波及します"
+        case .broadEconomicBoom: "企業活動と家計需要が伸び、遅れて物価、金利、地価、人件費も上向きます"
+        case .aiInvestmentBoom: "株価と法人投資が先行し、工業地・都心部へ強く波及しますが、家計への恩恵は限定的です"
+        case .aiValuationCorrection: "先行して上昇した株価と投資計画が調整され、法人需要が弱まります"
+        case .geopoliticalOilCrisis: "燃料と物流費が上昇し、家計余力と総需要には下押し圧力がかかります"
+        case .newCarSupplyShortage: "若年中古車の供給が減り、中古車価格と需要が上向きます"
+        case .exportDemandSurge: "輸出向け需要が国内の中古車供給を引き締めます"
+        case .monetaryTightening: "金利上昇と信用条件の厳格化が借入と地価を抑えます"
+        case .monetaryEasing: "借入条件が緩み、企業活動と地価を下支えします"
+        case .logisticsDisruption: "陸送費と仕入れ日数が増加し、流通在庫が不足します"
+        case .regionalFactoryInvestment: "法人需要、人口流入、周辺交通量と地価が段階的に上向きます"
+        }
+        return "\(effect)。影響は約\(durationWeeks)週間続く見込みです"
+    }
+
+    private func nextEconomicState(
+        from current: EconomicState,
+        at projectedTurn: Int,
+        activeEvents: [ActiveEconomicEvent]
+    ) -> EconomicState {
+        let regimeWindow = projectedTurn / 32
+        let regimeRoll = transactionRoll(seed: simulationSeed &+ regimeWindow * 810_013)
+        let regime = (regimeRoll - 0.5) * 0.28
+        var impact = EconomicImpact()
+        for event in activeEvents {
+            let eventImpact = economicImpact(for: event)
+            impact.realActivity += eventImpact.realActivity
+            impact.confidence += eventImpact.confidence
+            impact.credit += eventImpact.credit
+            impact.costPressure += eventImpact.costPressure
+            impact.interestRate += eventImpact.interestRate
+            impact.gasoline += eventImpact.gasoline
+            impact.nikkei += eventImpact.nikkei
+        }
+
+        let gasolineTarget = 155 + impact.gasoline + regime * 18
+        let fuelBurdenAtTarget = min(1.5, max(-0.8, (gasolineTarget - 155) / 45))
+        let realTarget = 1 + regime * 0.72 + impact.realActivity - max(0, fuelBurdenAtTarget) * 0.08
+        let confidenceTarget = 1 + regime * 0.85 + impact.confidence - max(0, fuelBurdenAtTarget) * 0.07
+        let creditTarget = 1 + regime * 0.42 + impact.credit
+        let costTarget = 1 + max(0, regime) * 0.22 + impact.costPressure + max(0, fuelBurdenAtTarget) * 0.13
+        let rateTarget = 1 + max(0, costTarget - 1) * 9 + impact.interestRate
+        let nikkeiTarget = 60_000 + regime * 105_000 + impact.nikkei
+
+        var next = current
+        next.realActivityIndex += (realTarget - current.realActivityIndex) * 0.08
+        next.consumerConfidenceIndex += (confidenceTarget - current.consumerConfidenceIndex) * 0.25
+        next.creditAvailabilityIndex += (creditTarget - current.creditAvailabilityIndex) * 0.15
+        next.costPressureIndex += (costTarget - current.costPressureIndex) * 0.10
+        next.baseInterestRatePercent += (rateTarget - current.baseInterestRatePercent) * 0.15
+        next.gasolinePrice += (gasolineTarget - current.gasolinePrice) * 0.35
+        next.nikkeiAverage += (nikkeiTarget - current.nikkeiAverage) * 0.40
+
+        if activeEvents.contains(where: { $0.kind == .globalEquityCrash && $0.elapsedWeeks == 0 }) {
+            next.nikkeiAverage *= 0.84
+        }
+        let fuelBurden = min(1.5, max(-0.8, (next.gasolinePrice - 155) / 45))
+        let householdPower = min(1.35, max(0.65,
+            1
+                + (next.realActivityIndex - 1) * 0.45
+                + (next.consumerConfidenceIndex - 1) * 0.25
+                - (next.costPressureIndex - 1) * 0.25
+                - fuelBurden * 0.15
+        ))
+        let demandTarget = min(1.45, max(0.60,
+            1
+                + (next.realActivityIndex - 1) * 0.35
+                + (next.consumerConfidenceIndex - 1) * 0.30
+                + (householdPower - 1) * 0.20
+                + (next.creditAvailabilityIndex - 1) * 0.15
+        ))
+        next.usedCarDemandIndex += (demandTarget - current.usedCarDemandIndex) * 0.20
+
+        let commonNoise = (transactionRoll(seed: simulationSeed &+ projectedTurn * 810_019) - 0.5)
+        next.nikkeiAverage += commonNoise * 180
+        next.gasolinePrice += commonNoise * 0.45
+        next.consumerConfidenceIndex += commonNoise * 0.0015
+        next.clampToGameplayRanges()
+        return next
+    }
+
+    private func economicImpact(for event: ActiveEconomicEvent) -> EconomicImpact {
+        let severity = event.severity
+        let progress = Double(event.elapsedWeeks) / Double(max(1, event.durationWeeks))
+        let phaseStrength = progress < 0.35 ? 1.0 : progress < 0.75 ? 0.72 : 0.35
+        let strength = severity * phaseStrength
+        return switch event.kind {
+        case .globalEquityCrash:
+            EconomicImpact(realActivity: -0.03 * strength, confidence: -0.14 * strength, credit: -0.06 * strength, nikkei: -12_000 * strength)
+        case .housingCreditCrisis:
+            EconomicImpact(realActivity: -0.24 * strength, confidence: -0.25 * strength, credit: -0.40 * strength, costPressure: -0.04 * strength, interestRate: -0.4 * strength, nikkei: -28_000 * strength)
+        case .broadEconomicBoom:
+            EconomicImpact(realActivity: 0.18 * strength, confidence: 0.18 * strength, credit: 0.14 * strength, costPressure: 0.10 * strength, interestRate: 0.8 * strength, gasoline: 8 * strength, nikkei: 24_000 * strength)
+        case .aiInvestmentBoom:
+            EconomicImpact(realActivity: 0.07 * strength, confidence: 0.05 * strength, credit: 0.08 * strength, costPressure: 0.05 * strength, gasoline: 4 * strength, nikkei: 22_000 * strength)
+        case .aiValuationCorrection:
+            EconomicImpact(realActivity: -0.05 * strength, confidence: -0.10 * strength, credit: -0.07 * strength, nikkei: -16_000 * strength)
+        case .geopoliticalOilCrisis:
+            EconomicImpact(realActivity: -0.10 * strength, confidence: -0.10 * strength, credit: -0.03 * strength, costPressure: 0.24 * strength, interestRate: 0.5 * strength, gasoline: 55 * strength, nikkei: -6_000 * strength)
+        case .newCarSupplyShortage:
+            EconomicImpact(confidence: -0.02 * strength, costPressure: 0.08 * strength, nikkei: -1_000 * strength)
+        case .exportDemandSurge:
+            EconomicImpact(realActivity: 0.06 * strength, confidence: 0.03 * strength, costPressure: 0.05 * strength, gasoline: 5 * strength, nikkei: 5_000 * strength)
+        case .monetaryTightening:
+            EconomicImpact(realActivity: -0.05 * strength, confidence: -0.04 * strength, credit: -0.14 * strength, costPressure: -0.03 * strength, interestRate: 2.2 * strength, nikkei: -5_000 * strength)
+        case .monetaryEasing:
+            EconomicImpact(realActivity: 0.04 * strength, confidence: 0.04 * strength, credit: 0.14 * strength, interestRate: -1.0 * strength, nikkei: 4_000 * strength)
+        case .logisticsDisruption:
+            EconomicImpact(realActivity: -0.03 * strength, confidence: -0.02 * strength, costPressure: 0.12 * strength, gasoline: 8 * strength, nikkei: -2_000 * strength)
+        case .regionalFactoryInvestment:
+            EconomicImpact(realActivity: 0.05 * strength, confidence: 0.03 * strength, credit: 0.03 * strength, costPressure: 0.03 * strength, nikkei: 3_000 * strength)
+        }
+    }
+
+    var cityLandPriceIndex: Double {
+        let baselinePlots = Self.makePlots()
+        let baseline = Double(baselinePlots.reduce(0) { $0 + $1.price })
+        let current = Double(plots.reduce(0) { $0 + $1.price })
+        return baseline > 0 ? current / baseline : 1
+    }
+
+    var economicCostMultipliers: EconomicCostMultipliers {
+        let cost = economicState.costPressureIndex
+        let energy = min(1.40, max(0.75, 0.35 + 0.65 * economicState.gasolinePrice / 155))
+        let wage = 1 + max(0, economicState.realActivityIndex - 1) * 0.45 + max(0, cost - 1) * 0.35
+        return EconomicCostMultipliers(
+            logistics: cost * 0.35 + energy * 0.65,
+            storeOverhead: cost * 0.55 + energy * 0.30 + wage * 0.15,
+            repair: cost * 0.55 + wage * 0.25 + energy * 0.20,
+            construction: cost * 0.55 + wage * 0.45,
+            advertising: cost,
+            auctionFee: cost * 0.80 + wage * 0.20
+        )
+    }
+
+    private func economicSeverity(
+        gasolineChange: Double,
+        nikkeiChange: Double,
+        previousNikkei: Double,
+        demandChange: Double
+    ) -> EconomicSeverity {
+        let stockRate = abs(nikkeiChange) / max(1, previousNikkei)
+        if stockRate >= 0.10 || abs(gasolineChange) >= 15 || abs(demandChange) >= 0.12 { return .emergency }
+        if stockRate >= 0.05 || abs(gasolineChange) >= 8 || abs(demandChange) >= 0.07 { return .major }
+        if stockRate >= 0.02 || abs(gasolineChange) >= 3 || abs(demandChange) >= 0.03 { return .notable }
+        return .normal
     }
 
     static func classicMarketChangeFactor(forNikkeiReturn change: Double) -> Double {
@@ -6539,18 +6975,6 @@ final class GameEngine: ObservableObject {
         return choices[index]
     }
 
-    private func refreshMarketTrendTargetsIfNeeded() {
-        if turn.isMultiple(of: 16) {
-            gasolineTrendTarget = Self.gasolineRange.lowerBound
-                + transactionRoll(seed: turn * 271 + 113) * (Self.gasolineRange.upperBound - Self.gasolineRange.lowerBound)
-            demandTrendTarget = 0.78 + transactionRoll(seed: turn * 313 + 157) * 0.44
-        }
-        if turn.isMultiple(of: 20) {
-            nikkeiTrendTarget = Self.nikkeiRange.lowerBound
-                + transactionRoll(seed: turn * 307 + 139) * (Self.nikkeiRange.upperBound - Self.nikkeiRange.lowerBound)
-        }
-    }
-
     private struct ProjectedMarketState {
         let gasoline: Double
         let nikkei: Double
@@ -6558,81 +6982,31 @@ final class GameEngine: ObservableObject {
     }
 
     private func projectedMarketState(weeks: Int) -> ProjectedMarketState {
-        var projectedGasoline = gasolinePrice
-        var projectedNikkei = nikkeiAverage
-        var projectedDemand = marketDemandIndex
-        var gasTarget = gasolineTrendTarget
-        var stockTarget = nikkeiTrendTarget
-        var demandTarget = demandTrendTarget
-        var gasMomentum = gasolineMomentum
-        var stockMomentum = nikkeiMomentum
-        var projectedDemandMomentum = demandMomentum
-        var shocks = activeMarketShocks
-
-        for offset in 0..<max(1, weeks) {
+        var state = economicState
+        var events = activeEconomicEvents
+        for offset in 1...max(1, weeks) {
             let projectedTurn = turn + offset
-            if projectedTurn.isMultiple(of: 16) {
-                gasTarget = Self.gasolineRange.lowerBound
-                    + transactionRoll(seed: projectedTurn * 271 + 113) * (Self.gasolineRange.upperBound - Self.gasolineRange.lowerBound)
-                demandTarget = 0.78 + transactionRoll(seed: projectedTurn * 313 + 157) * 0.44
+            for scheduled in scheduledEconomicEvents where scheduled.startTurn == projectedTurn {
+                events.append(ActiveEconomicEvent(
+                    id: scheduled.id, kind: scheduled.kind, startedTurn: projectedTurn,
+                    durationWeeks: scheduled.durationWeeks, elapsedWeeks: 0, severity: scheduled.severity
+                ))
             }
-            if projectedTurn.isMultiple(of: 20) {
-                stockTarget = Self.nikkeiRange.lowerBound
-                    + transactionRoll(seed: projectedTurn * 307 + 139) * (Self.nikkeiRange.upperBound - Self.nikkeiRange.lowerBound)
-            }
-            if shocks.count < 2,
-               let kind = scheduledMarketShockKind(at: projectedTurn),
-               !shocks.contains(where: { $0.kind == kind }) {
-                shocks.append(ActiveMarketShock(kind: kind))
-            }
-
-            let gasolineDesiredStep = min(1.8, max(-1.8, (gasTarget - projectedGasoline) / 18))
-            gasMomentum = gasMomentum * 0.84 + gasolineDesiredStep * 0.16
-            let gasolineNoise = (transactionRoll(seed: projectedTurn * 227 + 91) - 0.5) * 0.6
-            let nikkeiDesiredStep = min(2_500.0, max(-2_500.0, (stockTarget - projectedNikkei) / 20))
-            stockMomentum = stockMomentum * 0.85 + nikkeiDesiredStep * 0.15
-            let nikkeiNoise = (transactionRoll(seed: projectedTurn * 211 + 73) - 0.5) * 120
-            let demandDesiredStep = min(0.012, max(-0.012, (demandTarget - projectedDemand) / 18))
-            projectedDemandMomentum = projectedDemandMomentum * 0.86 + demandDesiredStep * 0.14
-            let demandNoise = (transactionRoll(seed: projectedTurn * 193 + 47) - 0.5) * 0.0012
-
-            projectedGasoline = min(Self.gasolineRange.upperBound, max(Self.gasolineRange.lowerBound,
-                projectedGasoline + gasMomentum + gasolineNoise + shocks.reduce(0) { $0 + $1.kind.gasolineWeeklyChange }))
-            projectedNikkei = min(Self.nikkeiRange.upperBound, max(Self.nikkeiRange.lowerBound,
-                projectedNikkei + stockMomentum + nikkeiNoise + shocks.reduce(0) { $0 + $1.kind.nikkeiWeeklyChange }))
-            projectedDemand = min(1.35, max(0.65,
-                projectedDemand + projectedDemandMomentum + demandNoise + shocks.reduce(0) { $0 + $1.kind.demandWeeklyChange }))
-            shocks = shocks.compactMap { shock in
-                var updated = shock
-                updated.remainingWeeks -= 1
-                return updated.remainingWeeks > 0 ? updated : nil
+            state = nextEconomicState(from: state, at: projectedTurn, activeEvents: events)
+            events = events.compactMap { event in
+                var updated = event
+                updated.elapsedWeeks += 1
+                return updated.elapsedWeeks < updated.durationWeeks ? updated : nil
             }
         }
-        return ProjectedMarketState(gasoline: projectedGasoline, nikkei: projectedNikkei, demand: projectedDemand)
+        return ProjectedMarketState(gasoline: state.gasolinePrice, nikkei: state.nikkeiAverage, demand: state.usedCarDemandIndex)
     }
 
-    private func upcomingMarketShock(within weeks: Int) -> MarketShockKind? {
-        for offset in 0..<max(1, weeks) {
-            if let kind = scheduledMarketShockKind(at: turn + offset),
-               !activeMarketShocks.contains(where: { $0.kind == kind }) {
-                return kind
-            }
-        }
-        return nil
-    }
-
-    private func scheduledMarketShockKind(at projectedTurn: Int) -> MarketShockKind? {
-        guard projectedTurn >= 4 else { return nil }
-        let eventRoll = transactionRoll(seed: projectedTurn * 359 + 181)
-        if eventRoll < 0.010 {
-            let fuelEvents: [MarketShockKind] = [.war, .oilDemandSurge, .oilProductionHalt]
-            let selection = Int(transactionRoll(seed: projectedTurn * 367 + 191) * Double(fuelEvents.count))
-            return fuelEvents[min(fuelEvents.count - 1, selection)]
-        }
-        if eventRoll > 0.993 {
-            return transactionRoll(seed: projectedTurn * 373 + 197) < 0.55 ? .economicBoom : .financialCrisis
-        }
-        return nil
+    private func upcomingEconomicEvent(within weeks: Int) -> EconomicEventKind? {
+        scheduledEconomicEvents
+            .filter { $0.startTurn > turn && $0.startTurn <= turn + max(1, weeks) }
+            .min(by: { $0.startTurn < $1.startTurn })?
+            .kind
     }
 
     private func trendWord(_ difference: Double, threshold: Double) -> String {
@@ -6660,17 +7034,6 @@ final class GameEngine: ObservableObject {
         case .diesel: fuelEffect = -fuelChange * 0.05
         }
         return min(1.18, max(0.82, 1 + demandEffect + economyEffect + fuelEffect))
-    }
-
-    private func triggerMarketShockIfNeeded(notes: inout [String]) {
-        guard turn >= 4, activeMarketShocks.count < 2 else { return }
-        let kind = scheduledMarketShockKind(at: turn)
-        guard let kind, !activeMarketShocks.contains(where: { $0.kind == kind }) else { return }
-
-        activeMarketShocks.append(ActiveMarketShock(kind: kind))
-        let detail = "\(kind.detail)。影響は約\(kind.durationWeeks)週間続く見込みです"
-        notes.append("市場イベント：\(kind.title)")
-        recordCityEvent(CityEvent(turn: turn + 1, kind: kind.eventKind, title: kind.title, detail: detail, isPositive: kind.isPositive))
     }
 
     private func signedYen(_ value: Double) -> String {
@@ -7396,15 +7759,79 @@ final class GameEngine: ObservableObject {
         var largestChange: (plot: LandPlot, rate: Double)?
         for index in plots.indices {
             let d = district(for: plots[index])
-            let weeklyGrowth = (d.growthRate - 1.0) / 52 + (deterministicVariation(seed: turn + plots[index].id) - 1) / 650
+            let rateGap = (economicState.baseInterestRatePercent - 1) / 7
+            let localTraffic = (d.trafficIndex - 1) * 0.025
+            let occupiedShare = Double(plots.filter { $0.district == d.kind && !isAvailable($0.occupant) }.count)
+                / Double(max(1, plots.filter { $0.district == d.kind }.count))
+            let scarcity = (occupiedShare - 0.55) * 0.035
+            var eventAnnualImpact = 0.0
+            for event in activeEconomicEvents {
+                let strength = event.severity * (event.phase == .recovery ? 0.35 : 1)
+                switch event.kind {
+                case .housingCreditCrisis: eventAnnualImpact -= 0.18 * strength
+                case .broadEconomicBoom: eventAnnualImpact += 0.12 * strength
+                case .aiInvestmentBoom where [.downtown, .industrial, .emerging].contains(d.kind):
+                    eventAnnualImpact += 0.10 * strength
+                case .regionalFactoryInvestment where [.industrial, .emerging, .highway].contains(d.kind):
+                    eventAnnualImpact += 0.14 * strength
+                case .monetaryTightening: eventAnnualImpact -= 0.05 * strength
+                case .monetaryEasing: eventAnnualImpact += 0.04 * strength
+                default: break
+                }
+            }
+            let annualTarget = (d.growthRate - 1.0)
+                + (economicState.realActivityIndex - 1) * 0.20
+                + (economicState.creditAvailabilityIndex - 1) * 0.12
+                - rateGap * 0.06
+                + localTraffic
+                + scarcity
+                + eventAnnualImpact
+            let desiredWeeklyGrowth = annualTarget / 52
+            let noise = (deterministicVariation(seed: turn + plots[index].id) - 1) / 1_300
+            let rawGrowth = plots[index].lastPriceChange * 0.92 + desiredWeeklyGrowth * 0.08 + noise
+            let crisisLimit = activeEconomicEvents.contains {
+                $0.kind == .housingCreditCrisis && [.onset, .acute].contains($0.phase)
+            } ? 0.025 : 0.010
+            let weeklyGrowth = min(crisisLimit, max(-crisisLimit, rawGrowth))
             plots[index].lastPriceChange = weeklyGrowth
             plots[index].price = max(1_200, Int(Double(plots[index].price) * (1 + weeklyGrowth)))
-            plots[index].monthlyRent = max(8, Int(Double(plots[index].monthlyRent) * (1 + weeklyGrowth * 0.35)))
+            let rentGrowth = weeklyGrowth * 0.35 + (economicState.costPressureIndex - 1) / 52 * 0.12
+            plots[index].monthlyRent = max(8, Int(Double(plots[index].monthlyRent) * (1 + rentGrowth)))
             if abs(weeklyGrowth) > abs(largestChange?.rate ?? 0) { largestChange = (plots[index], weeklyGrowth) }
         }
         if let change = largestChange, abs(change.rate) >= 0.002 {
             let direction = change.rate >= 0 ? "上昇" : "下落"
             recordCityEvent(CityEvent(turn: turn + 1, kind: .landPrice, title: "地価が\(direction)", detail: "\(change.plot.district.shortName)地区で前週比\(String(format: "%+.1f", change.rate * 100))%", district: change.plot.district, plotID: change.plot.id, isPositive: change.rate >= 0))
+        }
+        if let lastIndex = economicHistory.indices.last {
+            economicHistory[lastIndex].cityLandPriceIndex = cityLandPriceIndex
+        }
+    }
+
+    private func updateLeaseContracts(at currentTurn: Int, notes: inout [String]) {
+        for storeIndex in stores.indices where stores[storeIndex].acquisition == .lease {
+            for contractIndex in stores[storeIndex].leaseContracts.indices {
+                if stores[storeIndex].leaseContracts[contractIndex].nextReviewTurn == currentTurn + 4,
+                   let marketRent = plot(id: stores[storeIndex].leaseContracts[contractIndex].plotID)?.monthlyRent {
+                    stores[storeIndex].leaseContracts[contractIndex].announcedMonthlyRent = marketRent
+                    let currentRent = stores[storeIndex].leaseContracts[contractIndex].monthlyRent
+                    let difference = marketRent - currentRent
+                    notes.append(
+                        "賃料改定予告：\(stores[storeIndex].name)の月額賃料が4週後に"
+                            + "\(currentRent.currency)から\(marketRent.currency)へ"
+                            + (difference >= 0 ? "上がる見込みです" : "下がる見込みです")
+                    )
+                }
+                guard stores[storeIndex].leaseContracts[contractIndex].nextReviewTurn <= currentTurn else { continue }
+                let contract = stores[storeIndex].leaseContracts[contractIndex]
+                let renewedRent = contract.announcedMonthlyRent
+                    ?? plot(id: contract.plotID)?.monthlyRent
+                    ?? contract.monthlyRent
+                stores[storeIndex].leaseContracts[contractIndex].monthlyRent = renewedRent
+                stores[storeIndex].leaseContracts[contractIndex].nextReviewTurn = currentTurn + 48
+                stores[storeIndex].leaseContracts[contractIndex].announcedMonthlyRent = nil
+                notes.append("賃料契約更新：\(stores[storeIndex].name)の月額賃料を\(renewedRent.currency)へ改定しました")
+            }
         }
     }
 
@@ -9209,6 +9636,33 @@ final class GameEngine: ObservableObject {
             .max { $0.completedTurn < $1.completedTurn }
     }
 
+    func companyResearchReport(
+        kind: ResearchWorkKind,
+        targetName: String? = nil
+    ) -> ResearchReportRecord? {
+        stores.flatMap(\.researchReports)
+            .filter {
+                $0.kind == kind && $0.targetName == targetName
+                    && $0.completedTurn <= turn && $0.expiresTurn >= turn
+            }
+            .max {
+                $0.accuracyPercent == $1.accuracyPercent
+                    ? $0.completedTurn < $1.completedTurn
+                    : $0.accuracyPercent < $1.accuracyPercent
+            }
+    }
+
+    func researchCapableStores() -> [Store] {
+        stores.filter { $0.employees.contains(where: { $0.assignment == .research }) }
+            .sorted {
+                let lhsQueue = $0.researchWorkOrders.reduce(0) { $0 + $1.remainingEffort }
+                let rhsQueue = $1.researchWorkOrders.reduce(0) { $0 + $1.remainingEffort }
+                return lhsQueue == rhsQueue
+                    ? marketResearchScore(for: $0.id) > marketResearchScore(for: $1.id)
+                    : lhsQueue < rhsQueue
+            }
+    }
+
     private func researchSummary(
         kind: ResearchWorkKind,
         targetName: String?,
@@ -9217,17 +9671,19 @@ final class GameEngine: ObservableObject {
         switch kind {
         case .storeAnalysis:
             guard let store = stores.first(where: { $0.id == storeID }) else { return "店舗データを取得できませんでした" }
-            if store.inventoryCount > store.type.capacity * 7 / 10 { return "在庫過多。長期在庫の値下げと仕入抑制を推奨" }
-            if store.lastProfit < 0 { return "営業赤字。粗利、広告費、固定費の順に見直しを推奨" }
-            return "在庫・粗利・来店対応は概ね均衡"
+            if store.inventoryCount > store.type.capacity * 7 / 10 { return "在庫使用率が70%を超え、在庫資金への感応度が高い状態" }
+            if store.lastProfit < 0 { return "直近営業損益は赤字。粗利、広告費、固定費の寄与を分解" }
+            return "在庫・粗利・来店対応は概ね均衡した状態"
         case .marketCauseAnalysis:
             return "燃料・景気・地域需要の変化が現在の相場へ与える影響を整理"
         case .competitorAnalysis:
             return "\(targetName ?? "指定競合")の在庫、仕入経路、価格方針を分析"
         case .eventForecast:
             let horizon = marketResearchScore(for: storeID) >= 70 ? 3 : 2
-            if let event = upcomingMarketShock(within: horizon) {
-                return "\(horizon)週以内：\(event.title)の発生可能性を検出"
+            if let event = scheduledEconomicEvents.first(where: {
+                $0.signalStartTurn <= turn && $0.startTurn > turn && $0.startTurn <= turn + horizon
+            }) {
+                return "\(horizon)週以内：\(event.kind.title)の発生可能性を検出"
             }
             return "\(horizon)週先まで大型イベントの兆候なし"
         case .segmentSurvey:
@@ -9237,12 +9693,122 @@ final class GameEngine: ObservableObject {
         }
     }
 
+    private func researchPayload(
+        kind: ResearchWorkKind,
+        targetName: String?,
+        storeID: UUID,
+        accuracy: Int
+    ) -> ResearchReportPayload {
+        let uncertainty = max(2, (100 - accuracy) / 3)
+        switch kind {
+        case .storeAnalysis:
+            guard let store = stores.first(where: { $0.id == storeID }) else {
+                return .storeExposure(lines: ["店舗データを取得できませんでした"])
+            }
+            let debtExposure = Int((effectiveAnnualBorrowingRatePercent * Double(debt) / 100).rounded())
+            let rent = store.leaseContracts.reduce(0) { $0 + $1.monthlyRent }
+            return .storeExposure(lines: [
+                "実体景気感応度：\(store.marketPolicy.priorityCategories.contains(where: { [.sedan, .suv, .sports].contains($0) }) ? "高い" : "中程度")",
+                "現在の年換算金利負担：約\(debtExposure.currency)",
+                "契約賃料：\(rent.currency)/月・次回更新まで\(store.leaseContracts.map { max(0, $0.nextReviewTurn - turn) }.min() ?? 0)週",
+                String(format: "店舗費指数 %.0f%%", economicCostMultipliers.storeOverhead * 100)
+            ])
+        case .marketCauseAnalysis:
+            var findings = activeEconomicEvents.prefix(3).map { event in
+                ResearchDriverFinding(
+                    name: event.kind.title,
+                    direction: event.kind.isPositive ? "押し上げ" : "押し下げ",
+                    contributionRange: max(1, Int(event.severity * 8) - uncertainty)...Int(event.severity * 8) + uncertainty
+                )
+            }
+            if findings.isEmpty {
+                let regimeDirection = economicState.realActivityIndex >= 1 ? "押し上げ" : "押し下げ"
+                findings = [ResearchDriverFinding(
+                    name: "基調的な景気循環",
+                    direction: regimeDirection,
+                    contributionRange: max(1, Int(abs(economicState.realActivityIndex - 1) * 100) - uncertainty)...max(2, Int(abs(economicState.realActivityIndex - 1) * 100) + uncertainty)
+                )]
+            }
+            if abs(economicState.gasolinePrice - 155) >= 20, findings.count < 3 {
+                findings.append(ResearchDriverFinding(
+                    name: "燃料負担",
+                    direction: economicState.gasolinePrice > 155 ? "押し下げ" : "押し上げ",
+                    contributionRange: max(1, Int(abs(economicState.gasolinePrice - 155) / 5) - uncertainty)...Int(abs(economicState.gasolinePrice - 155) / 5) + uncertainty
+                ))
+            }
+            return .marketCauses(Array(findings.prefix(3)))
+        case .competitorAnalysis:
+            return .competitor(lines: [
+                "対象：\(targetName ?? "指定競合")",
+                String(format: "需要環境 %.0f%%・信用環境 %.0f%%", marketDemandIndex * 100, economicState.creditAvailabilityIndex * 100)
+            ])
+        case .eventForecast:
+            let signals = scheduledEconomicEvents.filter {
+                $0.signalStartTurn <= turn && $0.startTurn > turn && $0.startTurn <= turn + 10
+            }.prefix(2)
+            let findings = signals.map { event -> ResearchForecastFinding in
+                let timingError = max(1, uncertainty / 4)
+                let probabilityCenter = min(95, max(40, accuracy - max(0, event.startTurn - turn) * 3))
+                return ResearchForecastFinding(
+                    eventName: event.kind.title,
+                    startTurnRange: max(turn + 1, event.startTurn - timingError)...event.startTurn + timingError,
+                    probabilityRange: max(20, probabilityCenter - uncertainty)...min(98, probabilityCenter + uncertainty),
+                    affectedIndicators: forecastAffectedIndicators(event.kind)
+                )
+            }
+            return .eventForecast(Array(findings))
+        case .segmentSurvey:
+            let subject = targetName ?? "市内中古車市場"
+            let demand = Int((marketDemandIndex * 100).rounded())
+            let price = Int(((economicState.costPressureIndex - 1) * 35 + (marketDemandIndex - 1) * 25).rounded())
+            let supply = Int(((economicState.realActivityIndex - 1) * 20 - (marketDemandIndex - 1) * 15).rounded())
+            return .segmentSurvey([ResearchSegmentFinding(
+                subject: subject,
+                demandRange: max(40, demand - uncertainty)...min(160, demand + uncertainty),
+                priceChangeRange: price - uncertainty...price + uncertainty,
+                supplyChangeRange: supply - uncertainty...supply + uncertainty
+            )])
+        case .advertisingAnalysis:
+            return .advertising(lines: [
+                String(format: "広告費指数 %.0f%%", economicCostMultipliers.advertising * 100),
+                String(format: "同額予算の実効到達率 %.0f%%", 100 / economicCostMultipliers.advertising)
+            ])
+        }
+    }
+
+    private func forecastAffectedIndicators(_ kind: EconomicEventKind) -> [String] {
+        switch kind {
+        case .geopoliticalOilCrisis, .logisticsDisruption: ["ガソリン", "費用", "中古車需要"]
+        case .housingCreditCrisis, .monetaryTightening, .monetaryEasing: ["信用", "金利", "地価", "中古車需要"]
+        case .newCarSupplyShortage, .exportDemandSurge: ["中古車需要", "供給", "相場"]
+        case .regionalFactoryInvestment: ["法人需要", "地域地価"]
+        default: ["日経平均", "実体景気", "中古車需要"]
+        }
+    }
+
     private func progressAutomaticMarketing(for storeIndex: Int) {
         guard stores.indices.contains(storeIndex), stores[storeIndex].researchControlMode == .employee else { return }
         let researchers = stores[storeIndex].employees.indices
             .filter { stores[storeIndex].employees[$0].assignment == .research }
             .sorted { stores[storeIndex].employees[$0].researchSkill > stores[storeIndex].employees[$1].researchSkill }
         guard !researchers.isEmpty else { return }
+
+        if let event = activeEconomicEvents.first(where: { $0.kind.isMajor }),
+           !stores[storeIndex].researchWorkOrders.contains(where: {
+               $0.kind == .marketCauseAnalysis && $0.targetName == event.kind.title
+           }),
+           currentResearchReport(
+               storeID: stores[storeIndex].id,
+               kind: .marketCauseAnalysis,
+               targetName: event.kind.title
+           ) == nil {
+            stores[storeIndex].researchWorkOrders.append(ResearchWorkOrder(
+                kind: .marketCauseAnalysis,
+                targetName: event.kind.title,
+                priority: 60,
+                createdTurn: turn
+            ))
+        }
 
         let defaults: [(ResearchWorkKind, Int)] = [
             (.eventForecast, 30),
@@ -9293,7 +9859,13 @@ final class GameEngine: ObservableObject {
                     completedTurn: turn + 1,
                     expiresTurn: turn + order.kind.validityWeeks,
                     accuracyPercent: accuracy,
-                    summary: researchSummary(kind: order.kind, targetName: order.targetName, storeID: stores[storeIndex].id)
+                    summary: researchSummary(kind: order.kind, targetName: order.targetName, storeID: stores[storeIndex].id),
+                    payload: researchPayload(
+                        kind: order.kind,
+                        targetName: order.targetName,
+                        storeID: stores[storeIndex].id,
+                        accuracy: accuracy
+                    )
                 ))
                 stores[storeIndex].employees[employeeIndex].currentWeekPerformance.handled += 1
                 awardEmployeeExperience(employeeID: stores[storeIndex].employees[employeeIndex].id, storeIndex: storeIndex, focus: .research, successful: true)
@@ -10791,7 +11363,7 @@ final class GameEngine: ObservableObject {
     private func save() {
         refreshGuideProgress()
         guard persistenceEnabled else { return }
-        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, customerCustomizationOrders: customerCustomizationOrders, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, networkAuctionListings: networkAuctionListings, networkAuctionBidReservations: networkAuctionBidReservations, networkAuctionBidResults: networkAuctionBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, classicMarketIndex: classicMarketIndex, marketDemandIndex: marketDemandIndex, gasolineTrendTarget: gasolineTrendTarget, nikkeiTrendTarget: nikkeiTrendTarget, demandTrendTarget: demandTrendTarget, gasolineMomentum: gasolineMomentum, nikkeiMomentum: nikkeiMomentum, demandMomentum: demandMomentum, activeMarketShocks: activeMarketShocks, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, marketSignals: marketSignals, newspaperIssues: newspaperIssues, pendingVehicleTransactions: pendingVehicleTransactions, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide, ownerWorkEffortUsed: ownerWorkEffortUsed)
+        var snapshot = SaveData(year: year, month: month, weekOfMonth: weekOfMonth, turn: turn, cash: cash, debt: debt, companyValue: companyValue, districts: districts, plots: plots, stores: stores, competitors: competitors, reports: reports, monthlyReports: monthlyReports, purchaseCases: purchaseCases, customerCustomizationOrders: customerCustomizationOrders, buyerLeads: buyerLeads, cityEvents: cityEvents, auctionListings: auctionListings, bidReservations: bidReservations, auctionBidResults: auctionBidResults, networkAuctionListings: networkAuctionListings, networkAuctionBidReservations: networkAuctionBidReservations, networkAuctionBidResults: networkAuctionBidResults, procurementInstructions: procurementInstructions, competitorAuctionPurchases: competitorAuctionPurchases, inboundShipments: inboundShipments, auctionConsignments: auctionConsignments, pendingCustomerClaims: pendingCustomerClaims, finance: finance, unlockedFeatures: unlockedFeatures, regionalOperations: regionalOperations, intercityShipments: intercityShipments, nationalBrandStrength: nationalBrandStrength, gasolinePrice: gasolinePrice, nikkeiAverage: nikkeiAverage, classicMarketIndex: classicMarketIndex, marketDemandIndex: marketDemandIndex, economicState: economicState, economicHistory: economicHistory, scheduledEconomicEvents: scheduledEconomicEvents, activeEconomicEvents: activeEconomicEvents, careerStatistics: careerStatistics, priceWarChallenges: priceWarChallenges, tutorialStep: tutorialStep, tutorialPlotID: tutorialPlotID, financialDistressWeeks: financialDistressWeeks, companyExpertise: companyExpertise, corporateOpportunities: corporateOpportunities, segmentMarkets: segmentMarkets, segmentTrends: segmentTrends, marketSignals: marketSignals, newspaperIssues: newspaperIssues, pendingVehicleTransactions: pendingVehicleTransactions, simulationSeed: simulationSeed, openSegmentWeek: openSegmentWeek, guide: guide, ownerWorkEffortUsed: ownerWorkEffortUsed)
         snapshot.mapID = CityMapDefinition.suihama.id
         if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: Self.saveKey)
@@ -11695,9 +12267,24 @@ final class GameEngine: ObservableObject {
             let demand = district.demands[category] ?? 0.42
             let economyMultiplier: Double
             switch category {
-            case .sedan, .suv, .sports: economyMultiplier = 0.72 + economicIndex * 0.28
-            case .kei, .compact: economyMultiplier = 1.20 - (economicIndex - 0.8) * 0.22
-            default: economyMultiplier = 0.88 + economicIndex * 0.12
+            case .sedan, .suv, .sports:
+                economyMultiplier = min(1.35, max(0.65,
+                    1 + (householdPurchasingPowerIndex - 1) + (economicState.consumerConfidenceIndex - 1) * 0.45
+                ))
+            case .kei, .compact:
+                economyMultiplier = min(1.35, max(0.85,
+                    1 - (householdPurchasingPowerIndex - 1) * 0.55
+                        + max(0, economicState.costPressureIndex - 1) * 0.25
+                ))
+            case .pickup:
+                economyMultiplier = min(1.30, max(0.70,
+                    1 + (economicState.realActivityIndex - 1) * 0.75
+                        + (economicState.creditAvailabilityIndex - 1) * 0.35
+                ))
+            case .minivan:
+                economyMultiplier = min(1.20, max(0.80,
+                    1 + (householdPurchasingPowerIndex - 1) * 0.35
+                ))
             }
             let broadDemand = category == .compact ? 1.16 : (category == .kei ? 1.04 : 1.0)
             return (category, max(0.05, demand * economyMultiplier * broadDemand))
@@ -11759,7 +12346,12 @@ final class GameEngine: ObservableObject {
         let storePlot = stores.first(where: { $0.id == storeID }).flatMap { plot(id: $0.plotID) }
         let localDistrict = storePlot?.district ?? .suburb
         let localIncome = storePlot.map { district(for: $0).incomeIndex } ?? 1.0
-        let incomeBudgetFactor = min(1.24, max(0.84, 1 + (localIncome - 1) * 0.46))
+        let incomeBudgetFactor = min(1.28, max(0.72,
+            1
+                + (householdPurchasingPowerIndex - 1) * 0.55
+                + (economicState.creditAvailabilityIndex - 1) * 0.25
+                + (localIncome - 1) * 0.20
+        ))
         let resolvedPreference = productKind == .collector
             ? collectorBuyerPreference(category: preference.category ?? .sports, seed: seed + 401)
             : detailedBuyerPreference(from: preference, seed: seed + 401)

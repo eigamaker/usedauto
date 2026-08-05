@@ -2453,6 +2453,9 @@ private struct ResearchOperationsPanel: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(report.kind.name)・精度\(report.accuracyPercent)%").font(.caption.bold())
                         Text(report.summary).font(.caption2).foregroundStyle(.secondary)
+                        ForEach(report.payload.detailLines, id: \.self) { line in
+                            Text(line).font(.caption2).foregroundStyle(GameTheme.ink.opacity(0.72))
+                        }
                         Text(report.expiresTurn >= game.turn ? "有効：\(report.expiresTurn + 1)週目まで" : "情報が古くなっています")
                             .font(.caption2)
                             .foregroundStyle(report.expiresTurn >= game.turn ? GameTheme.teal : GameTheme.orange)

@@ -827,7 +827,7 @@ private struct BankContent: View {
     @EnvironmentObject private var game: GameEngine
     var body: some View {
         VStack(spacing: 14) {
-            HStack { MetricView(title: "信用評価", value: game.creditRating, tint: game.creditRating == "C" ? GameTheme.orange : GameTheme.teal); MetricView(title: "融資上限", value: game.borrowingLimit.currency); MetricView(title: "借入残高", value: game.debt.currency) }.gameCard()
+            HStack { MetricView(title: "信用評価", value: game.creditRating, tint: game.creditRating == "C" ? GameTheme.orange : GameTheme.teal); MetricView(title: "実効年利", value: String(format: "%.1f%%", game.effectiveAnnualBorrowingRatePercent)); MetricView(title: "信用市場", value: game.creditMarketConditionLabel) }.gameCard()
             VStack(alignment: .leading, spacing: 12) {
                 SectionTitle(title: "融資・返済", subtitle: "所有地は担保に反映。赤字や資金危機は信用枠を縮小")
                 ProgressView(value: Double(game.debt), total: Double(max(1, game.borrowingLimit))).tint(.blue)

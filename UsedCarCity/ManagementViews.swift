@@ -942,7 +942,9 @@ struct MarketNewspaperView: View {
                             HStack {
                                 Image(systemName: "newspaper.fill").font(.system(size: 36))
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("翠浜モビリティ経済新聞").font(.title2.weight(.black))
+                                    Text(issue.isBreaking ? "号外・翠浜モビリティ経済新聞" : "翠浜モビリティ経済新聞")
+                                        .font(.title2.weight(.black))
+                                        .foregroundStyle(issue.isBreaking ? GameTheme.danger : GameTheme.ink)
                                     Text("\(issue.year)年\(issue.month)月 第\(issue.week)週号")
                                         .font(.caption.bold().monospacedDigit())
                                 }
@@ -960,7 +962,22 @@ struct MarketNewspaperView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(fact.label).font(.caption).foregroundStyle(.secondary)
                                     Text(fact.value).font(.headline.monospacedDigit())
-                                    Text(fact.direction).font(.caption2.bold()).foregroundStyle(GameTheme.teal)
+                                    Text("\(fact.direction)・\(severityLabel(fact.severity))")
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(severityColor(fact.severity))
+                                    if fact.history.count >= 2 {
+                                        Chart(fact.history) { point in
+                                            LineMark(
+                                                x: .value("週", point.turn),
+                                                y: .value("値", point.value)
+                                            )
+                                            .interpolationMethod(.catmullRom)
+                                            .foregroundStyle(severityColor(fact.severity))
+                                        }
+                                        .chartXAxis(.hidden)
+                                        .chartYAxis(.hidden)
+                                        .frame(height: 34)
+                                    }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(11)
@@ -985,6 +1002,34 @@ struct MarketNewspaperView: View {
                                                     .font(.subheadline)
                                                     .foregroundStyle(GameTheme.ink.opacity(0.78))
                                                     .fixedSize(horizontal: false, vertical: true)
+                                                if let kind = article.researchKind {
+                                                    if let report = game.companyResearchReport(kind: kind, targetName: article.headline) {
+                                                        VStack(alignment: .leading, spacing: 3) {
+                                                            Text("社内調査・精度\(report.accuracyPercent)%")
+                                                                .font(.caption.bold())
+                                                                .foregroundStyle(GameTheme.teal)
+                                                            ForEach(report.payload.detailLines, id: \.self) { line in
+                                                                Text(line)
+                                                                    .font(.caption)
+                                                                    .foregroundStyle(GameTheme.ink.opacity(0.72))
+                                                            }
+                                                        }
+                                                        .padding(.top, 3)
+                                                    } else if !game.researchCapableStores().isEmpty {
+                                                        Menu("この記事を調査") {
+                                                            ForEach(game.researchCapableStores()) { store in
+                                                                Button("\(store.name)で調査") {
+                                                                    _ = game.enqueueResearchWork(
+                                                                        storeID: store.id,
+                                                                        kind: kind,
+                                                                        targetName: article.headline
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                        .font(.caption.bold())
+                                                    }
+                                                }
                                             }
                                         }
                                         if article.id != articles.last?.id { Divider() }
@@ -1028,6 +1073,23 @@ struct MarketNewspaperView: View {
         case "競合レポート": "競合各社の現在地"
         case "街の動き": "地域で起きていること"
         default: section
+        }
+    }
+
+    private func severityLabel(_ severity: EconomicSeverity) -> String {
+        switch severity {
+        case .normal: "平常"
+        case .notable: "注目"
+        case .major: "重大"
+        case .emergency: "緊急"
+        }
+    }
+
+    private func severityColor(_ severity: EconomicSeverity) -> Color {
+        switch severity {
+        case .normal: GameTheme.teal
+        case .notable: GameTheme.orange
+        case .major, .emergency: GameTheme.danger
         }
     }
 }

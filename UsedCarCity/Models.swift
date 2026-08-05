@@ -1016,91 +1016,206 @@ enum CityEventKind: String, Codable, Hashable {
     }
 }
 
-enum MarketShockKind: String, Codable, Hashable, CaseIterable {
-    case war
-    case oilDemandSurge
-    case oilProductionHalt
-    case economicBoom
-    case financialCrisis
+enum EconomicMetricKind: String, Codable, Hashable, CaseIterable, Identifiable {
+    case nikkei
+    case gasoline
+    case usedCarDemand
+    case cityLand
+
+    var id: String { rawValue }
+}
+
+enum EconomicSeverity: Int, Codable, Hashable, Comparable {
+    case normal
+    case notable
+    case major
+    case emergency
+
+    static func < (lhs: EconomicSeverity, rhs: EconomicSeverity) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+/// The shared causal state behind the visible market indicators. Values other
+/// than yen and percentages are normalized around 1.0.
+struct EconomicState: Codable, Hashable {
+    var realActivityIndex: Double = 1.0
+    var consumerConfidenceIndex: Double = 1.0
+    var creditAvailabilityIndex: Double = 1.0
+    var costPressureIndex: Double = 1.0
+    var baseInterestRatePercent: Double = 1.0
+    var gasolinePrice: Double = 155
+    var nikkeiAverage: Double = 60_000
+    var usedCarDemandIndex: Double = 1.0
+
+    mutating func clampToGameplayRanges() {
+        realActivityIndex = min(1.30, max(0.70, realActivityIndex))
+        consumerConfidenceIndex = min(1.35, max(0.65, consumerConfidenceIndex))
+        creditAvailabilityIndex = min(1.25, max(0.55, creditAvailabilityIndex))
+        costPressureIndex = min(1.45, max(0.80, costPressureIndex))
+        baseInterestRatePercent = min(8.0, max(0, baseInterestRatePercent))
+        gasolinePrice = min(240, max(95, gasolinePrice))
+        nikkeiAverage = min(120_000, max(15_000, nikkeiAverage))
+        usedCarDemandIndex = min(1.45, max(0.60, usedCarDemandIndex))
+    }
+}
+
+struct EconomicWeekRecord: Identifiable, Codable, Hashable {
+    var id: Int { turn }
+    let turn: Int
+    let state: EconomicState
+    var cityLandPriceIndex: Double
+    let strongestSeverity: EconomicSeverity
+    let activeEventIDs: [UUID]
+}
+
+enum EconomicEventPhase: String, Codable, Hashable {
+    case signal
+    case onset
+    case acute
+    case aftermath
+    case recovery
+}
+
+enum EconomicEventKind: String, Codable, Hashable, CaseIterable {
+    case globalEquityCrash
+    case housingCreditCrisis
+    case broadEconomicBoom
+    case aiInvestmentBoom
+    case aiValuationCorrection
+    case geopoliticalOilCrisis
+    case newCarSupplyShortage
+    case exportDemandSurge
+    case monetaryTightening
+    case monetaryEasing
+    case logisticsDisruption
+    case regionalFactoryInvestment
 
     var title: String {
         switch self {
-        case .war: "産油地域で戦争が発生"
-        case .oilDemandSurge: "世界の石油需要が急増"
-        case .oilProductionHalt: "原油採掘が停止"
-        case .economicBoom: "世界景気が拡大"
-        case .financialCrisis: "金融市場が急落"
+        case .globalEquityCrash: "世界同時株安"
+        case .housingCreditCrisis: "住宅信用不安"
+        case .broadEconomicBoom: "世界的な景気拡大"
+        case .aiInvestmentBoom: "AI・半導体投資特需"
+        case .aiValuationCorrection: "AI関連株の評価調整"
+        case .geopoliticalOilCrisis: "産油地域の供給危機"
+        case .newCarSupplyShortage: "新車供給の長期停滞"
+        case .exportDemandSurge: "輸出需要の急拡大"
+        case .monetaryTightening: "物価高を受けた金融引き締め"
+        case .monetaryEasing: "景気下支えの金融緩和"
+        case .logisticsDisruption: "広域物流網の混乱"
+        case .regionalFactoryInvestment: "大型工場投資計画"
         }
     }
 
-    var detail: String {
+    var isMajor: Bool {
         switch self {
-        case .war: "供給不安でガソリン価格が大幅に上昇し、株式市場と自動車需要にも下押し圧力がかかります"
-        case .oilDemandSurge: "世界的な需要増で原油が不足し、ガソリン価格の上昇が続きます"
-        case .oilProductionHalt: "主要油田の操業停止により供給が細り、ガソリン価格が急騰します"
-        case .economicBoom: "企業業績と消費意欲が上向き、日経平均と中古車需要が大きく伸びます"
-        case .financialCrisis: "株価と消費意欲が急速に冷え込み、中古車の来店需要も落ち込みます"
+        case .globalEquityCrash, .housingCreditCrisis, .broadEconomicBoom,
+             .aiInvestmentBoom, .aiValuationCorrection, .geopoliticalOilCrisis:
+            true
+        default:
+            false
         }
     }
 
-    var durationWeeks: Int {
+    var signalWeeks: ClosedRange<Int> {
         switch self {
-        case .war: 8
-        case .oilDemandSurge, .oilProductionHalt, .financialCrisis: 7
-        case .economicBoom: 8
+        case .globalEquityCrash: 0...1
+        case .geopoliticalOilCrisis: 0...3
+        case .housingCreditCrisis: 4...10
+        case .broadEconomicBoom, .aiInvestmentBoom, .aiValuationCorrection: 3...8
+        default: 2...6
         }
     }
 
-    var gasolineWeeklyChange: Double {
+    var durationWeeks: ClosedRange<Int> {
         switch self {
-        case .war: 3.6
-        case .oilDemandSurge: 3.0
-        case .oilProductionHalt: 4.2
-        case .economicBoom: 0.4
-        case .financialCrisis: -1.2
+        case .globalEquityCrash: 6...12
+        case .housingCreditCrisis: 36...80
+        case .broadEconomicBoom: 24...52
+        case .aiInvestmentBoom: 24...60
+        case .aiValuationCorrection: 8...24
+        case .geopoliticalOilCrisis: 8...24
+        case .newCarSupplyShortage: 12...32
+        case .regionalFactoryInvestment: 24...52
+        default: 8...20
         }
     }
 
-    var nikkeiWeeklyChange: Double {
+    var cityEventKind: CityEventKind {
         switch self {
-        case .war: -2_800
-        case .oilDemandSurge: 350
-        case .oilProductionHalt: -900
-        case .economicBoom: 3_200
-        case .financialCrisis: -4_200
+        case .geopoliticalOilCrisis, .logisticsDisruption: .fuelPrice
+        case .regionalFactoryInvestment: .development
+        default: .economy
         }
     }
 
-    var demandWeeklyChange: Double {
+    var isPositive: Bool {
         switch self {
-        case .war: -0.009
-        case .oilDemandSurge: 0.002
-        case .oilProductionHalt: -0.004
-        case .economicBoom: 0.010
-        case .financialCrisis: -0.018
+        case .broadEconomicBoom, .aiInvestmentBoom, .exportDemandSurge,
+             .monetaryEasing, .regionalFactoryInvestment:
+            true
+        default:
+            false
         }
     }
-
-    var eventKind: CityEventKind {
-        switch self {
-        case .war, .oilDemandSurge, .oilProductionHalt: .fuelPrice
-        case .economicBoom, .financialCrisis: .economy
-        }
-    }
-
-    var isPositive: Bool { self == .economicBoom }
 }
 
-struct ActiveMarketShock: Identifiable, Codable, Hashable {
+struct ScheduledEconomicEvent: Identifiable, Codable, Hashable {
     let id: UUID
-    let kind: MarketShockKind
-    var remainingWeeks: Int
+    let kind: EconomicEventKind
+    let startTurn: Int
+    let durationWeeks: Int
+    let signalStartTurn: Int
+    let severity: Double
 
-    init(id: UUID = UUID(), kind: MarketShockKind, remainingWeeks: Int? = nil) {
+    init(
+        id: UUID = UUID(),
+        kind: EconomicEventKind,
+        startTurn: Int,
+        durationWeeks: Int,
+        signalStartTurn: Int,
+        severity: Double
+    ) {
         self.id = id
         self.kind = kind
-        self.remainingWeeks = remainingWeeks ?? kind.durationWeeks
+        self.startTurn = startTurn
+        self.durationWeeks = durationWeeks
+        self.signalStartTurn = signalStartTurn
+        self.severity = severity
     }
+}
+
+struct ActiveEconomicEvent: Identifiable, Codable, Hashable {
+    let id: UUID
+    let kind: EconomicEventKind
+    let startedTurn: Int
+    let durationWeeks: Int
+    var elapsedWeeks: Int
+    let severity: Double
+
+    var remainingWeeks: Int { max(0, durationWeeks - elapsedWeeks) }
+    var phase: EconomicEventPhase {
+        let progress = Double(elapsedWeeks) / Double(max(1, durationWeeks))
+        if elapsedWeeks == 0 { return .onset }
+        if progress < 0.35 { return .acute }
+        if progress < 0.75 { return .aftermath }
+        return .recovery
+    }
+}
+
+struct EconomicCostMultipliers: Codable, Hashable {
+    let logistics: Double
+    let storeOverhead: Double
+    let repair: Double
+    let construction: Double
+    let advertising: Double
+    let auctionFee: Double
+
+    static let neutral = EconomicCostMultipliers(
+        logistics: 1, storeOverhead: 1, repair: 1,
+        construction: 1, advertising: 1, auctionFee: 1
+    )
 }
 
 struct CityEvent: Identifiable, Codable, Hashable {
@@ -3109,6 +3224,55 @@ struct ResearchReportRecord: Identifiable, Codable, Hashable {
     let expiresTurn: Int
     let accuracyPercent: Int
     let summary: String
+    let payload: ResearchReportPayload
+}
+
+struct ResearchDriverFinding: Codable, Hashable {
+    let name: String
+    let direction: String
+    let contributionRange: ClosedRange<Int>
+}
+
+struct ResearchForecastFinding: Codable, Hashable {
+    let eventName: String
+    let startTurnRange: ClosedRange<Int>
+    let probabilityRange: ClosedRange<Int>
+    let affectedIndicators: [String]
+}
+
+struct ResearchSegmentFinding: Codable, Hashable {
+    let subject: String
+    let demandRange: ClosedRange<Int>
+    let priceChangeRange: ClosedRange<Int>
+    let supplyChangeRange: ClosedRange<Int>
+}
+
+enum ResearchReportPayload: Codable, Hashable {
+    case storeExposure(lines: [String])
+    case marketCauses([ResearchDriverFinding])
+    case competitor(lines: [String])
+    case eventForecast([ResearchForecastFinding])
+    case segmentSurvey([ResearchSegmentFinding])
+    case advertising(lines: [String])
+
+    var detailLines: [String] {
+        switch self {
+        case .storeExposure(let lines), .competitor(let lines), .advertising(let lines):
+            lines
+        case .marketCauses(let findings):
+            findings.map {
+                "\($0.name)：\($0.direction) \($0.contributionRange.lowerBound)〜\($0.contributionRange.upperBound)pt"
+            }
+        case .eventForecast(let findings):
+            findings.map {
+                "\($0.eventName)：\($0.startTurnRange.lowerBound)〜\($0.startTurnRange.upperBound)週目・確率\($0.probabilityRange.lowerBound)〜\($0.probabilityRange.upperBound)%・\($0.affectedIndicators.joined(separator: "／"))"
+            }
+        case .segmentSurvey(let findings):
+            findings.map {
+                "\($0.subject)：需要\($0.demandRange.lowerBound)〜\($0.demandRange.upperBound)%・価格\($0.priceChangeRange.lowerBound)〜\($0.priceChangeRange.upperBound)%・供給\($0.supplyChangeRange.lowerBound)〜\($0.supplyChangeRange.upperBound)%"
+            }
+        }
+    }
 }
 
 enum WorkshopOverflowPolicy: String, Codable, CaseIterable, Identifiable {
@@ -3478,6 +3642,14 @@ enum StorePurchaseDecision: Hashable {
     }
 }
 
+struct PlotLeaseContract: Identifiable, Codable, Hashable {
+    var id: Int { plotID }
+    let plotID: Int
+    var monthlyRent: Int
+    var nextReviewTurn: Int
+    var announcedMonthlyRent: Int?
+}
+
 struct Store: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -3485,6 +3657,7 @@ struct Store: Identifiable, Codable, Hashable {
     var plotIDs: [Int]
     var type: StoreType
     var acquisition: AcquisitionMode
+    var leaseContracts: [PlotLeaseContract]
     var marketPolicy: StoreMarketPolicy
     var pendingMarketPolicy: StoreMarketPolicy?
     var expertise: BusinessExpertise
@@ -3531,13 +3704,14 @@ struct Store: Identifiable, Codable, Hashable {
     var researchReports: [ResearchReportRecord]
     var workshopOverflowPolicy: WorkshopOverflowPolicy
 
-    init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, marketPolicy: StoreMarketPolicy = StoreMarketPolicy(), facilities: Set<StoreFacility> = [], inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
+    init(name: String, plotID: Int, plotIDs: [Int]? = nil, type: StoreType, acquisition: AcquisitionMode, leaseContracts: [PlotLeaseContract] = [], marketPolicy: StoreMarketPolicy = StoreMarketPolicy(), facilities: Set<StoreFacility> = [], inventory: [InventoryBatch], employees: [StoreEmployee] = [], openingMonthsRemaining: Int? = nil) {
         id = UUID()
         self.name = name
         self.plotID = plotID
         self.plotIDs = plotIDs ?? [plotID]
         self.type = type
         self.acquisition = acquisition
+        self.leaseContracts = leaseContracts
         self.marketPolicy = marketPolicy
         pendingMarketPolicy = nil
         expertise = BusinessExpertise()
@@ -3944,22 +4118,33 @@ struct NewspaperArticle: Identifiable, Codable, Hashable {
     let body: String
     let systemImage: String
     let isPositive: Bool
+    let researchKind: ResearchWorkKind?
 
-    init(id: UUID = UUID(), section: String, headline: String, body: String, systemImage: String, isPositive: Bool = true) {
+    init(id: UUID = UUID(), section: String, headline: String, body: String, systemImage: String, isPositive: Bool = true, researchKind: ResearchWorkKind? = nil) {
         self.id = id
         self.section = section
         self.headline = headline
         self.body = body
         self.systemImage = systemImage
         self.isPositive = isPositive
+        self.researchKind = researchKind
     }
 }
 
 struct NewspaperMarketFact: Identifiable, Codable, Hashable {
     let id: String
+    let kind: EconomicMetricKind
     let label: String
     let value: String
     let direction: String
+    let severity: EconomicSeverity
+    let history: [NewspaperMetricPoint]
+}
+
+struct NewspaperMetricPoint: Identifiable, Codable, Hashable {
+    var id: Int { turn }
+    let turn: Int
+    let value: Double
 }
 
 struct MarketNewspaperIssue: Identifiable, Codable, Hashable {
@@ -3969,6 +4154,7 @@ struct MarketNewspaperIssue: Identifiable, Codable, Hashable {
     let week: Int
     let turn: Int
     let leadHeadline: String
+    let isBreaking: Bool
     let articles: [NewspaperArticle]
     let facts: [NewspaperMarketFact]
 }
@@ -4344,8 +4530,7 @@ struct MarketIntelligenceReport: Hashable {
     let demandRange: ClosedRange<Int>
     let shortTermOutlook: String
     let longTermOutlook: String
-    let recommendedAction: String
-    let upcomingEvent: MarketShockKind?
+    let upcomingEvent: EconomicEventKind?
 }
 
 struct VehicleMarketForecast: Hashable {

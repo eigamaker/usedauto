@@ -482,7 +482,7 @@ struct NationalExpansionView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("所要 \(city.shippingMonths)週間").font(.subheadline.bold())
-                    Text("輸送費 \((city.shippingCostPerVehicle * shippingCount).currency)").font(.caption).foregroundStyle(.secondary)
+                    Text("輸送費 \(Int((Double(city.shippingCostPerVehicle * shippingCount) * game.economicCostMultipliers.logistics).rounded()).currency)").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("輸送を手配") {

@@ -139,6 +139,10 @@ private struct FinancingCard: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "銀行取引", subtitle: "土地担保で基礎枠が増え、赤字や資金危機で信用枠が縮小")
             HStack { MetricView(title: "借入残高", value: game.debt.currency); MetricView(title: "融資上限", value: game.borrowingLimit.currency) }
+            HStack {
+                MetricView(title: "実効年利", value: String(format: "%.1f%%", game.effectiveAnnualBorrowingRatePercent))
+                MetricView(title: "信用市場", value: game.creditMarketConditionLabel)
+            }
             ProgressView(value: Double(game.debt), total: Double(max(1, game.borrowingLimit))).tint(GameTheme.orange)
             HStack {
                 Text("信用評価 \(game.creditRating)").font(.caption.bold())
