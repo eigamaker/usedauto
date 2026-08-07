@@ -35,3 +35,19 @@ Generation prompt summary: a cohesive modular family of 1×1, 1×2, 2×2, 2×3,
 contained bases; polished chunky toy-like low-poly finish; warm walls, royal
 blue roofs, orange accents, charcoal asphalt, golden-green grass; no people,
 logos, watermark, UI, or perspective distortion.
+
+## Superseded by the low-poly city rebuild
+
+The direction above still describes what ships today. It is being replaced —
+see [`LOWPOLY-CITY-PLAN.md`](LOWPOLY-CITY-PLAN.md).
+
+Two attempts sit behind that plan:
+
+1. [`../ArtSource/Blender/StylizedUsedCarShop/`](../ArtSource/Blender/StylizedUsedCarShop/README.md)
+   established the visual target — saturated colour, chunky battered masses,
+   painted shading — but at 44,168 triangles per asset it cannot fill a map.
+   Kept as an art-direction reference only; run its generator to see the
+   renders, which are not committed.
+2. [`../ArtSource/Blender/LowPolyCityKit/`](../ArtSource/Blender/LowPolyCityKit/README.md)
+   reaches the same look at 639 triangles by moving every detail into a baked
+   texture. This is the pipeline to build on.

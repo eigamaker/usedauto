@@ -19,6 +19,11 @@ private final class CityAssetBundleToken: NSObject {}
 final class CityBuildingFactory {
     static let nearDetailNodeName = "near-details"
     static let propDetailNodeName = "prop-details"
+    /// Marks an asset that came from the low-poly city kit: one merged mesh
+    /// with a baked texture, instead of the original untextured multi-part
+    /// build. The two generations have opposite contracts, so tests and tools
+    /// need to tell them apart while the rollout is partial.
+    static let lowPolyKitMarkerName = "lowpoly-kit"
     static let vehicleScale: Float = 2
 
     private let cellSize: Float
@@ -132,6 +137,52 @@ final class CityBuildingFactory {
         return built.clone()
     }
 
+    /// Applies the right lighting model to an authored asset's material.
+    ///
+    /// Two generations of authored assets coexist while the low-poly city kit
+    /// is rolled out:
+    ///
+    /// - **Low-poly kit** (`ArtSource/Blender/citykit.py`): a single baked base
+    ///   colour map that already contains the painted shading, ambient
+    ///   occlusion and edge highlights. These want `.lambert` — physically
+    ///   based lighting adds a specular response the art direction does not
+    ///   want and washes the baked detail out.
+    /// - **Original library**: untextured, material-merged flat colours that
+    ///   rely on the renderer for all their shading, so they stay `.physicallyBased`.
+    ///
+    /// A baked-kit material is recognised by having an image in its diffuse
+    /// slot at all; the original library has none. The name check is a
+    /// belt-and-braces fallback in case a future exporter packs a colour there.
+    /// - Returns: `true` when the material came from the low-poly kit.
+    private static func configureAuthored(_ material: SCNMaterial) -> Bool {
+        material.isDoubleSided = false
+        var hasBakedMap = false
+        if let contents = material.diffuse.contents {
+            switch contents {
+            case is UIImage, is CGImage, is URL, is String, is Data:
+                hasBakedMap = true
+            default:
+                hasBakedMap = false
+            }
+        }
+        let isKitAsset = hasBakedMap || (material.name?.hasSuffix("_baked") ?? false)
+        guard isKitAsset else {
+            material.lightingModel = .physicallyBased
+            return false
+        }
+        material.lightingModel = .lambert
+        material.specular.contents = UIColor.black
+        // Atlas-safe sampling: regions must never bleed into their neighbours
+        // once these assets move onto a shared page.
+        material.diffuse.wrapS = .clamp
+        material.diffuse.wrapT = .clamp
+        material.diffuse.mipFilter = .linear
+        material.diffuse.magnificationFilter = .linear
+        material.emission.wrapS = .clamp
+        material.emission.wrapT = .clamp
+        return true
+    }
+
     /// Loads the compact, material-merged runtime USDZ and flattens its export
     /// wrappers into the node contract used by the map. Main silhouettes remain
     /// direct children for cheap bounds checks; near facade detail and props
@@ -155,6 +206,7 @@ final class CityBuildingFactory {
         near.name = Self.nearDetailNodeName
         let props = SCNNode()
         props.name = Self.propDetailNodeName
+        var usesLowPolyKit = false
 
         enum DetailLayer {
             case main
@@ -179,9 +231,8 @@ final class CityBuildingFactory {
                 let node = SCNNode(geometry: geometry)
                 node.name = source.name
                 node.transform = source.worldTransform
-                geometry.materials.forEach {
-                    $0.lightingModel = .physicallyBased
-                    $0.isDoubleSided = false
+                for material in geometry.materials {
+                    if Self.configureAuthored(material) { usesLowPolyKit = true }
                 }
                 switch layer {
                 case .main: built.addChildNode(node)
@@ -195,6 +246,11 @@ final class CityBuildingFactory {
 
         guard built.childNodes.contains(where: { $0.geometry != nil }) else {
             return nil
+        }
+        if usesLowPolyKit {
+            let kitMarker = SCNNode()
+            kitMarker.name = Self.lowPolyKitMarkerName
+            built.addChildNode(kitMarker)
         }
         let authoredMarker = SCNNode()
         authoredMarker.name = "authored-usdz"

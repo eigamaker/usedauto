@@ -1239,7 +1239,19 @@ private final class GridCitySceneController {
         // metadata to it would make taps outside the lot appear selectable.
 
         let definition = CityAssetCatalog.definition(for: object.assetID)
-        if object.kind == .building {
+        let assetNode = assetFactory.makeAsset(
+            id: object.assetID,
+            facing: object.facing,
+            heightHint: object.kind == .parking ? nil : object.height
+        )
+        // Low-poly kit assets carry their own textured verge and lot surface.
+        // The legacy infill plate sits at y = 0.14, above them, so leaving it
+        // in would hide the new artwork behind a flat untextured slab.
+        let usesKitLotSurface = assetNode.childNode(
+            withName: CityBuildingFactory.lowPolyKitMarkerName,
+            recursively: false
+        ) != nil
+        if object.kind == .building && !usesKitLotSurface {
             container.addChildNode(assetFactory.makeLotInfill(
                 category: definition.category,
                 facing: object.facing,
@@ -1247,12 +1259,6 @@ private final class GridCitySceneController {
                 depth: parcelBounds.depth
             ))
         }
-
-        let assetNode = assetFactory.makeAsset(
-            id: object.assetID,
-            facing: object.facing,
-            heightHint: object.kind == .parking ? nil : object.height
-        )
         // An integer grid rect cannot center an odd-difference footprint
         // exactly. When the object is the parcel's centered placement, close
         // the remaining half cell visually; authored off-center rects keep
@@ -1514,21 +1520,6 @@ private final class GridCitySceneController {
         for placement in GridStorePlacementAdapter.visualPlacements(for: store, map: map) {
             guard let parcel = map.parcel(id: placement.parcelID) else { continue }
             let parcelBounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
-            let infill = assetFactory.makeLotInfill(
-                category: .playerFacility,
-                facing: placement.facing,
-                width: parcelBounds.width,
-                depth: parcelBounds.depth
-            )
-            infill.position = SCNVector3(
-                parcelBounds.center.x,
-                GridSceneElevation.assetBase,
-                parcelBounds.center.z
-            )
-            infill.name = "player-store-lot-infill:\(store.id.uuidString):\(placement.plotID)"
-            setInteractionMetadata(on: infill, parcel: parcel)
-            root.addChildNode(infill)
-
             let node: SCNNode
             // Store placements are always the parcel's centered rect, and an
             // integer rect cannot center an odd-difference footprint exactly,
@@ -1545,6 +1536,30 @@ private final class GridCitySceneController {
                     facing: placement.facing,
                     heightHint: placement.height
                 )
+            }
+
+            // A low-poly kit asset brings its own textured verge and forecourt
+            // covering the whole footprint, and carries the same interaction
+            // metadata, so the legacy infill plate would only hide it.
+            let usesKitLotSurface = node.childNode(
+                withName: CityBuildingFactory.lowPolyKitMarkerName,
+                recursively: false
+            ) != nil
+            if !usesKitLotSurface {
+                let infill = assetFactory.makeLotInfill(
+                    category: .playerFacility,
+                    facing: placement.facing,
+                    width: parcelBounds.width,
+                    depth: parcelBounds.depth
+                )
+                infill.position = SCNVector3(
+                    parcelBounds.center.x,
+                    GridSceneElevation.assetBase,
+                    parcelBounds.center.z
+                )
+                infill.name = "player-store-lot-infill:\(store.id.uuidString):\(placement.plotID)"
+                setInteractionMetadata(on: infill, parcel: parcel)
+                root.addChildNode(infill)
             }
             setInteractionMetadata(on: node, parcel: parcel)
             node.position = SCNVector3(

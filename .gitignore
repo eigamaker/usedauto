@@ -78,3 +78,15 @@ playground.xcworkspace
 __pycache__/
 *.py[cod]
 *.blend1
+
+# Generated city-kit art. Everything here is rebuilt deterministically by the
+# ArtSource/Blender scripts, and binaries do not delta, so keeping it would
+# grow history on every rebuild. The shipping copies live in
+# UsedCarCity/Art.scnassets/CityBuildings/.
+ArtSource/Blender/LowPolyCityKit/exports/
+ArtSource/Blender/LowPolyCityKit/previews/*
+# ...except the pattern reference sheet, which ArtDirection/CITY-REBUILD-SPEC.md
+# tells the implementer to author against.
+!ArtSource/Blender/LowPolyCityKit/previews/pattern_testcard.png
+!ArtSource/Blender/LowPolyCityKit/previews/pattern_testcard_close.png
+ArtSource/Blender/StylizedUsedCarShop/previews/

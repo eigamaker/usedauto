@@ -968,6 +968,17 @@ final class GridMapTests: XCTestCase {
         XCTAssertLessThan(totalGeometryNodes, CityAssetID.allCases.count * 40)
     }
 
+    /// Triangle ceiling for a low-poly kit asset of a given footprint.
+    /// Mirrors the ladder in `ArtDirection/CITY-REBUILD-SPEC.md`, with headroom.
+    private func lowPolyTriangleBudget(for footprint: GridSize) -> Int {
+        switch footprint.width * footprint.depth {
+        case ...4: return 320
+        case ...9: return 800
+        case ...16: return 1000
+        default: return 2000
+        }
+    }
+
     @MainActor
     func testAmbientBuildingsUseLayeredSilhouettesInsteadOfSingleBoxMasses() {
         let factory = CityBuildingFactory(cellSize: map.metrics.cellSize)
@@ -975,12 +986,39 @@ final class GridMapTests: XCTestCase {
             let node = factory.makeAsset(id: definition.id, facing: .south)
             var geometryNodeCount = 0
             var primitiveCount = 0
+            var texturedMaterials = 0
             node.enumerateChildNodes { child, _ in
                 guard let geometry = child.geometry else { return }
                 geometryNodeCount += 1
                 primitiveCount += geometry.elements.reduce(0) {
                     $0 + $1.primitiveCount
                 }
+                texturedMaterials += geometry.materials.filter {
+                    $0.diffuse.contents is UIImage || $0.diffuse.contents is CGImage
+                }.count
+            }
+
+            // The two asset generations have opposite contracts, so assert the
+            // one the asset was actually built against.
+            let isKitAsset = node.childNode(
+                withName: CityBuildingFactory.lowPolyKitMarkerName,
+                recursively: false
+            ) != nil
+            if isKitAsset {
+                // Low-poly kit: geometry carries silhouette only and every
+                // other detail lives in the baked map, so a single merged mesh
+                // is correct and the triangle budget is the thing that matters.
+                XCTAssertGreaterThan(
+                    texturedMaterials,
+                    0,
+                    "\(definition.id.rawValue) is a kit asset but has no baked texture"
+                )
+                XCTAssertLessThanOrEqual(
+                    primitiveCount,
+                    lowPolyTriangleBudget(for: definition.footprint),
+                    "\(definition.id.rawValue) exceeds its low-poly triangle budget"
+                )
+                continue
             }
 
             XCTAssertGreaterThanOrEqual(
@@ -1004,6 +1042,15 @@ final class GridMapTests: XCTestCase {
 
         for assetID in pitchedRoofAssets {
             let node = factory.makeAsset(id: assetID, facing: .south)
+            // A kit asset is merged into one mesh with one baked material, so
+            // there is no separately named roof node to find. Its pitched roof
+            // is enforced in Blender by `citykit.validate`.
+            if node.childNode(
+                withName: CityBuildingFactory.lowPolyKitMarkerName,
+                recursively: false
+            ) != nil {
+                continue
+            }
             let roof = node.childNodes.first { child in
                 child.geometry?.materials.contains {
                     ($0.name ?? "").hasPrefix("Roof_")
