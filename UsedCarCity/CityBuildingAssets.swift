@@ -23,6 +23,7 @@ final class CityBuildingFactory {
 
     private let cellSize: Float
     private var assetTemplates: [String: SCNNode] = [:]
+    private var authoredTemplates: [CityAssetID: SCNNode] = [:]
     private var infillTemplates: [String: SCNNode] = [:]
     private var materials: [String: SCNMaterial] = [:]
     private var geometries: [String: SCNGeometry] = [:]
@@ -137,6 +138,7 @@ final class CityBuildingFactory {
     /// direct children for cheap bounds checks; near facade detail and props
     /// retain their independent zoom gates.
     private func loadAuthoredAsset(id: CityAssetID) -> SCNNode? {
+        if let template = authoredTemplates[id] { return template.clone() }
         let bundles = [Bundle.main, Bundle(for: CityAssetBundleToken.self)]
         let url = bundles.lazy.compactMap {
             $0.url(
@@ -178,6 +180,8 @@ final class CityBuildingFactory {
             if let geometry = source.geometry {
                 let node = SCNNode(geometry: geometry)
                 node.name = source.name
+                // Tiny facade trim and parked cars do not need an extra shadow pass.
+                node.castsShadow = layer == .main
                 node.transform = source.worldTransform
                 geometry.materials.forEach {
                     $0.lightingModel = .physicallyBased
@@ -222,7 +226,99 @@ final class CityBuildingFactory {
             )
             props.addChildNode(vehicleMarker)
         }
-        return built
+        addAuthoredContactShadow(to: built, id: id)
+        authoredTemplates[id] = built
+        return built.clone()
+    }
+
+    /// A cached, silhouette-shaped contact shadow grounds authored buildings
+    /// even when a device reduces dynamic shadow quality. The convex hull is
+    /// taken above the plinth, so lawns and parking pads do not become shadows.
+    private func addAuthoredContactShadow(to root: SCNNode, id: CityAssetID) {
+        let definition = CityAssetCatalog.definition(for: id)
+        guard definition.category != .parking else { return }
+        let width = Float(definition.footprint.width) * cellSize
+        let depth = Float(definition.footprint.depth) * cellSize
+        var points = Set<ShadowPoint>()
+        for node in root.childNodes {
+            guard let geometry = node.geometry,
+                  let source = geometry.sources(for: .vertex).first,
+                  source.usesFloatComponents, source.bytesPerComponent == 4,
+                  source.componentsPerVector >= 3 else { continue }
+            source.data.withUnsafeBytes { raw in
+                for index in 0..<source.vectorCount {
+                    let offset = source.dataOffset + index * source.dataStride
+                    let x = raw.loadUnaligned(fromByteOffset: offset, as: Float.self)
+                    let y = raw.loadUnaligned(fromByteOffset: offset + 4, as: Float.self)
+                    let z = raw.loadUnaligned(fromByteOffset: offset + 8, as: Float.self)
+                    let point = node.convertPosition(SCNVector3(x, y, z), to: root)
+                    guard point.y > 4 else { continue }
+                    points.insert(ShadowPoint(x: Int((point.x * 10).rounded()), z: Int((point.z * 10).rounded())))
+                }
+            }
+        }
+        let sorted = points.sorted { lhs, rhs in
+            if lhs.x == rhs.x { return lhs.z < rhs.z }
+            return lhs.x < rhs.x
+        }
+        guard sorted.count > 2 else { return }
+        func cross(_ a: ShadowPoint, _ b: ShadowPoint, _ c: ShadowPoint) -> Int {
+            (b.x-a.x) * (c.z-a.z) - (b.z-a.z) * (c.x-a.x)
+        }
+        var lower: [ShadowPoint] = [], upper: [ShadowPoint] = []
+        for point in sorted {
+            while lower.count >= 2 && cross(lower[lower.count-2], lower[lower.count-1], point) <= 0 { lower.removeLast() }
+            lower.append(point)
+        }
+        for point in sorted.reversed() {
+            while upper.count >= 2 && cross(upper[upper.count-2], upper[upper.count-1], point) <= 0 { upper.removeLast() }
+            upper.append(point)
+        }
+        let hull = Array(lower.dropLast()) + Array(upper.dropLast())
+        let size = CGSize(width: 256, height: 256)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let texture = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let path = UIBezierPath()
+            for (index, point) in hull.enumerated() {
+                let pixel = CGPoint(x: (CGFloat(point.x) / 10 / CGFloat(width) + 0.5) * size.width,
+                                    y: (CGFloat(point.z) / 10 / CGFloat(depth) + 0.5) * size.height)
+                if index == 0 { path.move(to: pixel) } else { path.addLine(to: pixel) }
+            }
+            path.close()
+            let color = UIColor(red: 0.08, green: 0.16, blue: 0.18, alpha: 0.26)
+            context.cgContext.setShadow(offset: .zero, blur: 7, color: color.cgColor)
+            color.setFill()
+            path.fill()
+        }
+        let material = SCNMaterial()
+        material.lightingModel = .constant
+        material.diffuse.contents = texture
+        material.writesToDepthBuffer = false
+        let plane = SCNPlane(width: CGFloat(width - 0.4), height: CGFloat(depth - 0.4))
+        plane.firstMaterial = material
+        let shadow = SCNNode(geometry: plane)
+        shadow.name = "authored-contact-shadow"
+        shadow.eulerAngles.x = -.pi / 2
+        shadow.position.y = 0.56
+        shadow.castsShadow = false
+        root.addChildNode(shadow)
+    }
+
+    private struct ShadowPoint: Hashable {
+        let x: Int
+        let z: Int
+    }
+
+    /// Lightweight decorative traffic, sharing the existing vehicle geometry.
+    func makeStreetVehicle(variant: Int) -> SCNNode {
+        let colors: [Paint] = [.warmWhite, .brandBlue, .brandRed, .brandOrange, .slateWall]
+        let node = SCNNode()
+        addCar(to: node, x: 0, z: 0, paint: colors[abs(variant) % colors.count], rotated: false)
+        node.scale = SCNVector3(0.72, 0.72, 0.72)
+        node.enumerateChildNodes { child, _ in child.castsShadow = false }
+        return node
     }
 
     func makeLotInfill(

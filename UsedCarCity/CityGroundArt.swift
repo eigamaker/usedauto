@@ -12,10 +12,10 @@ enum CityGroundArt {
     static func grassTexture() -> UIImage {
         speckled(
             key: "grass",
-            base: UIColor(red: 0.52, green: 0.67, blue: 0.23, alpha: 1),
+            base: UIColor(red: 0.48, green: 0.66, blue: 0.29, alpha: 1),
             speckles: [
-                (UIColor(red: 0.66, green: 0.77, blue: 0.27, alpha: 0.24), 62, 1.6...3.4),
-                (UIColor(red: 0.40, green: 0.57, blue: 0.17, alpha: 0.22), 54, 1.6...3.6),
+                (UIColor(red: 0.66, green: 0.77, blue: 0.27, alpha: 0.12), 42, 1.6...3.4),
+                (UIColor(red: 0.40, green: 0.57, blue: 0.17, alpha: 0.10), 40, 1.6...3.6),
                 (UIColor(red: 0.77, green: 0.81, blue: 0.32, alpha: 0.14), 18, 2.2...5.0)
             ],
             patches: 9,
@@ -26,7 +26,7 @@ enum CityGroundArt {
     static func parkTexture() -> UIImage {
         speckled(
             key: "park",
-            base: UIColor(red: 0.57, green: 0.72, blue: 0.27, alpha: 1),
+            base: UIColor(red: 0.54, green: 0.72, blue: 0.33, alpha: 1),
             speckles: [
                 (UIColor(red: 0.69, green: 0.80, blue: 0.34, alpha: 0.26), 62, 1.4...3.0),
                 (UIColor(red: 0.43, green: 0.61, blue: 0.18, alpha: 0.22), 54, 1.4...3.2),
@@ -53,7 +53,7 @@ enum CityGroundArt {
     static func waterTexture() -> UIImage {
         cached("water") { size in
             UIColor(red: 0.18, green: 0.58, blue: 0.78, alpha: 1).setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
+            UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 11)
             // Horizontal glints suggest ripples without any animation cost.
             for _ in 0..<70 {
@@ -86,13 +86,13 @@ enum CityGroundArt {
     static func plazaTexture() -> UIImage {
         cached("plaza") { size in
             UIColor(red: 0.84, green: 0.78, blue: 0.65, alpha: 1).setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
+            UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 23)
             for _ in 0..<160 {
                 let alpha = 0.05 + generator.unit() * 0.08
                 let tone = 0.70 + generator.unit() * 0.16
                 UIColor(red: tone, green: tone - 0.01, blue: tone - 0.04, alpha: alpha).setFill()
-                UIRectFill(CGRect(
+                UIGraphicsGetCurrentContext()?.fill(CGRect(
                     x: generator.unit() * size.width,
                     y: generator.unit() * size.height,
                     width: 2 + generator.unit() * 3,
@@ -103,8 +103,8 @@ enum CityGroundArt {
             UIColor(red: 0.68, green: 0.66, blue: 0.61, alpha: 0.55).setFill()
             let step = size.width / 4
             for index in 0...4 {
-                UIRectFill(CGRect(x: CGFloat(index) * step - 0.5, y: 0, width: 1, height: size.height))
-                UIRectFill(CGRect(x: 0, y: CGFloat(index) * step - 0.5, width: size.width, height: 1))
+                UIGraphicsGetCurrentContext()?.fill(CGRect(x: CGFloat(index) * step - 0.5, y: 0, width: 1, height: size.height))
+                UIGraphicsGetCurrentContext()?.fill(CGRect(x: 0, y: CGFloat(index) * step - 0.5, width: size.width, height: 1))
             }
         }
     }
@@ -112,13 +112,13 @@ enum CityGroundArt {
     static func sidewalkTexture() -> UIImage {
         cached("sidewalk") { size in
             UIColor(red: 0.80, green: 0.76, blue: 0.66, alpha: 1).setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
+            UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 31)
             for _ in 0..<170 {
                 let alpha = 0.04 + generator.unit() * 0.07
                 let tone = 0.66 + generator.unit() * 0.18
                 UIColor(red: tone, green: tone - 0.02, blue: tone - 0.06, alpha: alpha).setFill()
-                UIRectFill(CGRect(
+                UIGraphicsGetCurrentContext()?.fill(CGRect(
                     x: generator.unit() * size.width,
                     y: generator.unit() * size.height,
                     width: 1.6 + generator.unit() * 2.6,
@@ -128,8 +128,8 @@ enum CityGroundArt {
             UIColor(red: 0.64, green: 0.62, blue: 0.56, alpha: 0.4).setFill()
             let step = size.width / 2
             for index in 0...2 {
-                UIRectFill(CGRect(x: CGFloat(index) * step - 0.5, y: 0, width: 1, height: size.height))
-                UIRectFill(CGRect(x: 0, y: CGFloat(index) * step - 0.5, width: size.width, height: 1))
+                UIGraphicsGetCurrentContext()?.fill(CGRect(x: CGFloat(index) * step - 0.5, y: 0, width: 1, height: size.height))
+                UIGraphicsGetCurrentContext()?.fill(CGRect(x: 0, y: CGFloat(index) * step - 0.5, width: size.width, height: 1))
             }
         }
     }
@@ -142,13 +142,13 @@ enum CityGroundArt {
                 blue: brightness + 0.03,
                 alpha: 1
             ).setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
+            UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: UInt64(brightness * 991) + 7)
             for _ in 0..<90 {
                 let alpha = 0.035 + generator.unit() * 0.065
                 let tone = brightness + (generator.unit() - 0.45) * 0.16
                 UIColor(red: tone, green: tone + 0.01, blue: tone + 0.02, alpha: alpha).setFill()
-                UIRectFill(CGRect(
+                UIGraphicsGetCurrentContext()?.fill(CGRect(
                     x: generator.unit() * size.width,
                     y: generator.unit() * size.height,
                     width: 1.2 + generator.unit() * 2.2,
@@ -163,8 +163,8 @@ enum CityGroundArt {
             key: "gravel",
             base: UIColor(red: 0.73, green: 0.63, blue: 0.45, alpha: 1),
             speckles: [
-                (UIColor(red: 0.79, green: 0.74, blue: 0.62, alpha: 0.6), 250, 1.2...2.6),
-                (UIColor(red: 0.62, green: 0.56, blue: 0.44, alpha: 0.55), 230, 1.2...2.6)
+                (UIColor(red: 0.79, green: 0.74, blue: 0.62, alpha: 0.25), 140, 0.8...1.8),
+                (UIColor(red: 0.62, green: 0.56, blue: 0.44, alpha: 0.22), 130, 0.8...1.8)
             ],
             patches: 4,
             patchColor: UIColor(red: 0.68, green: 0.62, blue: 0.49, alpha: 0.4)
@@ -205,7 +205,7 @@ enum CityGroundArt {
     static func forSaleSignTexture() -> UIImage {
         cached("for-sale-sign", size: CGSize(width: 256, height: 160)) { size in
             UIColor(white: 0.98, alpha: 1).setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
+            UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             let border = UIBezierPath(rect: CGRect(x: 6, y: 6, width: size.width - 12, height: size.height - 12))
             border.lineWidth = 6
             UIColor(red: 0.82, green: 0.22, blue: 0.16, alpha: 1).setStroke()
@@ -246,7 +246,7 @@ enum CityGroundArt {
     ) -> UIImage {
         cached(key) { size in
             base.setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
+            UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: UInt64(key.utf8.reduce(5, { $0 &* 31 &+ UInt64($1) })))
             for _ in 0..<patches {
                 patchColor.setFill()
@@ -263,7 +263,7 @@ enum CityGroundArt {
                 color.setFill()
                 for _ in 0..<count {
                     let side = sizes.lowerBound + generator.unit() * (sizes.upperBound - sizes.lowerBound)
-                    UIRectFill(CGRect(
+                    UIGraphicsGetCurrentContext()?.fill(CGRect(
                         x: generator.unit() * size.width,
                         y: generator.unit() * size.height,
                         width: side,
@@ -274,6 +274,9 @@ enum CityGroundArt {
         }
     }
 
+    // CGContext.fill keeps normal alpha compositing. UIRectFill uses copy
+    // blending, which turned translucent grain into dark holes in an opaque
+    // texture once SceneKit sampled it against the terrain.
     private static func cached(
         _ key: String,
         size: CGSize = CGSize(width: 128, height: 128),

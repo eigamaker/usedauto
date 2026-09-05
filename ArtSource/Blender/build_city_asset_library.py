@@ -20,7 +20,6 @@ import math
 from pathlib import Path
 import sys
 
-import bmesh
 import bpy
 from mathutils import Vector
 
@@ -126,6 +125,28 @@ def add_library_materials() -> None:
     dealer.material("Wood", (0.35, 0.15, 0.055, 1), roughness=0.68)
     dealer.material("Awning_Red", (0.72, 0.035, 0.025, 1), roughness=0.48)
     dealer.material("Purple", (0.31, 0.10, 0.46, 1), roughness=0.44)
+    # Hand-painted, sunlit toy-town colours (linear Blender colour space).
+    palette = {
+        "Facade_White": (0.93, 0.85, 0.65, 1), "Facade_Sand": (0.83, 0.61, 0.36, 1),
+        "Facade_Brick": (0.64, 0.24, 0.13, 1), "Facade_Sage": (0.43, 0.64, 0.40, 1),
+        "Facade_Teal": (0.10, 0.43, 0.44, 1), "Glass_Cyan": (0.10, 0.38, 0.52, 1),
+        "Glass_Dark": (0.035, 0.12, 0.19, 1), "Glass_Gold": (0.18, 0.30, 0.34, 1),
+        "Roof_Orange": (0.83, 0.22, 0.07, 1), "Roof_Red": (0.60, 0.12, 0.09, 1),
+        "Roof_Blue": (0.045, 0.23, 0.49, 1), "Roof_Copper": (0.055, 0.34, 0.31, 1),
+        "Lawn": (0.33, 0.55, 0.14, 1), "Hedge": (0.10, 0.32, 0.085, 1),
+        "Leaf_Light": (0.34, 0.59, 0.12, 1), "Metal": (0.37, 0.45, 0.48, 1),
+    }
+    for name, color in palette.items():
+        mat = dealer.MATERIALS[name]
+        mat.diffuse_color = color
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        bsdf.inputs["Base Color"].default_value = color
+        bsdf.inputs["Metallic"].default_value = 0.0
+        bsdf.inputs["Roughness"].default_value = 0.68
+    dealer.material("Glass_Glint", (0.40, 0.70, 0.78, 1), roughness=0.42)
+    dealer.material("Stone_Trim", (0.89, 0.78, 0.55, 1), roughness=0.78)
+    dealer.material("Flower_Coral", (0.95, 0.23, 0.16, 1), roughness=0.8)
+    dealer.material("Flower_Gold", (1.0, 0.66, 0.075, 1), roughness=0.8)
 
 
 def mark_new(collection: bpy.types.Collection, existing: set[str], layer: str) -> None:
@@ -281,6 +302,17 @@ class Builder:
             parent=self.root,
         )
         obj["lod_layer"] = "main"
+        self.box(name + "-fascia", (width, depth, 0.8), (x, y, base_z), "Stone_Trim", bevel=0.18)
+        angle = math.atan2(rise, depth / 2)
+        length = math.hypot(rise, depth / 2)
+        for i in range(max(3, round(width / 7))):
+            px = x + (i + 0.5) * width / max(3, round(width / 7)) - width / 2
+            for side in (-1, 1):
+                self.box(name + "-standing-seam", (0.32, length * 0.97, 0.27),
+                         (px, y + side * depth / 4, base_z + rise / 2 + 0.20), material,
+                         rotation=(-side * angle, 0, 0), layer="near")
+        self.box(name + "-ridge-cap", (width * 0.98, 1.2, 0.75),
+                 (x, y, base_z + rise + 0.25), material, bevel=0.25)
 
     def hip(
         self,
@@ -325,66 +357,144 @@ class Builder:
         bevel.segments = 2
 
     def windows(
-        self,
-        name: str,
-        x: float,
-        y: float,
-        width: float,
-        depth: float,
-        height: float,
-        *,
-        base_z: float = 0.50,
-        floors: int = 3,
-        glass: str = "Glass_Dark",
-        frame: str = "Charcoal",
-        all_sides: bool = True,
+        self, name: str, x: float, y: float, width: float, depth: float,
+        height: float, *, base_z: float = 0.50, floors: int = 3,
+        glass: str = "Glass_Dark", frame: str = "Charcoal", all_sides: bool = True,
+        sides: tuple[int, ...] | None = None,
     ) -> None:
-        floor_height = height / max(1, floors)
-        band_h = max(1.0, min(floor_height * 0.42, 3.1))
-        for floor in range(floors):
-            z = base_z + floor_height * (floor + 0.58)
-            self.box(
-                f"{name}-front-glass-{floor}",
-                (width * 0.82, 0.24, band_h),
-                (x, y - depth / 2 - 0.08, z),
-                glass,
-                bevel=0.04,
-                layer="near",
-            )
-            self.box(
-                f"{name}-back-glass-{floor}",
-                (width * 0.82, 0.24, band_h),
-                (x, y + depth / 2 + 0.08, z),
-                glass,
-                bevel=0.04,
-                layer="near",
-            )
-            if all_sides:
-                self.box(
-                    f"{name}-left-glass-{floor}",
-                    (0.24, depth * 0.74, band_h),
-                    (x - width / 2 - 0.08, y, z),
-                    glass,
-                    bevel=0.04,
-                    layer="near",
-                )
-                self.box(
-                    f"{name}-right-glass-{floor}",
-                    (0.24, depth * 0.74, band_h),
-                    (x + width / 2 + 0.08, y, z),
-                    glass,
-                    bevel=0.04,
-                    layer="near",
-                )
+        """Deep individual window openings, retained even at the far LOD."""
+        floors = max(1, min(floors, round(height / 8)))
+        floor_h = height / floors
+        window_h = min(floor_h * 0.52, 5.5)
+        for side in (sides if sides is not None else range(4 if all_sides else 2)):
+            front = side < 2
+            span = width if front else depth
+            columns = max(2, min(7, round(span / 9)))
+            spacing = span * 0.82 / columns
+            window_w = spacing * 0.62
+            outward = -1 if side % 2 == 0 else 1
+            for floor in range(floors):
+                z = base_z + floor_h * (floor + 0.57)
+                for col in range(columns):
+                    offset = (col - (columns - 1) / 2) * spacing
+                    px = x + (offset if front else outward * (width / 2 + 0.20))
+                    py = y + (outward * (depth / 2 + 0.20) if front else offset)
+                    def panel(label, w, h, inset, material):
+                        self.box(f"{name}-{side}-{floor}-{col}-{label}",
+                                 (w, 0.22, h) if front else (0.22, w, h),
+                                 (px + (0 if front else outward * inset),
+                                  py + (outward * inset if front else 0), z), material)
+                    panel("reveal", window_w + 0.85, window_h + 0.85, 0, frame)
+                    panel("glass", window_w, window_h, 0.15, glass)
+                    # A single broad reflection, rather than tiny noisy mullions.
+                    glint_x = px + (-window_w * 0.27 if front else outward * 0.29)
+                    glint_y = py + (outward * 0.29 if front else -window_w * 0.27)
+                    self.box(f"{name}-reflection", (window_w * 0.18, 0.08, window_h * 0.8)
+                             if front else (0.08, window_w * 0.18, window_h * 0.8),
+                             (glint_x, glint_y, z + window_h * 0.04), "Glass_Glint", layer="near")
+                # Projecting masonry sills separate stories in the silhouette.
+                self.box(f"{name}-sill-{side}-{floor}",
+                         (span * 0.92, 0.8, 0.42) if front else (0.8, span * 0.92, 0.42),
+                         (x if front else x + outward * (width / 2 + 0.18),
+                          y + outward * (depth / 2 + 0.18) if front else y,
+                          z - window_h / 2 - 0.42), "Stone_Trim", layer="near")
+
+    def roof_tiles(self, name, x, y, width, depth, base_z, rise, material):
+        """Separate trapezoidal tile courses: no overlapping coplanar roofs."""
+        self.box(name + "-eaves", (width, depth, 1.35), (x, y, base_z), "Wood", bevel=0.25)
+        ridge = width * 0.28
+        for course in range(5):
+            t0, t1 = course / 5, (course + 1) / 5
+            w0, d0 = width * (1-t0) + ridge * t0, depth * (1-t0)
+            w1, d1 = width * (1-t1) + ridge * t1, depth * (1-t1)
+            z0 = base_z + 0.65 + rise * t0 + course * 0.18
+            z1 = base_z + 0.65 + rise * t1 + course * 0.18
+            outer = [(-w0/2,-d0/2), (w0/2,-d0/2), (w0/2,d0/2), (-w0/2,d0/2)]
+            inner = [(-w1/2,-d1/2), (w1/2,-d1/2), (w1/2,d1/2), (-w1/2,d1/2)]
+            vertices = [(x+px,y+py,z0) for px,py in outer]
+            vertices += [(x+px,y+py,z1) for px,py in inner]
+            vertices += [(x+px,y+py,z0-0.40) for px,py in outer]
+            faces = []
+            for i in range(4):
+                j = (i+1) % 4
+                if course == 4 and i in (1,3):
+                    faces.append((i,j,4+i))
+                else:
+                    faces.append((i,j,4+j,4+i))
+                faces.append((i,8+i,8+j,j))
+            mesh = bpy.data.meshes.new(name + "-tiles")
+            mesh.from_pydata(vertices, [], faces)
+            mesh.materials.append(dealer.MATERIALS[material])
+            mesh.update()
+            obj = bpy.data.objects.new(name + f"-course-{course}", mesh)
+            obj.parent = self.root
+            obj["lod_layer"] = "main"
+            self.collection.objects.link(obj)
+        self.box(name + "-ridge", (ridge + 0.5, 1.3, 0.9),
+                 (x, y, base_z + rise + 1.5), material, bevel=0.35)
+
+    def planter(self, name, x, y, width=9, depth=3):
+        self.box(name + "-stone", (width, depth, 1.3), (x, y, 1.1), "Stone_Trim", bevel=0.35)
+        self.box(name + "-hedge", (width - 0.6, depth - 0.5, 1.8), (x, y, 2.2), "Hedge", bevel=0.65)
+        for i in range(3):
+            self.box(name + f"-flowers-{i}", (1.0, 0.9, 0.6),
+                     (x + (i - 1) * width * 0.26, y - depth * 0.15, 3.2),
+                     "Flower_Coral" if i % 2 else "Flower_Gold", bevel=0.28, layer="props")
+
+    def sign(self, name, text, x, y, z, width, height, accent="Brand_Blue"):
+        self.box(name + "-frame", (width + 0.8, 0.75, height + 0.7),
+                 (x, y, z), "Stone_Trim", bevel=0.22)
+        self.box(name + "-board", (width, 0.2, height), (x, y - 0.48, z), accent, bevel=0.12)
+        curve = bpy.data.curves.new(name + "-letters", "FONT")
+        curve.body = text
+        curve.align_x = "CENTER"
+        curve.align_y = "CENTER"
+        curve.size = min(height * 0.68, width / max(1, len(text)) * 1.25)
+        curve.extrude = 0.025
+        curve.resolution_u = 2
+        curve.materials.append(dealer.MATERIALS["Warm_White"])
+        obj = bpy.data.objects.new(name + "-letters", curve)
+        obj.location = (x, y - 0.61, z)
+        obj.rotation_euler = (math.pi / 2, 0, 0)
+        obj.parent = self.root
+        obj["lod_layer"] = "near"
+        self.collection.objects.link(obj)
+
+    def awning(self, name, x, y, z, width, accent="Awning_Red", depth=4.5):
+        stripes = max(4, round(width / 2.2))
+        for i in range(stripes):
+            px = x + (i - (stripes - 1) / 2) * width / stripes
+            color = accent if i % 2 == 0 else "Warm_White"
+            self.box(name + "-stripe", (width / stripes + 0.02, depth, 0.5),
+                     (px, y - depth * 0.44, z), color,
+                     rotation=(0.16, 0, 0), bevel=0.08)
+            self.box(name + "-valance", (width / stripes, 0.32, 1.0),
+                     (px, y - depth * 0.93, z - 0.6), color, bevel=0.12)
+
+    def shopfront(self, name, x, y, width, height, accent="Brand_Blue"):
+        self.box(name + "-reveal", (width, 0.6, height), (x, y, 0.7 + height / 2), "Charcoal")
+        for i in range(5):
+            px = x + (i - 2) * width / 5
+            self.box(name + "-glass", (width / 5 - 0.65, 0.18, height - 0.9),
+                     (px, y - 0.4, 1.0 + height / 2), "Glass_Cyan")
+            self.box(name + "-reflection", (width / 5 * 0.28, 0.1, height * 0.72),
+                     (px - width / 5 * 0.22, y - 0.52, 1.25 + height / 2), "Glass_Glint", layer="near")
+        self.box(name + "-step", (width + 1, 3, 0.4), (x, y - 1, 0.7), "Stone_Trim", bevel=0.12)
+        self.awning(name + "-awning", x, y - 0.5, height + 1.5, width + 1.2, accent, depth=3)
+
+    def garage_door(self, name, x, y, width, height, accent="Brand_Blue"):
+        self.box(name + "-recess", (width + 1.2, 0.7, height + 1),
+                 (x, y, 0.6 + height / 2), "Charcoal", bevel=0.15)
+        self.box(name + "-shutter", (width, 0.18, height),
+                 (x, y - 0.48, 0.6 + height / 2), "Roller_Door")
+        for i in range(1, 7):
+            self.box(name + "-rib", (width - 0.3, 0.16, 0.18),
+                     (x, y - 0.61, 0.6 + height * i / 7), "Metal", layer="near")
+        self.box(name + "-lintel", (width + 2, 1.0, 1.2),
+                 (x, y - 0.15, height + 1.35), accent, bevel=0.2)
         for side in (-1, 1):
-            self.box(
-                f"{name}-front-frame-{side}",
-                (0.42, 0.42, height * 0.92),
-                (x + side * width * 0.43, y - depth / 2 - 0.14, base_z + height * 0.50),
-                frame,
-                bevel=0.04,
-                layer="near",
-            )
+            self.box(name + "-bollard", (0.65, 0.65, 2.6),
+                     (x + side * (width / 2 + 0.45), y - 1.5, 1.8), "Safety_Yellow", bevel=0.16, layer="props")
 
     def mass(
         self,
@@ -400,10 +510,12 @@ class Builder:
         floors: int | None = None,
         cap: str = "Charcoal",
         windowed: bool = True,
+        side_windows: bool = True,
     ) -> None:
         base_z = 0.50
-        self.box(name, (width, depth, height), (x, y, base_z + height / 2), wall, bevel=0.34)
-        self.box(f"{name}-cap", (width + 0.55, depth + 0.55, 0.65), (x, y, base_z + height + 0.30), cap, bevel=0.12)
+        self.box(name, (width, depth, height), (x, y, base_z + height / 2), wall, bevel=0.65)
+        self.box(f"{name}-foundation", (width + 0.55, depth + 0.55, 1.6), (x, y, 1.30), "Stone_Trim", bevel=0.18)
+        self.box(f"{name}-cap", (width + 1.2, depth + 1.2, 1.3), (x, y, base_z + height + 0.30), cap, bevel=0.12)
         if windowed:
             self.windows(
                 f"{name}-facade",
@@ -413,10 +525,16 @@ class Builder:
                 depth,
                 height,
                 base_z=base_z,
-                floors=floors or max(1, round(height / 8)),
+                floors=floors or max(1, round(height / 10)),
                 glass=glass,
                 frame=cap,
             )
+        elif side_windows:
+            # Custom storefronts face the road; rear and side clerestories
+            # keep the architecture legible from all four map orientations.
+            self.windows(name + "-clerestory", x, y, width, depth, height * 0.34,
+                         base_z=0.5 + height * 0.49, floors=1, glass=glass,
+                         frame="Stone_Trim", sides=(1, 2, 3))
 
     def entrance(self, name: str, x: float, y: float, width: float, height: float, accent: str) -> None:
         self.box(name, (width, 0.38, height), (x, y, 0.50 + height / 2), "Glass_Cyan", bevel=0.08, layer="near")
@@ -429,64 +547,76 @@ class Builder:
             xs = [0.0]
         else:
             xs = [-span / 2 + span * i / (count - 1) for i in range(count)]
+        bay_w = min(8.8, span / max(1, count - 1) * 0.86) if count > 1 else 9
+        pad_w = span + bay_w + 1
+        self.box(name + "-drive", (pad_w, 10.8, 0.10), (0, y, 0.57), "Asphalt_Light", bevel=0.15)
         for index, x in enumerate(xs):
+            for side in (-1, 1):
+                self.box(name + "-bay-line", (0.22, 9.4, 0.035), (x + side * bay_w / 2, y, 0.65), "Parking_White", layer="near")
+            self.box(name + "-wheel-stop", (bay_w * 0.62, 0.55, 0.3), (x, y + 4.1, 0.81), "Stone_Trim", bevel=0.08, layer="near")
             self.car(f"{name}-{index}", x, y, start + index, rotation=rotation, scale=scale, suv=index % 4 == 1)
 
 
-def build_house(
-    b: Builder,
-    name: str,
-    x: float,
-    y: float,
-    width: float,
-    depth: float,
-    height: float,
-    *,
-    wall: str,
-    roof: str,
-    modern: bool = False,
-    hip: bool = True,
-) -> None:
-    b.mass(name, x, y, width, depth, height, wall=wall, glass="Glass_Dark", floors=max(2, round(height / 8)), cap=roof, windowed=True)
+def build_house(b, name, x, y, width, depth, height, *, wall, roof, modern=False, hip=True):
+    b.mass(name, x, y, width, depth, height, wall=wall, cap="Stone_Trim", windowed=False, side_windows=False)
+    b.windows(name, x, y, width, depth, height, floors=2 if height > 17 else 1,
+              glass="Glass_Dark", frame="Warm_White")
     if modern:
-        b.box(f"{name}-terrace", (width * 0.64, depth * 0.48, 1.0), (x + width * 0.10, y - depth * 0.18, 0.50 + height + 0.75), "Concrete_Light", bevel=0.14)
-        b.box(f"{name}-terrace-glass", (width * 0.58, 0.22, 1.5), (x + width * 0.10, y - depth * 0.43, 0.50 + height + 1.3), "Glass_Cyan", bevel=0.04, layer="near")
+        b.box(name + "-roof-deck", (width - 1, depth - 1, 0.7), (x, y, height + 1.5), "Wood", bevel=0.12)
+        for dx in (-1, 1):
+            b.box(name + "-parapet", (0.7, depth, 2.1), (x + dx * width / 2, y, height + 2.2), "Warm_White", bevel=0.16)
+        b.box(name + "-terrace-rail", (width, 0.5, 1.8), (x, y - depth / 2, height + 2.4), "Glass_Cyan")
+        b.planter(name + "-garden", x, y + depth / 2 - 2, width * 0.4)
+        b.rooftop(name + "-solar", x + width * 0.2, y, height + 2, scale=0.9)
     else:
-        if hip:
-            b.hip("hipped-roof", x, y, width + 1.8, depth + 1.8, 0.50 + height + 0.62, max(3.5, depth * 0.18), roof)
-        else:
-            b.gable("hipped-roof", x, y, width + 1.8, depth + 1.8, 0.50 + height + 0.62, max(3.8, depth * 0.20), roof)
-    b.entrance(f"{name}-entry", x, y - depth / 2 - 0.22, width * 0.18, min(5.2, height * 0.24), "Wood")
+        b.roof_tiles(name, x, y, width + 2.2, depth + 2.2, height + 1.1, depth * 0.30, roof)
+        # A projecting front gable and shaded porch give each home a face.
+        porch_w = width * 0.30
+        porch_y = y - depth / 2 - 1.3
+        b.box(name + "-porch", (porch_w, 5.5, 0.5), (x, porch_y, 0.9), "Stone_Trim", bevel=0.15)
+        b.gable(name + "-porch-gable", x, porch_y, porch_w + 1, 5.8, 8, 3.5, roof)
+        for side in (-1, 1):
+            b.box(name + "-porch-post", (0.7, 0.7, 7), (x + side * porch_w * 0.43, porch_y - 2, 4.4), "Warm_White", bevel=0.14)
+        b.box(name + "-chimney", (2.7, 3, 7), (x - width * 0.25, y + depth * 0.1, height + 6), "Facade_Brick", bevel=0.25)
+        b.box(name + "-chimney-cap", (3.6, 3.9, 0.9), (x - width * 0.25, y + depth * 0.1, height + 9.7), "Stone_Trim", bevel=0.2)
+        # Blue shutters and a flower box on the front upper windows.
+        for side in (-1, 1):
+            b.box(name + "-shutters", (3, 0.5, 4.6), (x + side * width * 0.34, y - depth / 2 - 0.5, height * 0.71), roof, bevel=0.10)
+    b.box(name + "-door", (3.2, 0.5, 5.8), (x, y - depth / 2 - 0.35, 3.5), "Wood", bevel=0.2)
+    b.box(name + "-door-light", (1.8, 0.16, 2.2), (x, y - depth / 2 - 0.68, 4.5), "Glass_Glint")
 
 
-def build_residential(spec: AssetSpec) -> Builder:
+def build_residential(spec):
     b = Builder(spec)
-    b.lot("Lawn", accent="Concrete_Warm")
-    if spec.variant == 0:
-        build_house(b, "cottage-main", -14, 8, 42, 40, 24, wall="Facade_White", roof="Roof_Orange")
-        build_house(b, "cottage-wing", 22, 17, 25, 26, 18, wall="Facade_Sage", roof="Roof_Red", hip=False)
-        b.parking_row("cottage-cars", 3, -25, 35, start=0)
-    elif spec.variant == 1:
-        build_house(b, "gable-main", -12, 7, 44, 42, 27, wall="Concrete_Warm", roof="Roof_Red", hip=False)
-        build_house(b, "gable-side", 24, 14, 24, 30, 21, wall="Facade_White", roof="Roof_Blue", hip=False)
-        b.parking_row("gable-cars", 3, -26, 38, start=2)
-    elif spec.variant == 2:
-        build_house(b, "modern-home", -13, 5, 48, 44, 31, wall="Facade_White", roof="Charcoal", modern=True)
-        b.mass("modern-studio", 25, 16, 24, 28, 22, wall="Facade_Sand", glass="Glass_Cyan", floors=3, cap="Roof_Copper")
-        b.parking_row("modern-cars", 3, -26, 38, start=4)
-    elif spec.variant == 3:
-        build_house(b, "twin-west", -20, 7, 34, 42, 26, wall="Facade_Brick", roof="Roof_Charcoal")
-        build_house(b, "twin-east", 20, 7, 34, 42, 26, wall="Facade_White", roof="Roof_Blue")
-        b.parking_row("twin-cars", 4, -26, 52, start=1, scale=1.48)
+    b.lot("Lawn")
+    if spec.variant < 4:
+        palettes = [("Facade_White", "Roof_Orange"), ("Facade_Sand", "Roof_Red"),
+                    ("Facade_White", "Roof_Copper"), ("Facade_Sage", "Roof_Blue")]
+        wall, roof = palettes[spec.variant]
+        build_house(b, "home-main", -17, 8, 35, 36, 19 if spec.variant != 2 else 22,
+                    wall=wall, roof=roof, modern=spec.variant == 2)
+        build_house(b, "home-neighbour", 22, 16, 27, 29, 15,
+                    wall="Facade_White" if spec.variant % 2 else "Facade_Sage",
+                    roof="Roof_Blue" if spec.variant % 2 else "Roof_Red", modern=spec.variant == 2)
+        b.box("garden-path", (4.4, 19, 0.14), (-17, -19, 0.64), "Concrete_Warm", bevel=0.18)
+        b.parking_row("driveway", 2, -27, 18, start=spec.variant)
+        b.tree("garden-tree", 31, -16, 1.7)
+        b.planter("front-flowers", -26, -34, 17, 3.2)
+        b.planter("side-hedge", 23, 34, 23, 3)
+        for x in (-37, 37):
+            b.box("garden-wall", (1.0, 68, 1.7), (x, 0, 1.4), "Stone_Trim", bevel=0.18)
     else:
-        b.mass("apartment-podium", 0, 8, 68, 50, 20, wall="Facade_Brick", glass="Glass_Gold", floors=3, cap="Charcoal")
-        b.mass("apartment-tower", -5, 10, 48, 40, 50, wall="Facade_Sand", glass="Glass_Dark", floors=8, cap="Roof_Copper")
-        for level in range(6):
-            z = 22 + level * 5.8
-            b.box(f"balcony-{level}", (51, 2.2, 0.45), (-5, -11.2, z), "Concrete_Light", bevel=0.08, layer="near")
-        b.parking_row("apartment-cars", 4, -29, 50, start=3, scale=1.45)
-    b.tree("tree-west", -34, 30, 1.15)
-    b.tree("tree-east", 34, 31, 1.0)
+        b.mass("apartment", -6, 9, 50, 42, 44, wall="Facade_White", floors=5, cap="Roof_Copper")
+        b.mass("stair-tower", 24, 13, 15, 34, 48, wall="Facade_Brick", floors=5, cap="Roof_Copper")
+        for floor in range(1, 5):
+            for x in (-22, -6, 10):
+                z = floor * 8.4 + 0.8
+                b.box("balcony-slab", (11, 4.5, 0.65), (x, -14, z), "Stone_Trim", bevel=0.12)
+                b.box("balcony-rail", (11, 0.6, 2), (x, -16, z + 1.2), "Warm_White", bevel=0.12)
+                b.box("balcony-green", (4, 1.2, 1.5), (x - 2, -15, z + 1.5), "Hedge", bevel=0.4, layer="props")
+        b.rooftop("apartment-hvac", 0, 12, 46, scale=1.3)
+        b.parking_row("apartment-cars", 4, -29, 49, start=3, scale=1.4)
+    b.tree("tree-west", -33, 32, 1.6)
     return b
 
 
@@ -520,105 +650,119 @@ def build_luxury(spec: AssetSpec) -> Builder:
     return b
 
 
-def build_dealer_asset(spec: AssetSpec, modern: bool) -> Builder:
+def build_dealer_asset(spec, modern):
     b = Builder(spec)
     b.lot("Asphalt", accent="Brand_Blue")
+    b.mass("showroom", -9, 13, 54, 39, 20, wall="Facade_White", cap="Brand_Blue", windowed=False, side_windows=False)
+    b.shopfront("showroom", -9, -6.8, 49, 11, "Brand_Blue")
+    b.windows("showroom-side", -9, 13, 54, 39, 20, floors=1, glass="Glass_Cyan", frame="Stone_Trim")
     if modern:
-        b.mass("dealer-lower", -10, 12, 54, 43, 17, wall="Facade_White", glass="Glass_Cyan", floors=2, cap="Brand_Blue")
-        b.mass("dealer-upper", -12, 16, 42, 32, 31, wall="Brand_Blue_Dark", glass="Glass_Cyan", floors=4, cap="Brand_Orange")
-        b.entrance("dealer-entry", -9, -9.8, 18, 8, "Brand_Orange")
-        b.box("display-canopy", (25, 24, 1.0), (26, 17, 17), "Brand_Blue", bevel=0.18)
-        for x in (16, 36):
-            b.box(f"display-post-{x}", (0.7, 0.7, 16), (x, 17, 8.5), "Metal", bevel=0.08)
-        b.car("hero-car", 26, 17, 4, rotation=math.radians(90), scale=1.80, suv=True)
-        b.parking_row("dealer-front", 6, -28, 58, start=0, scale=1.58)
-        b.parking_row("dealer-mid", 5, -14, 50, start=3, rotation=-math.radians(90), scale=1.50)
+        b.mass("office-tower", -24, 22, 20, 24, 35, wall="Facade_White", cap="Brand_Orange", floors=3)
+        b.box("roof-terrace", (28, 28, 0.8), (2, 15, 22), "Charcoal", bevel=0.25)
+        b.rooftop("showroom-hvac", 1, 18, 23, scale=1.2)
     else:
-        b.mass("market-hall", -12, 12, 50, 42, 24, wall="Concrete_Warm", glass="Glass_Dark", floors=3, cap="Roof_Blue")
-        b.gable("hipped-roof", -12, 12, 53, 45, 25.1, 8, "Roof_Blue")
-        b.mass("market-office", 26, 12, 22, 36, 30, wall="Facade_White", glass="Glass_Cyan", floors=4, cap="Brand_Orange")
-        b.entrance("market-entry", -12, -9.4, 18, 7, "Brand_Orange")
-        b.parking_row("market-front", 6, -28, 58, start=2, scale=1.58)
-        b.parking_row("market-side", 4, 2, 36, start=5, rotation=0, scale=1.55)
-    b.box("dealer-pylon", (3.2, 2.4, 18), (34, -24, 9.5), "Brand_Blue", bevel=0.20)
-    b.box("dealer-pylon-sign", (12, 2.8, 6), (34, -24, 17), "Warm_White", bevel=0.25, layer="near")
-    b.box("dealer-pylon-mark", (8.5, 0.35, 2.0), (34, -22.5, 17.2), "Brand_Orange", bevel=0.12, layer="near")
+        b.roof_tiles("blue-roof", -9, 13, 56, 41, 21.5, 8, "Roof_Blue")
+    b.sign("dealer-brand", "AUTO CITY", -9, -7.8, 17, 34, 4.4)
+    b.box("display-canopy", (19, 29, 1.5), (28, 16, 12.5), "Brand_Blue", bevel=0.45)
+    for x in (20, 36):
+        for y in (4, 28):
+            b.box("display-column", (0.9, 0.9, 11.5), (x, y, 6.4), "Stone_Trim", bevel=0.16)
+    b.car("hero-car", 28, 12, 4, scale=1.7)
+    b.parking_row("dealer-front", 6, -29, 55, start=0, scale=1.5)
+    b.parking_row("dealer-display", 4, -16, 37, start=2, scale=1.5)
+    b.box("pylon-post", (1.4, 1.4, 18), (33, -15, 9.5), "Stone_Trim", bevel=0.18)
+    b.sign("road-sign", "AUTO", 33, -15, 17, 10, 5)
+    b.planter("dealer-flowers", -24, 35, 23)
+    b.tree("dealer-tree", 33, 34, 1.5)
     return b
 
 
-def build_commercial(spec: AssetSpec) -> Builder:
+def build_commercial(spec):
     if spec.variant == 0:
         return build_dealer_asset(spec, modern=False)
     b = Builder(spec)
-    b.lot("Asphalt", accent="Concrete_Light")
+    b.lot("Asphalt", accent="Stone_Trim")
     if spec.variant == 1:
-        b.mass("gas-shop", 18, 17, 36, 34, 24, wall="Facade_White", glass="Glass_Cyan", floors=3, cap="Brand_Orange")
-        b.box("gas-canopy", (55, 30, 1.4), (-11, -16, 14), "Brand_Blue", bevel=0.25)
-        for x in (-34, 12):
-            for y in (-25, -8):
-                b.box(f"gas-post-{x}-{y}", (0.9, 0.9, 13), (x, y, 7), "Metal", bevel=0.10)
-        for x in (-24, -8, 8):
-            b.box(f"pump-{x}", (3.1, 2.0, 4.4), (x, -16, 2.7), "Warm_White", bevel=0.25, layer="near")
-            b.box(f"pump-accent-{x}", (3.3, 2.2, 0.65), (x, -16, 4.9), "Brand_Orange", bevel=0.10, layer="near")
-        b.box("gas-pylon", (3, 2, 28), (34, -25, 14.5), "Brand_Blue", bevel=0.20)
-        b.box("gas-sign", (11, 2.4, 8), (34, -25, 24), "Brand_Orange", bevel=0.25, layer="near")
-        b.car("fuel-car-a", -26, -16, 0, rotation=0, scale=1.58)
-        b.car("fuel-car-b", 0, -16, 2, rotation=0, scale=1.58)
-    elif spec.variant == 2:
-        b.mass("convenience-store", 0, 9, 66, 50, 28, wall="Facade_White", glass="Glass_Cyan", floors=3, cap="Brand_Blue")
-        b.box("store-band", (67, 0.8, 3.4), (0, -16.4, 22), "Brand_Orange", bevel=0.12, layer="near")
-        b.entrance("store-entry", 0, -16.5, 16, 8, "Brand_Blue")
-        b.parking_row("store-cars", 5, -29, 52, start=1, scale=1.52)
+        b.mass("fuel-shop", 12, 19, 45, 30, 17, wall="Facade_White", cap="Brand_Orange", windowed=False)
+        b.shopfront("fuel-market", 12, 3.7, 36, 8, "Brand_Blue")
+        b.box("fuel-canopy", (57, 29, 2.3), (-9, -16, 14), "Brand_Blue", bevel=0.65)
+        b.box("fuel-fascia", (58, 1.1, 2.0), (-9, -30.2, 14), "Brand_Orange", bevel=0.24)
+        for x in (-31, 12):
+            b.box("fuel-column", (1.2, 1.2, 12), (x, -16, 6.6), "Warm_White", bevel=0.22)
+        for x in (-24, -6, 10):
+            b.box("pump-island", (6, 10, 0.55), (x, -15, 0.9), "Stone_Trim", bevel=0.5)
+            b.box("pump", (2.7, 2.3, 4.8), (x, -15, 3.5), "Warm_White", bevel=0.4)
+            b.box("pump-head", (3, 2.5, 1.3), (x, -15, 5.5), "Brand_Orange", bevel=0.22)
+            b.box("pump-display", (1.7, 0.15, 1.4), (x, -16.25, 4.2), "Glass_Dark", layer="near")
+            b.box("pump-hose", (0.4, 0.6, 3.4), (x + 1.8, -15, 3.1), "Tire", bevel=0.18, layer="near")
+        b.box("fuel-pylon", (2, 2, 22), (33, -24, 11.5), "Stone_Trim", bevel=0.22)
+        b.sign("fuel-brand", "FUEL", 33, -24, 21, 10, 6, "Brand_Orange")
+        b.car("fuel-car", -16, -17, 0, rotation=0)
     elif spec.variant == 3:
-        build_house(b, "restaurant", 0, 9, 62, 49, 31, wall="Facade_Brick", roof="Roof_Orange", hip=True)
-        b.box("restaurant-awning", (48, 6, 1.0), (0, -17, 9), "Awning_Red", bevel=0.18, layer="near")
-        b.entrance("restaurant-entry", 0, -16, 14, 7, "Wood")
-        b.parking_row("restaurant-cars", 5, -29, 50, start=3, scale=1.48)
-    elif spec.variant == 4:
-        b.mass("shopping-podium", 0, 8, 70, 56, 30, wall="Facade_Sand", glass="Glass_Dark", floors=4, cap="Brand_Orange")
-        b.mass("shopping-upper", 8, 14, 50, 38, 48, wall="Facade_White", glass="Glass_Cyan", floors=7, cap="Brand_Blue")
-        b.entrance("shopping-entry", -12, -20.2, 22, 10, "Brand_Orange")
-        b.parking_row("shopping-cars", 5, -29, 50, start=0, scale=1.48)
-    elif spec.variant == 5:
-        b.mass("roadside-store", -5, 10, 62, 52, 34, wall="Facade_Teal", glass="Glass_Cyan", floors=4, cap="Charcoal")
-        b.box("roadside-crown", (66, 55, 3.0), (-5, 10, 34), "Brand_Orange", bevel=0.35)
-        b.entrance("roadside-entry", -5, -16.2, 20, 9, "Brand_Orange")
-        b.box("roadside-pylon", (4, 3, 26), (34, -24, 13.5), "Charcoal", bevel=0.22)
-        b.box("roadside-sign", (12, 3.3, 7), (34, -24, 23), "Brand_Orange", bevel=0.25, layer="near")
-        b.parking_row("roadside-cars", 5, -29, 50, start=2, scale=1.52)
+        b.mass("cafe", -4, 13, 57, 38, 20, wall="Facade_Brick", cap="Stone_Trim", windowed=False)
+        b.roof_tiles("cafe-roof", -4, 13, 60, 41, 21.5, 11, "Roof_Orange")
+        b.shopfront("cafe-windows", -4, -6.4, 46, 8.5, "Awning_Red")
+        b.sign("cafe-sign", "CAFE", -4, -7.1, 16, 19, 4, "Roof_Copper")
+        b.box("cafe-terrace", (58, 13, 0.2), (-4, -17, 0.7), "Concrete_Warm", bevel=0.45)
+        for x in (-24, -7, 10):
+            b.cylinder("cafe-table", 2.6, 0.45, (x, -17, 3.5), "Wood")
+            b.cylinder("table-foot", 0.4, 2.5, (x, -17, 2), "Charcoal", vertices=8)
+            for dx in (-3.8, 3.8):
+                b.box("cafe-chair", (2.1, 2.1, 1.7), (x + dx, -17, 1.5), "Wood", bevel=0.4, layer="props")
+        b.cylinder("umbrella-pole", 0.2, 8, (24, -14, 4.6), "Wood", vertices=8)
+        b.hip("terrace-umbrella", 24, -14, 12, 12, 8.7, 3, "Awning_Red")
+        b.parking_row("cafe-cars", 3, -30, 29, start=3, scale=1.45)
+        b.planter("cafe-garden", 33, 8, 5, 19)
+    elif spec.variant == 6:
+        b.mass("mall", 0, 20, 159, 112, 32, wall="Facade_White", cap="Roof_Copper", floors=3)
+        b.mass("mall-atrium", 0, -15, 52, 50, 49, wall="Facade_Sand", cap="Roof_Copper", floors=4)
+        b.roof_tiles("atrium-roof", 0, -15, 55, 53, 50.8, 15, "Roof_Copper")
+        for x, accent in [(-55, "Awning_Red"), (0, "Brand_Blue"), (55, "Roof_Copper")]:
+            b.shopfront("mall-store", x, -40.4 if x == 0 else -36.4, 40, 14, accent)
+        b.sign("mall-sign", "CITY MARKET", 0, -41.1, 36, 43, 6, "Roof_Copper")
+        b.parking_row("mall-front", 10, -76, 138, start=0, scale=1.5)
+        b.parking_row("mall-middle", 10, -60, 138, start=4, scale=1.5)
+        for x in (-81, 81):
+            b.tree("mall-tree", x, 74, 2)
+            b.planter("mall-planter", x, -12, 5, 30)
     else:
-        b.mass("mall-base", 0, 12, 164, 128, 36, wall="Facade_Sand", glass="Glass_Dark", floors=5, cap="Brand_Blue")
-        b.mass("mall-atrium", 0, -18, 76, 50, 62, wall="Facade_White", glass="Glass_Cyan", floors=8, cap="Brand_Orange")
-        b.mass("mall-west", -58, 24, 42, 76, 47, wall="Facade_Brick", glass="Glass_Gold", floors=6, cap="Roof_Copper")
-        b.mass("mall-east", 58, 24, 42, 76, 47, wall="Facade_Teal", glass="Glass_Cyan", floors=6, cap="Charcoal")
-        b.entrance("mall-entry", 0, -43.5, 28, 13, "Brand_Orange")
-        b.parking_row("mall-front", 10, -76, 138, start=0, scale=1.50)
-        b.parking_row("mall-mid", 10, -60, 138, start=4, scale=1.50)
-        for x in (-80, 80):
-            b.tree(f"mall-tree-{x}", x, 73, 1.4)
+        height = 19 if spec.variant == 2 else 30 if spec.variant == 4 else 23
+        accent = "Brand_Blue" if spec.variant == 2 else "Roof_Copper" if spec.variant == 4 else "Brand_Orange"
+        b.mass("retail-hall", 0, 12, 65, 43, height, wall="Facade_White" if spec.variant != 5 else "Facade_Teal", cap=accent, windowed=False)
+        b.shopfront("retail", 0, -9.8, 58, 10, accent)
+        b.sign("retail-brand", "MART" if spec.variant == 2 else "CITY SHOPS" if spec.variant == 4 else "MOTOR PARTS", 0, -10.4, 16, 39, 4.4, accent)
+        if spec.variant == 4:
+            b.windows("upper-shops", 0, 12, 65, 43, 12, base_z=18, floors=1, frame="Warm_White")
+            b.roof_tiles("retail-roof", 0, 12, 67, 45, 31.5, 10, accent)
+        else:
+            b.box("roof-inset", (59, 37, 0.4), (0, 12, height + 1.55), "Charcoal", bevel=0.2)
+            b.rooftop("retail-hvac", -17, 20, height + 2.5, scale=1.3)
+        b.parking_row("retail-cars", 5, -29, 51, start=spec.variant, scale=1.48)
+        b.planter("retail-hedge", -20, 36, 25)
+        b.tree("retail-tree", 34, 31, 1.45)
     return b
 
 
-def add_loading_doors(b: Builder, name: str, count: int, y: float, width: float, height: float = 10) -> None:
+def add_loading_doors(b, name, count, y, width, height=10):
     span = b.width * 0.60
     for index in range(count):
-        x = -span / 2 + (span * index / max(1, count - 1))
-        b.box(f"{name}-door-{index}", (width, 0.42, height), (x, y, 0.50 + height / 2), "Roller_Door", bevel=0.10, layer="near")
-        b.box(f"{name}-dock-{index}", (width + 1.2, 5.5, 1.2), (x, y - 2.5, 1.1), "Concrete_Dark", bevel=0.15, layer="near")
+        x = -span / 2 + span * index / max(1, count - 1)
+        b.garage_door(f"{name}-{index}", x, y, width, height, "Brand_Orange")
+        b.box(name + "-dock", (width + 1.2, 3.5, 0.8), (x, y - 1.7, 1), "Concrete_Dark", bevel=0.15)
 
 
 def build_industrial(spec: AssetSpec) -> Builder:
     b = Builder(spec)
     b.lot("Concrete_Mid", accent="Safety_Yellow")
     if spec.variant == 0:
-        b.mass("factory-main", -32, 20, 102, 116, 43, wall="Industrial_Blue", glass="Glass_Dark", floors=5, cap="Charcoal")
+        b.mass("factory-main", -32, 20, 102, 116, 43, wall="Industrial_Blue", glass="Glass_Dark", floors=2, cap="Charcoal")
         b.gable("factory-roof", -32, 20, 105, 119, 44, 13, "Roof_Blue")
         b.mass("factory-admin", 53, -15, 56, 64, 48, wall="Facade_White", glass="Glass_Cyan", floors=6, cap="Brand_Orange")
         add_loading_doors(b, "factory", 5, -38.3, 15, 11)
         for x in (-65, -42, -19, 4):
             b.cylinder(f"factory-vent-{x}", 3.1, 13, (x, 40, 61), "Metal", vertices=14, layer="near")
     elif spec.variant in (1, 2):
-        b.mass("warehouse-hall", 0, 5, 166, 59, 39 if spec.variant == 1 else 35, wall="Industrial_Blue" if spec.variant == 1 else "Industrial_Green", glass="Glass_Dark", floors=4, cap="Charcoal")
+        b.mass("warehouse-hall", 0, 5, 166, 59, 39 if spec.variant == 1 else 35, wall="Industrial_Blue" if spec.variant == 1 else "Industrial_Green", glass="Glass_Dark", floors=2, cap="Charcoal")
         b.gable("warehouse-roof", 0, 5, 169, 62, 40 if spec.variant == 1 else 36, 12, "Roof_Blue")
         add_loading_doors(b, "loading", 7 if spec.variant == 2 else 5, -25.0, 15, 10)
         for index, x in enumerate((-70, -45, -20, 5, 30, 55, 70)):
@@ -643,46 +787,64 @@ def build_industrial(spec: AssetSpec) -> Builder:
     return b
 
 
-def tower(
-    b: Builder,
-    name: str,
-    x: float,
-    y: float,
-    width: float,
-    depth: float,
-    height: float,
-    *,
-    wall: str,
-    glass: str,
-    cap: str,
-    setbacks: int = 2,
-) -> None:
-    podium_h = min(24, height * 0.20)
-    b.mass(f"{name}-podium", x, y - depth * 0.08, width * 1.22, depth * 1.18, podium_h, wall=wall, glass=glass, floors=max(2, round(podium_h / 7)), cap=cap)
-    current_z = 0.50 + podium_h
-    remaining = height - podium_h
-    for index in range(setbacks):
-        tier_h = remaining / setbacks
-        scale = 1.0 - index * 0.14
-        w = width * scale
-        d = depth * scale
-        z_center = current_z + tier_h / 2
-        b.box(f"{name}-tier-{index}", (w, d, tier_h), (x + index * width * 0.035, y + index * depth * 0.025, z_center), wall, bevel=0.32)
-        b.windows(
-            f"{name}-tier-{index}",
-            x + index * width * 0.035,
-            y + index * depth * 0.025,
-            w,
-            d,
-            tier_h,
-            base_z=current_z,
-            floors=max(2, round(tier_h / 7)),
-            glass=glass,
-            frame=cap,
-        )
-        b.box(f"{name}-ledge-{index}", (w + 1.1, d + 1.1, 0.75), (x + index * width * 0.035, y + index * depth * 0.025, current_z + tier_h), cap, bevel=0.12, layer="near")
-        current_z += tier_h
-    b.rooftop(f"{name}-hvac", x, y, height + 2.1, scale=1.4)
+def tower(b, name, x, y, width, depth, height, *, wall, glass, cap):
+    """A vertical tower over a low street podium, with a flat service roof.
+
+    The floor plate is constant from the lobby to the crown. Identity comes
+    from the facade, balconies and adjacent wings, never a pyramid of tiers.
+    """
+    podium_h = min(13, height * 0.10)
+    glazed = wall in {"Brand_Blue_Dark", "Facade_Teal"}
+    residential = "apartment" in name or "residential" in name
+    trim = "Metal" if glazed else "Stone_Trim"
+    b.mass(name + "-street-podium", x, y - depth * 0.07,
+           width * 1.18, depth * 1.16, podium_h,
+           wall="Facade_White" if glazed else wall, glass=glass, floors=1,
+           cap=trim)
+    shaft_h = height - podium_h
+    base = podium_h + 0.5
+    b.box(name + "-vertical-shaft", (width, depth, shaft_h),
+          (x, y, base + shaft_h / 2), "Glass_Cyan" if glazed else wall,
+          bevel=0.55)
+    floors = max(4, round(shaft_h / 8.6))
+    b.windows(name + "-tower-facade", x, y, width, depth, shaft_h,
+              base_z=base, floors=floors, glass=glass,
+              frame="Metal" if glazed else "Warm_White")
+    # Full-height corner piers emphasise parallel, vertical edges.
+    for dx in (-1, 1):
+        for dy in (-1, 1):
+            b.box(name + "-corner-pier", (1.0, 1.0, shaft_h),
+                  (x + dx * (width/2 - 0.25), y + dy * (depth/2 - 0.25), base + shaft_h/2),
+                  trim, bevel=0.14)
+    if glazed:
+        for dx in (-width * 0.25, width * 0.25):
+            for dy in (-1, 1):
+                b.box(name + "-vertical-mullion", (0.5, 0.7, shaft_h),
+                      (x + dx, y + dy * (depth/2 + 0.28), base + shaft_h/2), trim)
+    if residential:
+        for floor in range(1, floors):
+            z = base + shaft_h * floor / floors
+            for side in (-1, 1):
+                py = y + side * (depth/2 + 1.2)
+                b.box(name + "-balcony-floor", (width * 0.87, 3.2, 0.55),
+                      (x, py, z), "Stone_Trim", bevel=0.12)
+                b.box(name + "-balcony-glass", (width * 0.85, 0.35, 1.8),
+                      (x, py + side * 1.35, z + 1.25), "Glass_Cyan", layer="near")
+    # A thin parapet, recessed roof and modest mechanical room finish the
+    # full-width shaft. There are no repeated setbacks or oversized roof plates.
+    b.box(name + "-roof-deck", (width + 0.7, depth + 0.7, 0.9),
+          (x, y, height + 0.95), trim, bevel=0.18)
+    b.box(name + "-roof-inset", (width - 2, depth - 2, 0.30),
+          (x, y, height + 1.6), "Charcoal", bevel=0.12)
+    for dy in (-1, 1):
+        b.box(name + "-parapet", (width, 0.75, 1.25),
+              (x, y + dy * (depth/2 - 0.3), height + 1.9), trim, bevel=0.14)
+    for dx in (-1, 1):
+        b.box(name + "-parapet-side", (0.75, depth, 1.25),
+              (x + dx * (width/2 - 0.3), y, height + 1.9), trim, bevel=0.14)
+    b.box(name + "-mechanical-room", (width * 0.32, depth * 0.32, 4.8),
+          (x + width * 0.12, y + depth * 0.12, height + 3.7), "Concrete_Mid", bevel=0.28)
+    b.rooftop(name + "-hvac", x - width * 0.22, y - depth * 0.16, height + 2.6, scale=1.25)
 
 
 def build_downtown(spec: AssetSpec) -> Builder:
@@ -701,29 +863,29 @@ def build_downtown(spec: AssetSpec) -> Builder:
 
     if spec.cells_w == 4:
         configs = {
-            0: ("mixed", 0, 7, 43, 41, 112, "Facade_Brick", "Glass_Gold", "Roof_Copper", 3),
-            1: ("office", 0, 8, 44, 42, 145, "Brand_Blue_Dark", "Glass_Cyan", "Metal", 3),
-            2: ("apartment", -4, 8, 48, 44, 128, "Facade_Sand", "Glass_Dark", "Roof_Copper", 3),
-            4: ("corner", 9, 6, 45, 43, 154, "Facade_Teal", "Glass_Cyan", "Brand_Orange", 4),
+            0: ("mixed", 0, 7, 43, 41, 112, "Facade_Brick", "Glass_Gold", "Roof_Copper"),
+            1: ("office", 0, 8, 44, 42, 145, "Brand_Blue_Dark", "Glass_Cyan", "Metal"),
+            2: ("apartment", -4, 8, 48, 44, 128, "Facade_Sand", "Glass_Dark", "Roof_Copper"),
+            4: ("corner", 9, 6, 45, 43, 154, "Facade_Teal", "Glass_Cyan", "Brand_Orange"),
         }
-        name, x, y, w, d, h, wall, glass, cap, tiers = configs[spec.variant]
-        tower(b, name, x, y, w, d, h, wall=wall, glass=glass, cap=cap, setbacks=tiers)
+        name, x, y, w, d, h, wall, glass, cap = configs[spec.variant]
+        tower(b, name, x, y, w, d, h, wall=wall, glass=glass, cap=cap)
         b.mass(f"{name}-streetwing", -23, -4, 24, 55, 38, wall="Facade_White", glass=glass, floors=5, cap=cap)
         b.entrance(f"{name}-entry", x, y - d * 0.59 - 0.5, 15, 10, cap)
     elif spec.variant == 5:
-        tower(b, "plaza-main", -43, 8, 47, 42, 172, wall="Brand_Blue_Dark", glass="Glass_Cyan", cap="Metal", setbacks=4)
-        tower(b, "plaza-side", 43, 12, 43, 39, 118, wall="Facade_White", glass="Glass_Dark", cap="Brand_Orange", setbacks=3)
+        tower(b, "plaza-main", -43, 8, 47, 42, 172, wall="Brand_Blue_Dark", glass="Glass_Cyan", cap="Metal")
+        tower(b, "plaza-side", 43, 12, 43, 39, 118, wall="Facade_White", glass="Glass_Dark", cap="Brand_Orange")
         b.box("plaza-water", (45, 21, 0.30), (0, -22, 0.72), "Pool_Tile", bevel=0.50, layer="near")
         b.tree("plaza-tree-a", -10, -25, 1.25)
         b.tree("plaza-tree-b", 12, -25, 1.25)
     elif spec.variant == 6:
-        tower(b, "twin-west", -45, 8, 46, 42, 186, wall="Brand_Blue_Dark", glass="Glass_Cyan", cap="Metal", setbacks=4)
-        tower(b, "twin-east", 45, 8, 46, 42, 174, wall="Facade_Teal", glass="Glass_Cyan", cap="Brand_Orange", setbacks=4)
+        tower(b, "twin-west", -45, 8, 46, 42, 186, wall="Brand_Blue_Dark", glass="Glass_Cyan", cap="Metal")
+        tower(b, "twin-east", 45, 8, 46, 42, 174, wall="Facade_Teal", glass="Glass_Cyan", cap="Brand_Orange")
         b.mass("twin-link", 0, 10, 50, 45, 36, wall="Facade_White", glass="Glass_Gold", floors=5, cap="Brand_Orange")
         b.entrance("twin-entry", 0, -13.0, 18, 11, "Brand_Orange")
     else:
-        tower(b, "residential-main", -35, 8, 48, 42, 158, wall="Facade_Sand", glass="Glass_Dark", cap="Roof_Copper", setbacks=4)
-        tower(b, "residential-side", 43, 10, 42, 38, 126, wall="Facade_Brick", glass="Glass_Gold", cap="Roof_Copper", setbacks=3)
+        tower(b, "residential-main", -35, 8, 48, 42, 158, wall="Facade_Sand", glass="Glass_Dark", cap="Roof_Copper")
+        tower(b, "residential-side", 43, 10, 42, 38, 126, wall="Facade_Brick", glass="Glass_Gold", cap="Roof_Copper")
         for x in (-45, -25, 32, 52):
             b.box(f"residential-balcony-{x}", (18, 4.0, 0.55), (x, -12, 66), "Concrete_Light", bevel=0.10, layer="near")
     return b
@@ -764,37 +926,42 @@ def build_parking(spec: AssetSpec) -> Builder:
     return b
 
 
-def build_workshop(b: Builder, *, body_shop: bool = False) -> None:
+def build_workshop(b, *, body_shop=False):
     accent = "Brand_Orange" if body_shop else "Brand_Blue"
     b.lot("Asphalt", accent=accent)
-    b.mass("workshop-hall", 0, 8, b.width * 0.88, b.depth * 0.60, 30 if body_shop else 27, wall="Concrete_Dark", glass="Glass_Dark", floors=3, cap=accent, windowed=False)
-    door_count = 2 if b.width <= 40 else 3
-    door_span = b.width * 0.58
-    for index in range(door_count):
-        x = -door_span / 2 + door_span * index / max(1, door_count - 1)
-        b.box(f"service-door-{index}", (11, 0.42, 12), (x, -b.depth * 0.20 - 0.2, 6.5), "Roller_Door", bevel=0.10, layer="near")
-        b.box(f"service-door-band-{index}", (11.5, 0.55, 1.0), (x, -b.depth * 0.20 - 0.45, 13), accent, bevel=0.10, layer="near")
-    b.mass("workshop-office", -b.width * 0.29, b.depth * 0.31, b.width * 0.25, b.depth * 0.22, 36 if body_shop else 31, wall="Facade_White", glass="Glass_Cyan", floors=4, cap=accent)
-    count = 3 if b.width >= 40 else 2
-    b.parking_row("workshop-cars", count, -b.depth * 0.37, b.width * 0.56, start=2 if body_shop else 0, scale=1.48)
+    w, d = b.width * 0.86, b.depth * 0.55
+    y = b.depth * 0.16
+    b.mass("service-hall", 0, y, w, d, 18, wall="Facade_White", cap=accent, windowed=False)
+    b.gable("service-roof", 0, y, w + 1.4, d + 1.4, 19.5, 5.5, "Roof_Blue")
+    for i in range(2):
+        x = (i - 0.5) * w * 0.48
+        b.garage_door("service-bay", x, y - d / 2 - 0.3, w * 0.37, 10.5, accent)
+    b.sign("service-sign", "BODY SHOP" if body_shop else "SERVICE", 0, y - d / 2 - 0.9, 15.2, w * 0.82, 3, accent)
+    b.rooftop("service-extractor", 0, y + 3, 24.5, scale=0.9)
+    b.parking_row("service-cars", 3, -b.depth * 0.36, b.width * 0.55, start=2 if body_shop else 0, scale=1.38)
+    b.planter("service-hedge", 0, b.depth * 0.46, b.width * 0.72, 2)
 
 
 def build_player(spec: AssetSpec) -> Builder:
     if spec.variant == 2:
         return build_dealer_asset(spec, modern=True)
     b = Builder(spec)
-    if spec.variant == 0:
+    if spec.variant in (0, 1):
+        small = spec.variant == 0
         b.lot("Asphalt", accent="Brand_Blue")
-        b.mass("small-showroom", 0, 5, 34, 22, 22, wall="Facade_White", glass="Glass_Cyan", floors=3, cap="Brand_Blue")
-        b.entrance("small-entry", 0, -6.2, 10, 6.5, "Brand_Orange")
-        b.parking_row("small-cars", 4, -13, 27, start=0, scale=1.32)
-    elif spec.variant == 1:
-        b.lot("Asphalt", accent="Brand_Blue")
-        b.mass("medium-showroom", -6, 8, 46, 34, 28, wall="Facade_White", glass="Glass_Cyan", floors=4, cap="Brand_Blue")
-        b.mass("medium-office", 20, 12, 15, 28, 38, wall="Brand_Blue_Dark", glass="Glass_Cyan", floors=5, cap="Brand_Orange")
-        b.entrance("medium-entry", -6, -9.2, 14, 7.5, "Brand_Orange")
-        b.parking_row("medium-front", 5, -22, 45, start=0, scale=1.42)
-        b.parking_row("medium-mid", 4, -10, 35, start=3, scale=1.40)
+        w, d = (33, 22) if small else (49, 32)
+        x, y = (0, 5) if small else (-3, 10)
+        height = 15 if small else 21
+        b.mass("showroom", x, y, w, d, height, wall="Facade_White", cap="Brand_Blue", windowed=False, side_windows=False)
+        b.shopfront("showroom-front", x, y - d / 2 - 0.3, w * 0.9, height * 0.50, "Brand_Blue")
+        b.sign("showroom-brand", "AUTO CITY", x, y - d / 2 - 0.8, height * 0.81, w * 0.81, 2.8 if small else 4)
+        b.box("showroom-roof", (w - 2, d - 2, 0.5), (x, y, height + 1.6), "Charcoal", bevel=0.2)
+        b.rooftop("showroom-ac", x - w * 0.24, y + 3, height + 2.3, scale=0.8 if small else 1.2)
+        b.windows("showroom-side", x, y, w, d, height, floors=1, frame="Stone_Trim", glass="Glass_Cyan")
+        b.parking_row("showroom-cars", 4 if small else 5, -13 if small else -22, 26 if small else 44, start=0, scale=1.3 if small else 1.42)
+        if not small:
+            b.mass("dealer-office", 17, 17, 14, 18, 31, wall="Facade_White", cap="Brand_Orange", floors=3)
+            b.planter("dealer-garden", -15, 27, 20, 2)
     elif spec.variant == 3:
         b.lot("Asphalt", accent="Brand_Blue")
         for row, y in enumerate((-12, 0, 12)):
@@ -804,10 +971,13 @@ def build_player(spec: AssetSpec) -> Builder:
         build_workshop(b, body_shop=spec.variant == 5)
     elif spec.variant == 6:
         b.lot("Asphalt", accent="Brand_Blue")
-        b.mass("wash-tunnel", 0, 3, 17, 28, 21, wall="Brand_Blue_Dark", glass="Glass_Cyan", floors=2, cap="Brand_Orange", windowed=False)
-        for y in (-9, -2, 5, 12):
-            b.box(f"wash-arch-{y}", (18, 1.0, 18), (0, y, 9.5), "Brand_Blue", bevel=0.22, layer="near")
-        b.car("wash-car", 0, -13, 1, rotation=0, scale=1.30)
+        for x in (-7.2, 7.2):
+            b.box("wash-sidewall", (3, 26, 14), (x, 3, 7.5), "Facade_White", bevel=0.45)
+            for y in (-5, 5, 12):
+                b.cylinder("wash-brush", 1.25, 8, (x * 0.67, y, 5.0), "Brand_Blue", vertices=14, layer="near")
+        b.box("wash-roof", (18.5, 28, 2), (0, 3, 15), "Brand_Blue", bevel=0.65)
+        b.sign("wash-sign", "WASH", 0, -11.5, 13.4, 14, 3, "Brand_Blue")
+        b.car("wash-car", 0, -13, 1, rotation=0, scale=1.3)
     elif spec.variant == 7:
         b.lot("Asphalt", accent="Brand_Blue")
         for row, y in enumerate((-20, -7, 7, 20)):
@@ -838,7 +1008,7 @@ def build_player(spec: AssetSpec) -> Builder:
         b.parking_row("player-trucks", 5, -30, 50, start=2, scale=1.52)
     else:
         b.lot("Concrete_Light", accent="Brand_Blue")
-        tower(b, "headquarters", 0, 4, 37, 35, 128, wall="Brand_Blue_Dark", glass="Glass_Cyan", cap="Brand_Orange", setbacks=4)
+        tower(b, "headquarters", 0, 4, 37, 35, 128, wall="Brand_Blue_Dark", glass="Glass_Cyan", cap="Brand_Orange")
         b.mass("hq-podium", 0, 6, 54, 43, 30, wall="Facade_White", glass="Glass_Cyan", floors=4, cap="Brand_Blue")
         b.entrance("hq-entry", 0, -16, 18, 10, "Brand_Orange")
         b.box("hq-water", (34, 10, 0.30), (0, -23, 0.72), "Pool_Tile", bevel=0.30, layer="near")
@@ -871,56 +1041,53 @@ def convert_and_merge(builder: Builder) -> dict[str, int | float]:
         scene.collection.children.link(collection)
     bpy.context.view_layer.update()
 
-    mesh_objects: list[bpy.types.Object] = []
+    # Read evaluated geometry directly instead of invoking an operator for
+    # each tiny window/roof piece. The output is one mesh per material and LOD,
+    # in world coordinates, so rotated roof seams cannot inflate export bounds.
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    grouped = {}
     for obj in list(collection.all_objects):
         if obj.type not in {"MESH", "CURVE", "FONT"}:
             continue
+        temporary = obj.type != "MESH" or bool(obj.modifiers)
+        mesh = bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph), depsgraph=depsgraph) if temporary else obj.data
+        if mesh is None:
+            continue
         layer = obj.get("lod_layer", "main")
-        matrix = obj.matrix_world.copy()
-        bpy.ops.object.select_all(action="DESELECT")
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-        if obj.type != "MESH" or obj.modifiers:
-            bpy.ops.object.convert(target="MESH")
-            obj = bpy.context.view_layer.objects.active
-        obj["lod_layer"] = layer
-        obj.parent = None
-        obj.matrix_world = matrix
-        mesh_objects.append(obj)
+        material = mesh.materials[0] if mesh.materials else dealer.MATERIALS["Concrete_Light"]
+        key = (layer, material.name)
+        vertices, faces, smoothing = grouped.setdefault(key, ([], [], []))
+        offset = len(vertices)
+        matrix = obj.matrix_world
+        vertices.extend(tuple(matrix @ vertex.co) for vertex in mesh.vertices)
+        faces.extend(tuple(offset + i for i in polygon.vertices) for polygon in mesh.polygons)
+        smoothing.extend(polygon.use_smooth for polygon in mesh.polygons)
+        if temporary:
+            bpy.data.meshes.remove(mesh)
 
     for obj in list(collection.all_objects):
-        if obj.type == "EMPTY":
-            bpy.data.objects.remove(obj, do_unlink=True)
-
+        bpy.data.objects.remove(obj, do_unlink=True)
     root = dealer.empty(f"ROOT_{builder.spec.asset_id}", collection)
     root["city_asset_id"] = builder.spec.asset_id
     near = dealer.empty("near-details", collection)
     props = dealer.empty("prop-details", collection)
     near.parent = root
     props.parent = root
-
-    grouped: dict[tuple[str, str], list[bpy.types.Object]] = {}
-    for obj in mesh_objects:
-        layer = obj.get("lod_layer", "main")
-        material_name = obj.data.materials[0].name if obj.data.materials else "NoMaterial"
-        grouped.setdefault((layer, material_name), []).append(obj)
-
     joined_count = 0
     polygon_count = 0
-    for (layer, material_name), objects in sorted(grouped.items()):
-        bpy.ops.object.select_all(action="DESELECT")
-        for obj in objects:
-            obj.select_set(True)
-        active = objects[0]
-        bpy.context.view_layer.objects.active = active
-        if len(objects) > 1:
-            bpy.ops.object.join()
-        active = bpy.context.view_layer.objects.active
-        active.name = f"{layer}-{material_name}"
-        active.parent = near if layer == "near" else props if layer == "props" else root
-        active["lod_layer"] = layer
+    for (layer, material_name), (vertices, faces, smoothing) in sorted(grouped.items()):
+        mesh = bpy.data.meshes.new(f"{layer}-{material_name}")
+        mesh.from_pydata(vertices, [], faces)
+        mesh.materials.append(dealer.MATERIALS[material_name])
+        for polygon, smooth in zip(mesh.polygons, smoothing):
+            polygon.use_smooth = smooth
+        mesh.update()
+        node = bpy.data.objects.new(f"{layer}-{material_name}", mesh)
+        collection.objects.link(node)
+        node.parent = near if layer == "near" else props if layer == "props" else root
+        node["lod_layer"] = layer
         joined_count += 1
-        polygon_count += len(active.data.polygons)
+        polygon_count += len(faces)
 
     bpy.context.view_layer.update()
     bounds = []
@@ -935,7 +1102,7 @@ def convert_and_merge(builder: Builder) -> dict[str, int | float]:
     min_y = min(point.y for point in bounds)
     max_y = max(point.y for point in bounds)
     if min_z < -0.0001:
-        raise RuntimeError(f"{builder.spec.asset_id} extends below ground: {min_z}")
+        raise RuntimeError(f"{builder.spec.asset_id} extends below ground: {min_z}; " + str([(o.name, min((o.matrix_world @ Vector(v)).z for v in o.bound_box)) for o in collection.all_objects if o.type == "MESH" and min((o.matrix_world @ Vector(v)).z for v in o.bound_box) < -0.001]))
     if min_x < -builder.width / 2 - 0.001 or max_x > builder.width / 2 + 0.001:
         raise RuntimeError(f"{builder.spec.asset_id} exceeds footprint width: {min_x}...{max_x}")
     if min_y < -builder.depth / 2 - 0.001 or max_y > builder.depth / 2 + 0.001:
@@ -1008,13 +1175,15 @@ def make_preview_scene(
         instance.location = (x, y, 0)
         preview_collection.objects.link(instance)
 
-    rig = dealer.configure_render(scene, 1600, 1000)
+    rig = dealer.configure_render(scene, 1600, 1100)
+    scene.view_settings.exposure = 0
+    scene.view_settings.view_transform = "Standard"
     dealer.add_render_rig(
         scene,
         rig,
         camera_location=(310, -350, 315),
-        target=(0, 0, 25),
-        ortho_scale=ortho_scale,
+        target=(0, 0, 65 if name == "downtown" else 25),
+        ortho_scale=ortho_scale * (1.15 if name == "downtown" else 1),
         backdrop_size=(1200, 900),
     )
     scene.render.filepath = str(PREVIEW_DIR / f"{name}.png")
@@ -1034,11 +1203,14 @@ def main() -> None:
     builders: list[Builder] = []
     manifest_entries = []
     for index, spec in enumerate(ASSETS, start=1):
-        print(f"[{index:02d}/{len(ASSETS)}] Building {spec.asset_id}")
+        print(f"[{index:02d}/{len(ASSETS)}] Building {spec.asset_id}", flush=True)
         bpy.context.window.scene = bpy.data.scenes["Library_Work"]
         builder = build_asset(spec)
         metrics = convert_and_merge(builder)
         export_path = export_usdz(builder)
+        # Each export scene keeps its asset alive. Remove finished collections
+        # from the work scene so later builders do not reevaluate the whole city.
+        bpy.data.scenes["Library_Work"].collection.children.unlink(builder.collection)
         manifest_entries.append({
             **asdict(spec),
             "width": spec.width,
@@ -1064,7 +1236,7 @@ def main() -> None:
     ]
     for scene in preview_scenes:
         bpy.context.window.scene = scene
-        print(f"Rendering {scene.render.filepath}")
+        print(f"Rendering {scene.render.filepath}", flush=True)
         bpy.ops.render.render(write_still=True)
 
     manifest = {
@@ -1078,6 +1250,7 @@ def main() -> None:
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
     bpy.context.window.scene = preview_scenes[-1]
+    bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH), compress=True)
     print(f"Saved {BLEND_PATH}")
 

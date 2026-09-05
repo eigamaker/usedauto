@@ -582,6 +582,7 @@ private final class GridCitySceneController {
         buildTerrainGround()
         buildParcelNodes()
         buildRoadNetwork()
+        buildStreetscape()
         buildBridgeFurniture()
         buildStaticObjectNodes()
         buildVacantMarkers()
@@ -775,6 +776,146 @@ private final class GridCitySceneController {
         }
         scene.rootNode.addChildNode(makeLaneMarkingNode())
         scene.rootNode.addChildNode(makeCrosswalkNode())
+    }
+
+    /// Street furniture is merged by material: thousands of curb segments cost
+    /// a handful of draw calls, and never participate in parcel hit testing.
+    private func buildStreetscape() {
+        struct StreetBox {
+            let center: SCNVector3
+            let size: SCNVector3
+        }
+        var batches: [String: [StreetBox]] = [:]
+        let colors: [String: UIColor] = [
+            "curb": UIColor(red: 0.79, green: 0.78, blue: 0.67, alpha: 1),
+            "iron": UIColor(red: 0.19, green: 0.28, blue: 0.31, alpha: 1),
+            "light": UIColor(red: 1.0, green: 0.89, blue: 0.58, alpha: 1),
+            "timber": UIColor(red: 0.55, green: 0.32, blue: 0.17, alpha: 1),
+            "planter": UIColor(red: 0.33, green: 0.49, blue: 0.22, alpha: 1)
+        ]
+        func add(_ color: String, _ x: Float, _ y: Float, _ z: Float,
+                 _ width: Float, _ height: Float, _ depth: Float) {
+            batches[color, default: []].append(StreetBox(
+                center: SCNVector3(x, y, z), size: SCNVector3(width, height, depth)
+            ))
+        }
+        let cell = map.metrics.cellSize
+        let greenery = SCNNode()
+        greenery.name = "boulevard-planters"
+        let traffic = SCNNode()
+        let near = SCNNode()
+        near.name = CityBuildingFactory.nearDetailNodeName
+        let vehicles = SCNNode()
+        vehicles.name = CityBuildingFactory.propDetailNodeName
+        traffic.addChildNode(near)
+        traffic.addChildNode(vehicles)
+        for road in map.roads.values.sorted(by: { $0.coordinate < $1.coordinate }) {
+            guard road.roadClass != .expressway,
+                  groundKind(at: road.coordinate) != .water else { continue }
+            let ns = road.connections.contains(.north) && road.connections.contains(.south)
+            let ew = road.connections.contains(.east) && road.connections.contains(.west)
+            guard ns != ew, road.connections.directions.count == 2 else { continue }
+            let center = map.metrics.worldCenter(of: road.coordinate, mapSize: map.size)
+            let edge = road.roadClass.pavementWidth(cellSize: cell) / 2 + 0.22
+            for side: Float in [-1, 1] {
+                add("curb", center.x + (ns ? side * edge : 0), 0.69,
+                    center.z + (ns ? 0 : side * edge), ns ? 0.48 : cell, 0.40, ns ? cell : 0.48)
+                // Expansion joints subtly break up the long pavement edge.
+                for offset: Float in [-6, 0, 6] {
+                    add("iron", center.x + (ns ? side * edge : offset), 0.899,
+                        center.z + (ns ? offset : side * edge), ns ? 0.48 : 0.1, 0.02, ns ? 0.1 : 0.48)
+                }
+            }
+            let index = road.coordinate.column + road.coordinate.row
+            let trafficSeed = road.coordinate.column * 31 + road.coordinate.row * 17
+            if trafficSeed % 29 == 4 {
+                let side: Float = trafficSeed.isMultiple(of: 2) ? 1 : -1
+                let lane = road.roadClass.pavementWidth(cellSize: cell) * 0.25
+                let vehicle = assetFactory.makeStreetVehicle(variant: trafficSeed / 29)
+                vehicle.position = SCNVector3(center.x + (ns ? side * lane : 0),
+                                              GridSceneElevation.pavementSurface,
+                                              center.z + (ns ? 0 : side * lane))
+                vehicle.eulerAngles.y = ns ? (side > 0 ? -.pi / 2 : .pi / 2) : (side > 0 ? 0 : .pi)
+                vehicles.addChildNode(vehicle)
+            }
+            // Lamps stand entirely on the sidewalk; the local streets have
+            // room for wider tree pits, while arterial footways remain clear.
+            if index.isMultiple(of: 5) {
+                let side: Float = (index / 5).isMultiple(of: 2) ? 1 : -1
+                let offset = min(cell / 2 - 0.42, edge + 0.95)
+                let x = center.x + (ns ? side * offset : 0)
+                let z = center.z + (ns ? 0 : side * offset)
+                add("iron", x, 4.9, z, 0.40, 8.7, 0.40)
+                add("curb", x, 0.9, z, 0.85, 0.8, 0.85)
+                add("iron", x - (ns ? side * 0.8 : 0), 9.2,
+                    z - (ns ? 0 : side * 0.8), ns ? 2.1 : 0.6, 0.4, ns ? 0.6 : 2.1)
+                add("light", x - (ns ? side * 1.4 : 0), 8.95,
+                    z - (ns ? 0 : side * 1.4), 0.8, 0.12, 0.8)
+            }
+            if road.roadClass == .local, index.isMultiple(of: 7) {
+                let side: Float = (index / 7).isMultiple(of: 2) ? -1 : 1
+                let offset = edge + 0.9
+                let x = center.x + (ns ? side * offset : 0)
+                let z = center.z + (ns ? 0 : side * offset)
+                add("curb", x, 0.82, z, 1.8, 0.55, 1.8)
+                add("planter", x, 1.18, z, 1.45, 0.2, 1.45)
+                let tree = makeTreeNode(broadleaf: true, scale: 1.1)
+                tree.position = SCNVector3(x, 0.7, z)
+                greenery.addChildNode(tree)
+            }
+        }
+        // Small civic gardens give the plazas a human scale between towers.
+        for (coordinate, terrain) in map.terrain.sorted(by: { $0.key < $1.key }) {
+            guard terrain == .plaza, (coordinate.column + coordinate.row).isMultiple(of: 3),
+                  map.roads[coordinate] == nil, map.parcel(at: coordinate) == nil else { continue }
+            let center = map.metrics.worldCenter(of: coordinate, mapSize: map.size)
+            add("curb", center.x, 0.9, center.z, 6.8, 1.0, 3.8)
+            add("planter", center.x, 1.8, center.z, 6.2, 1.3, 3.2)
+            add("timber", center.x, 1.5, center.z + 4.3, 5.0, 0.45, 1.8)
+            add("timber", center.x, 2.3, center.z + 5.1, 5.0, 1.4, 0.30)
+            for dx: Float in [-1.8, 1.8] {
+                add("iron", center.x + dx, 0.95, center.z + 4.3, 0.35, 1.1, 1.5)
+            }
+        }
+        let faces: [([Int], SCNVector3)] = [
+            ([0, 3, 2, 1], SCNVector3(0, 0, -1)),
+            ([4, 5, 6, 7], SCNVector3(0, 0, 1)),
+            ([0, 4, 7, 3], SCNVector3(-1, 0, 0)),
+            ([1, 2, 6, 5], SCNVector3(1, 0, 0)),
+            ([3, 7, 6, 2], SCNVector3(0, 1, 0)),
+            ([0, 1, 5, 4], SCNVector3(0, -1, 0))
+        ]
+        for key in batches.keys.sorted() {
+            var vertices: [SCNVector3] = []
+            var normals: [SCNVector3] = []
+            var indices: [UInt32] = []
+            for box in batches[key, default: []] {
+                let c = box.center, w = box.size.x / 2, h = box.size.y / 2, d = box.size.z / 2
+                let corners = [
+                    SCNVector3(c.x-w,c.y-h,c.z-d), SCNVector3(c.x+w,c.y-h,c.z-d),
+                    SCNVector3(c.x+w,c.y+h,c.z-d), SCNVector3(c.x-w,c.y+h,c.z-d),
+                    SCNVector3(c.x-w,c.y-h,c.z+d), SCNVector3(c.x+w,c.y-h,c.z+d),
+                    SCNVector3(c.x+w,c.y+h,c.z+d), SCNVector3(c.x-w,c.y+h,c.z+d)
+                ]
+                for (face, normal) in faces {
+                    let start = UInt32(vertices.count)
+                    vertices.append(contentsOf: face.map { corners[$0] })
+                    normals.append(contentsOf: Array(repeating: normal, count: 4))
+                    indices.append(contentsOf: [start, start+1, start+2, start, start+2, start+3])
+                }
+            }
+            let geometry = SCNGeometry(sources: [SCNGeometrySource(vertices: vertices), SCNGeometrySource(normals: normals)],
+                                       elements: [SCNGeometryElement(indices: indices, primitiveType: .triangles)])
+            geometry.firstMaterial = material(color: colors[key] ?? .white)
+            let node = SCNNode(geometry: geometry)
+            node.name = "streetscape-\(key)"
+            node.castsShadow = false
+            scene.rootNode.addChildNode(node)
+        }
+        scene.rootNode.addChildNode(greenery)
+        traffic.name = "street-traffic"
+        scene.rootNode.addChildNode(traffic)
+        registerAssetLODNodes(for: traffic)
     }
 
     private func makeSidewalkNode() -> SCNNode {
@@ -1429,7 +1570,7 @@ private final class GridCitySceneController {
         ambientLight.type = .ambient
         // A restrained cool ambient fill; the warm key light carries the
         // modelling and the soft shadow pass gives the town its depth.
-        ambientLight.intensity = 520
+        ambientLight.intensity = 380
         ambientLight.color = UIColor(red: 0.74, green: 0.84, blue: 0.94, alpha: 1)
         let ambient = SCNNode()
         ambient.light = ambientLight
@@ -1437,17 +1578,24 @@ private final class GridCitySceneController {
 
         let directionalLight = SCNLight()
         directionalLight.type = .directional
-        directionalLight.intensity = 1_450
-        directionalLight.color = UIColor(red: 1, green: 0.91, blue: 0.71, alpha: 1)
-        // Shadow maps under a fixed orthographic camera produced acne on
-        // faceted roofs while ground shadows stayed invisible, so depth-map
-        // shadows stay off. Grounding comes from baked blob shadows that
-        // every building and tree carries, which is also much cheaper.
-        directionalLight.castsShadow = false
+        directionalLight.intensity = 1_050
+        directionalLight.color = UIColor(red: 1, green: 0.94, blue: 0.82, alpha: 1)
+        // The camera is ~1,560 world units from the street, well beyond
+        // SceneKit's default 100-unit shadow range. Fit cascades to the city.
+        directionalLight.castsShadow = true
+        directionalLight.shadowMode = .forward
+        directionalLight.shadowMapSize = CGSize(width: 2048, height: 2048)
+        directionalLight.shadowCascadeCount = 2
+        directionalLight.maximumShadowDistance = 3_500
+        directionalLight.shadowSampleCount = 8
+        directionalLight.shadowRadius = 3
+        directionalLight.shadowBias = 2
+        directionalLight.forcesBackFaceCasters = true
+        directionalLight.shadowColor = UIColor(red: 0.16, green: 0.23, blue: 0.29, alpha: 0.32)
         let directional = SCNNode()
         directional.light = directionalLight
         let mapCenter = map.metrics.worldBounds(of: map.size).center
-        directional.position = SCNVector3(mapCenter.x + 850, 1_150, mapCenter.z + 1_250)
+        directional.position = SCNVector3(mapCenter.x - 850, 1_450, mapCenter.z + 650)
         directional.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
         scene.rootNode.addChildNode(directional)
 
@@ -1455,11 +1603,11 @@ private final class GridCitySceneController {
         // from their shaded walls without flattening the warm key light.
         let fillLight = SCNLight()
         fillLight.type = .directional
-        fillLight.intensity = 280
+        fillLight.intensity = 160
         fillLight.color = UIColor(red: 0.54, green: 0.73, blue: 1.00, alpha: 1)
         let fill = SCNNode()
         fill.light = fillLight
-        fill.position = SCNVector3(mapCenter.x - 900, 720, mapCenter.z - 1_050)
+        fill.position = SCNVector3(mapCenter.x + 900, 720, mapCenter.z - 1_050)
         fill.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
         scene.rootNode.addChildNode(fill)
     }
@@ -1472,6 +1620,9 @@ private final class GridCitySceneController {
         camera.zFar = 5_000
         camera.wantsHDR = false
         camera.wantsExposureAdaptation = false
+        camera.screenSpaceAmbientOcclusionIntensity = 0.65
+        camera.screenSpaceAmbientOcclusionRadius = 5.5
+        camera.screenSpaceAmbientOcclusionBias = 0.15
         cameraNode.camera = camera
         cameraNode.name = "fixed-orthographic-camera"
         scene.rootNode.addChildNode(cameraNode)
