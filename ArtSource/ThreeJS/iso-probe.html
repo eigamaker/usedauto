@@ -1,0 +1,101 @@
+<title>Iso projection probe</title>
+<style>
+ body{margin:0;background:#1b1f24;color:#ddd;font:13px/1.6 monospace;height:100vh;overflow:hidden}
+ #stage{position:relative;width:1024px;height:1152px;transform:scale(.30);transform-origin:top left;
+   background:repeating-conic-gradient(#2a2f36 0 25%,#232830 0 50%) 0 0/32px 32px}
+ canvas{position:absolute;inset:0}
+ #readout{position:fixed;right:12px;top:12px;white-space:pre;background:#000c;padding:12px 16px;
+   border:1px solid #3a4450;z-index:9;max-width:44ch}
+ .ok{color:#5fd39a}.ng{color:#ff8b4d}
+</style>
+<div id="stage"><canvas id="gl"></canvas><canvas id="ov" width="1024" height="1152"></canvas></div>
+<div id="readout">loading three.js…</div>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.170.0/build/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ---- 仕様書の契約値 ----------------------------------------------------
+const CELL = 20, W = 4, D = 4;
+const CW = 1024, CH = 1152;                        // カード解像度
+const diamondW_world = (W + D) * CELL / Math.SQRT2; // 113.1371
+const PPU = CW / diamondW_world;                    // 9.0509668
+const sinT = 1 / Math.sqrt(3);                      // 0.5773503
+const diamondH_world = diamondW_world * sinT;
+const BOTTOM_MARGIN_PX = 96;
+const anchorY_px = CH - BOTTOM_MARGIN_PX - (diamondH_world * PPU) / 2;
+// カード中心から見たアンカーのワールドオフセット（= 権威値）
+const anchor_world_y = (anchorY_px - CH / 2) / PPU;
+
+// ---- カメラ: (1,1,1) から原点を見る = 方位45° 仰角35.264° -------------
+const halfW = (CW / PPU) / 2, halfH = (CH / PPU) / 2;
+const camera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 1, 4000);
+const k = 800 / Math.sqrt(3);
+camera.position.set(k, k, k);
+camera.up.set(0, 1, 0);
+// 接地面中心をアンカー位置に置くため、注視点を画面上方向にずらす
+const upScreen = new THREE.Vector3(0,1,0).projectOnPlane(
+  new THREE.Vector3(1,1,1).normalize()).normalize();
+const target = upScreen.clone().multiplyScalar(anchor_world_y);
+camera.position.add(target);
+camera.lookAt(target);
+camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+
+// ---- シーン: グレーボックスの中古車店 ---------------------------------
+const scene = new THREE.Scene();
+const gray = c => new THREE.MeshStandardMaterial({color:c, roughness:.85, metalness:0});
+const add = (g,m,x,y,z) => { const o=new THREE.Mesh(g,m); o.position.set(x,y,z); scene.add(o); return o; };
+
+add(new THREE.BoxGeometry(80,1.2,80), gray(0x9aa3ad), 0, .6, 0);          // 敷地台座
+add(new THREE.BoxGeometry(46,26,30), gray(0xd8d2c6), -12, 13.6, -22);     // 本体
+add(new THREE.BoxGeometry(50,3.5,34), gray(0x7f8891), -12, 28.2, -22);    // 屋根庇
+add(new THREE.BoxGeometry(14,17,10), gray(0xc9c2b4), 24, 9.2, -20);       // 附属棟
+for (let i=0;i<8;i++)                                                      // 展示車
+  add(new THREE.BoxGeometry(9,5,4.4), gray(0xb4bcc4), -30+ (i%4)*20, 3.8, 10 + Math.floor(i/4)*14);
+
+const key = new THREE.DirectionalLight(0xfff1dd, 2.1); key.position.set(-60,90,40); scene.add(key);
+const fill= new THREE.DirectionalLight(0xbcd4ff, .7); fill.position.set(70,40,-50); scene.add(fill);
+scene.add(new THREE.AmbientLight(0xffffff, .55));
+
+const renderer = new THREE.WebGLRenderer({canvas:document.getElementById('gl'),
+  alpha:true, antialias:true, preserveDrawingBuffer:true});
+renderer.setSize(CW, CH, false); renderer.setClearColor(0x000000, 0);
+renderer.render(scene, camera);
+
+// ---- 検証: 台座の接地4隅を投影し、解析値と突き合わせる ------------
+const px = v => { const p = v.clone().project(camera);
+  return { x:(p.x*.5+.5)*CW, y:(-p.y*.5+.5)*CH }; };
+const c = [[ 40,0, 40],[ 40,0,-40],[-40,0,-40],[-40,0, 40]]
+  .map(([x,y,z]) => px(new THREE.Vector3(x,y,z)));
+const measW = Math.max(...c.map(p=>p.x)) - Math.min(...c.map(p=>p.x));
+const measH = Math.max(...c.map(p=>p.y)) - Math.min(...c.map(p=>p.y));
+const measAy = (Math.max(...c.map(p=>p.y)) + Math.min(...c.map(p=>p.y)))/2;
+const measAx = (Math.max(...c.map(p=>p.x)) + Math.min(...c.map(p=>p.x)))/2;
+
+// ---- オーバーレイ: 解析的に計算した期待ダイヤを赤で重ねる -------------
+const o = document.getElementById('ov').getContext('2d');
+const eW = diamondW_world*PPU, eH = diamondH_world*PPU, ax = CW/2, ay = anchorY_px;
+o.strokeStyle='#ff3b30'; o.lineWidth=2; o.setLineDash([9,6]); o.beginPath();
+o.moveTo(ax, ay-eH/2); o.lineTo(ax+eW/2, ay); o.lineTo(ax, ay+eH/2); o.lineTo(ax-eW/2, ay); o.closePath(); o.stroke();
+o.setLineDash([]); o.strokeStyle='#ffd60a'; o.lineWidth=3;
+o.strokeRect(1.5,1.5,CW-3,CH-3);  // カード外枠
+o.strokeStyle='#ff3b30'; o.lineWidth=2;
+o.beginPath(); o.moveTo(ax-24,ay); o.lineTo(ax+24,ay); o.moveTo(ax,ay-24); o.lineTo(ax,ay+24); o.stroke();
+
+const f=(n)=>n.toFixed(3), t=(a,b,tol)=>Math.abs(a-b)<=tol;
+const pass = t(measW,eW,1)&&t(measH,eH,1)&&t(measAx,ax,1)&&t(measAy,ay,1);
+document.getElementById('readout').innerHTML =
+`PPU            ${f(PPU)} px/world  (全アセット共通)
+anchor_world.y ${f(anchor_world_y)}
+
+           解析値      3D実測      差
+幅   px    ${f(eW).padStart(9)} ${f(measW).padStart(10)} ${f(measW-eW).padStart(8)}
+高   px    ${f(eH).padStart(9)} ${f(measH).padStart(10)} ${f(measH-eH).padStart(8)}
+anchorX    ${f(ax).padStart(9)} ${f(measAx).padStart(10)} ${f(measAx-ax).padStart(8)}
+anchorY    ${f(ay).padStart(9)} ${f(measAy).padStart(10)} ${f(measAy-ay).padStart(8)}
+
+比 h/w     ${f(measH/measW)}   (契約 0.577350)
+` + (pass ? '<span class="ok">PASS — 1px以内で一致</span>'
+          : '<span class="ng">FAIL</span>');
+</script>
