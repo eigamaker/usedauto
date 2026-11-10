@@ -37,7 +37,7 @@ struct BuildStoreView: View {
                 Button("契約して出店") {
                     completeBuild()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.gamePrimary)
                 .tint(GameTheme.teal)
                 .frame(maxWidth: .infinity)
                 .disabled(game.cash + loan < total || footprint.count != type.requiredGridCells)

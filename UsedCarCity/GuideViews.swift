@@ -234,10 +234,17 @@ struct GuideToggleButton: View {
                 isMinimized = false
             }
         } label: {
-            GuideAvatarView(expression: .smile, size: 26)
+            GuideAvatarView(expression: .smile, size: 28)
                 .frame(width: 38, height: 38)
-                .background((isVisible ? GameTheme.teal : GameTheme.navy).opacity(0.88))
-                .clipShape(Circle())
+                .background(
+                    GamePanelBackground(
+                        cornerRadius: 11,
+                        fill: isVisible ? GameTheme.teal : GameTheme.hudTop,
+                        lip: GameTheme.hudEdge,
+                        edge: GameTheme.hudEdge,
+                        lipHeight: 3.5
+                    )
+                )
                 .overlay(alignment: .bottomTrailing) {
                     if !isVisible {
                         Image(systemName: "eye.slash.fill")
@@ -246,10 +253,10 @@ struct GuideToggleButton: View {
                             .padding(3)
                             .background(GameTheme.orange)
                             .clipShape(Circle())
-                            .offset(x: 2, y: 2)
+                            .offset(x: 3, y: 3)
                     }
                 }
-                .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+                .padding(.bottom, 3.5)
         }
         .buttonStyle(.plain)
         .opacity(game.isGuideRunning ? 1 : 0.55)
@@ -355,7 +362,7 @@ struct GuideMessageBody: View {
                         .font(.caption.bold())
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.gamePrimary)
                 .tint(GameTheme.teal)
             }
 
@@ -363,7 +370,7 @@ struct GuideMessageBody: View {
                 if page > 0 {
                     Button("戻る") { game.rewindGuide() }
                         .font(.caption.bold())
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.gameSecondary)
                         .tint(GameTheme.navy)
                 }
                 if waitsForPlayerAction {
@@ -383,7 +390,7 @@ struct GuideMessageBody: View {
                         Label(isLastPage ? "わかりました" : "次へ", systemImage: "chevron.right")
                             .font(.caption.bold())
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.orange)
                 }
             }
@@ -629,7 +636,7 @@ struct GuideProfitLossLessonView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.teal)
                 }
                 .padding(15)

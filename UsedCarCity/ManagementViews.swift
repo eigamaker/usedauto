@@ -15,7 +15,7 @@ struct ManagementView: View {
                     CompetitiveBattleCard()
                     CompetitorsCard()
                     RecentReportsCard()
-                    Button(role: .destructive) { showReset = true } label: { Label("最初からやり直す", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity) }.buttonStyle(.bordered)
+                    Button(role: .destructive) { showReset = true } label: { Label("最初からやり直す", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity) }.buttonStyle(.gameSecondary)
                 }
                 .padding(14)
             }
@@ -214,7 +214,7 @@ private struct CompetitorsCard: View {
                             Label("\(targetPlot.district.shortName)店を買収・\(offer.cost.currency)", systemImage: "building.2.crop.circle.fill")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.gamePrimary)
                         .tint(.purple)
                         .disabled(game.cash < offer.cost)
                     }
@@ -291,7 +291,7 @@ private struct CompetitiveBattleCard: View {
                                 ? "\(offer.employee.name)を獲得しました"
                                 : "資金または配属先の人員上限を確認してください"
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.gameSecondary)
                         .font(.caption.bold())
                         .disabled(game.cash < offer.signingCost || game.stores.isEmpty)
                     }
@@ -341,7 +341,7 @@ private struct CompetitiveBattleCard: View {
                             }
                             .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.gamePrimary)
                         .tint(response == .counterSale ? GameTheme.orange : GameTheme.teal)
                         .disabled(game.cash < cost)
                     }
@@ -1138,7 +1138,7 @@ struct GameEndView: View {
                     careerRecord
                 }
                 Button("スタート画面に戻って再挑戦") { game.resetGame() }
-                    .buttonStyle(.borderedProminent).tint(GameTheme.teal)
+                    .buttonStyle(.gamePrimary).tint(GameTheme.teal)
             }
             .padding(28)
         }

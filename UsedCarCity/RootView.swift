@@ -28,7 +28,7 @@ struct RootView: View {
                 }
             } else if game.hasStarted {
                 ZStack(alignment: .top) {
-                    GameTheme.cream.ignoresSafeArea()
+                    GameTheme.hudBottom.ignoresSafeArea()
                     VStack(spacing: 0) {
                         if !isMapExpanded {
                             GameHeader()
@@ -71,63 +71,145 @@ struct RootView: View {
 
 private struct GameHeader: View {
     @EnvironmentObject private var game: GameEngine
+    @State private var showSettings = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.white)
+                    VStack(spacing: 0) {
+                        Rectangle().fill(GameTheme.danger).frame(height: 9)
+                        Text("\(game.month)")
+                            .font(.system(size: 15, weight: .black, design: .rounded))
+                            .foregroundStyle(GameTheme.ink)
+                            .frame(maxHeight: .infinity)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(GameTheme.hudEdge, lineWidth: 1.5)
+                }
+                .frame(width: 30, height: 32)
+                VStack(alignment: .leading, spacing: -1) {
+                    Text("\(String(game.year))年")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .foregroundStyle(GameTheme.gold.opacity(0.9))
+                    Text("\(game.month)月 第\(game.weekOfMonth)週")
+                        .font(.system(size: 16, weight: .heavy, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .padding(.leading, 5)
+            .padding(.trailing, 12)
+            .frame(height: 40)
+            .background(
+                Capsule()
+                    .fill(Color.black.opacity(0.34))
+                    .overlay(Capsule().strokeBorder(GameTheme.hudEdge, lineWidth: 1.5))
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 1).padding(1.5))
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(game.year)年\(game.month)月第\(game.weekOfMonth)週")
+
+            Spacer(minLength: 4)
+
+            HUDResourceChip(
+                title: "現金",
+                value: game.cash.currency,
+                valueColor: game.cash < 0 ? Color(red: 1, green: 0.55, blue: 0.5) : .white
+            ) {
+                GameCoinIcon(size: 30)
+            }
+
+            Button { showSettings = true } label: {
+                GameIconTile(title: "ゲーム設定", icon: "gearshape.fill", size: 38, showsTitle: false)
+            }
+            .buttonStyle(.gamePress)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 6)
+        .padding(.bottom, 9)
+        .background(
+            GameTheme.hudGradient
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        Rectangle().fill(GameTheme.gold).frame(height: 2)
+                        Rectangle().fill(GameTheme.hudEdge).frame(height: 2)
+                    }
+                }
+                .ignoresSafeArea(edges: .top)
+        )
+        .sheet(isPresented: $showSettings) {
+            GameSettingsView()
+        }
+    }
+}
+
+/// マップ右下に常駐する「1週間進める」ボタン。ターン制ゲームの主操作です。
+struct AdvanceWeekButton: View {
+    @EnvironmentObject private var game: GameEngine
     @AppStorage("settings.confirmWeeklyAdvance") private var confirmWeeklyAdvance = true
     @State private var confirmAdvance = false
     @State private var warnBeforeFirstStore = false
-    @State private var showSettings = false
+    @State private var pulse = false
 
-    /// ガイドが「1週間進める」を案内している最中だけ、日付ボタンを目立たせます。
+    /// ガイドが「1週間進める」を案内している最中だけ、ボタンを目立たせます。
     private var highlightsAdvance: Bool {
         game.currentGuideLesson?.id == .advanceWeek || game.tutorialStep == .runFirstMonth
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: advanceWeek) {
-                Text("\(String(game.year))年\(game.month)月第\(game.weekOfMonth)週")
-                    .font(.subheadline.bold().monospacedDigit())
-                    .foregroundStyle(GameTheme.ink)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 11)
-                    .frame(height: 40)
-                    .background(GameTheme.mint)
-                    .clipShape(Capsule())
-                    .overlay {
-                        if highlightsAdvance {
-                            Capsule().stroke(.white, lineWidth: 3)
-                        }
-                    }
-                    .shadow(color: highlightsAdvance ? GameTheme.mint.opacity(0.7) : .clear, radius: 9)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("タップすると1週間進みます")
-            .layoutPriority(1)
-            Spacer()
-            VStack(alignment: .trailing, spacing: 1) {
-                Text("現金")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.65))
-                Text(game.cash.currency)
-                    .font(.subheadline.bold().monospacedDigit())
-                    .foregroundStyle(game.cash < 0 ? Color.red.opacity(0.9) : .white)
-            }
-            Button { showSettings = true } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.subheadline.bold())
-                    Text("設定")
-                        .font(.system(size: 9, weight: .bold))
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        Button(action: advanceWeek) {
+            HStack(spacing: 7) {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 17, weight: .black))
+                VStack(alignment: .leading, spacing: -1) {
+                    Text("NEXT WEEK")
+                        .font(.system(size: 8.5, weight: .black, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text("1週間進める")
+                        .font(.system(size: 15, weight: .black, design: .rounded))
                 }
-                .foregroundStyle(.white)
-                .frame(width: 34, height: 40)
-                .contentShape(Rectangle())
             }
-            .accessibilityLabel("ゲーム設定")
+            .foregroundStyle(.white)
+            .shadow(color: GameTheme.goDark, radius: 0, y: 1.5)
+            .padding(.horizontal, 15)
+            .frame(height: 50)
+            .background {
+                ZStack {
+                    shape.fill(GameTheme.goDark).offset(y: 5)
+                    shape.stroke(GameTheme.hudEdge, lineWidth: 1.5).offset(y: 5)
+                    shape.fill(GameTheme.go)
+                    shape.fill(
+                        LinearGradient(
+                            colors: [.white.opacity(0.45), .white.opacity(0.02), .black.opacity(0.10)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    shape.strokeBorder(GameTheme.hudEdge, lineWidth: 1.5)
+                    shape.strokeBorder(.white.opacity(0.35), lineWidth: 1).padding(1.5)
+                }
+            }
+            .overlay {
+                if highlightsAdvance {
+                    shape.stroke(GameTheme.gold, lineWidth: 4)
+                        .scaleEffect(pulse ? 1.10 : 1.0)
+                        .opacity(pulse ? 0.25 : 1)
+                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+                        .onAppear { pulse = true }
+                        .onDisappear { pulse = false }
+                }
+            }
+            .padding(.bottom, 5)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .background(GameTheme.navy)
+        .buttonStyle(.gamePress)
+        .accessibilityLabel("1週間進める")
+        .accessibilityHint("現在の方針で1週間進みます")
         .confirmationDialog("現在の方針で1週間進めますか？", isPresented: $confirmAdvance, titleVisibility: .visible) {
             Button("\(game.year)年\(game.month)月 第\(game.weekOfMonth)週を実行") { game.advanceWeek() }
             Button("キャンセル", role: .cancel) {}
@@ -139,9 +221,6 @@ private struct GameHeader: View {
             Button("先に創業する", role: .cancel) {}
         } message: {
             Text("店舗がない状態で週を進めると、売上のないまま1週間が過ぎます。マップで区画を選んで創業できます。")
-        }
-        .sheet(isPresented: $showSettings) {
-            GameSettingsView()
         }
     }
 

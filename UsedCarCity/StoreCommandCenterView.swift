@@ -204,7 +204,7 @@ private struct FoundingInventoryTutorialPanel: View {
                         _ = game.buyInventory(category: category, count: 3, storeID: store.id)
                     }
                     .font(.caption.bold())
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.teal)
                     .disabled(game.cash < purchaseCost)
                 }
@@ -240,7 +240,7 @@ private struct StoreConstructionPanel: View {
                 Label("店舗・設備を確認", systemImage: "wrench.and.screwdriver.fill")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.gamePrimary)
             .tint(GameTheme.teal)
         }
         .gameCard()
@@ -394,10 +394,10 @@ private struct PurchaseCasesPanel: View {
                                 Label("価格を提示", systemImage: "bubble.left.and.bubble.right.fill")
                                     .font(.caption2.bold())
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.gamePrimary)
                             .tint(GameTheme.orange)
                             .disabled(!game.canNegotiatePurchaseCase(item.id))
-                            Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Image(systemName: "xmark").font(.caption.bold()).padding(8) }.buttonStyle(.bordered)
+                            Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Image(systemName: "xmark").font(.caption.bold()).padding(8) }.buttonStyle(.gameSecondary)
                         }
                         if !isAutomated && !game.canNegotiatePurchaseCase(item.id) {
                             Label("必要な\(game.transactionWorkEffort(for: item.category))工数が残っていません", systemImage: "clock.badge.exclamationmark")
@@ -511,7 +511,7 @@ private struct ManualSalesPanel: View {
                                     .font(.caption.bold())
                                     .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.gamePrimary)
                             .tint(GameTheme.orange)
                             .disabled(!game.canSellManually(storeID: store.id, buyerLeadID: lead.id))
                         }
@@ -732,7 +732,7 @@ private struct VehicleProposalSheet: View {
                                     withAnimation(.easeInOut(duration: 0.2)) { selectedInventoryID = batch.id }
                                 }
                                 .font(.caption.bold())
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.gamePrimary)
                                 .tint(proposalTint(batch))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                             }
@@ -872,7 +872,7 @@ private struct StoreInventoryPanel: View {
                                         Label("カスタマイズ", systemImage: "paintbrush.pointed.fill")
                                     }
                                     .font(.caption2.bold())
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.gamePrimary)
                                     .tint(.purple)
                                 }
                                 if let preview = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: batch.fault == .none ? .basicService : .repair) {
@@ -881,7 +881,7 @@ private struct StoreInventoryPanel: View {
                                             ? "\(preview.kind.name)を商品化キューへ追加しました。"
                                             : "整備を実行できませんでした。"
                                     }
-                                    .font(.caption2.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
+                                    .font(.caption2.bold()).buttonStyle(.gameSecondary).tint(GameTheme.teal)
                                     .disabled(game.cash < preview.cost)
                                 } else if !hasCustomizationOption(batch) {
                                     Text("整備上限").font(.caption2.bold()).foregroundStyle(GameTheme.teal)
@@ -1874,7 +1874,7 @@ private struct StoreTeamPanel: View {
                             }
                             Spacer()
                             Button("採用") { _ = game.hireEmployee(employee.id, for: store.id) }
-                                .buttonStyle(.borderedProminent).tint(.purple)
+                                .buttonStyle(.gamePrimary).tint(.purple)
                                 .disabled(store.staff >= game.maxEmployeesPerStore)
                         }
                     }
@@ -2720,7 +2720,7 @@ private struct MarketConditionsPanel: View {
                                 }
                                 .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.gameSecondary)
                             .tint(GameTheme.orange)
                             .disabled(
                                 !game.canStartInventorySaleCampaign(
@@ -2780,7 +2780,7 @@ private struct ProcurementPanel: View {
             HStack {
                 Spacer()
                 Button("AA指示を追加") { showProcurementInstructionEditor = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.teal)
                     .font(.caption.bold())
             }
@@ -2858,7 +2858,7 @@ private struct CorporateOpportunityRow: View {
             Button(opportunity.playerStoreID == store.id ? "提案を更新" : "この店舗で応募") {
                 _ = game.submitCorporateBid(opportunityID: opportunity.id, storeID: store.id, unitPrice: unitPrice)
             }
-            .buttonStyle(.bordered).font(.caption.bold())
+            .buttonStyle(.gameSecondary).font(.caption.bold())
         }
         .padding(9)
         .background(GameTheme.cream)
@@ -3109,7 +3109,7 @@ private struct StoreFinancePanel: View {
                     Button(action: openSettings) {
                         Label("詳細", systemImage: "wrench.and.screwdriver.fill")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.navy)
                     .font(.caption.bold())
                 }
