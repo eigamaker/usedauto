@@ -525,6 +525,9 @@ private final class GridCitySceneController {
                 game: game,
                 isSelected: parcel.legacyPlotID == selectedPlotID
             )
+            // In an analysis layer the coloured slab rises above the lot
+            // surface so the heat map is not buried under the buildings.
+            node.position.y = layer != .normal && plot != nil ? 1.55 : 0.20
 
             if let marker = vacantMarkerNodes[parcel.id] {
                 marker.isHidden = plot?.currentUse.isVacant != true
@@ -553,6 +556,8 @@ private final class GridCitySceneController {
             plotByID: Dictionary(uniqueKeysWithValues: game.plots.map { ($0.id, $0) })
         )
         updateCompetitorLabels(game: game)
+        applyAnalysisMode(layer != .normal)
+        updateFoundingMarkers(game: game)
         sceneView?.setNeedsDisplay()
     }
 
@@ -583,6 +588,7 @@ private final class GridCitySceneController {
         buildMovingTraffic()
         buildCloudShadows()
         buildFacilityMarkers()
+        buildDistrictLabels()
         buildGridNode()
         buildLighting()
         buildCamera()
@@ -1645,10 +1651,8 @@ private final class GridCitySceneController {
         if object.assetID == .industrialSmokestack {
             // Stack mouths in the authored asset's own coordinates.
             for (x, height, z) in [(Float(-56), Float(99), Float(-51)), (10, 117, -55), (61, 89, -48)] {
-                let smoke = SCNNode()
-                smoke.name = "chimney-smoke"
+                let smoke = makeSmokeNode()
                 smoke.position = SCNVector3(x, height, z)
-                smoke.addParticleSystem(makeSmokeSystem())
                 assetNode.addChildNode(smoke)
             }
         }
@@ -1676,35 +1680,43 @@ private final class GridCitySceneController {
         }
     }()
 
-    /// Slow white puffs drifting downwind from a chimney.
-    private func makeSmokeSystem() -> SCNParticleSystem {
-        let system = SCNParticleSystem()
-        system.particleImage = smokeImage
-        system.birthRate = 2.2
-        system.particleLifeSpan = 7
-        system.particleLifeSpanVariation = 1.5
-        system.emittingDirection = SCNVector3(0.35, 1, -0.15)
-        system.spreadingAngle = 10
-        system.particleVelocity = 11
-        system.particleVelocityVariation = 3
-        system.particleSize = 9
-        system.particleSizeVariation = 2
-        system.particleColor = UIColor(white: 1, alpha: 0.78)
-        system.isLightingEnabled = false
-        system.blendMode = .alpha
-        system.sortingMode = .distance
-        system.isAffectedByGravity = false
-        let grow = CABasicAnimation()
-        grow.fromValue = 7
-        grow.toValue = 26
-        let fade = CAKeyframeAnimation()
-        fade.values = [0, 0.8, 0.5, 0]
-        fade.keyTimes = [0, 0.12, 0.6, 1]
-        system.propertyControllers = [
-            .size: SCNParticlePropertyController(animation: grow),
-            .opacity: SCNParticlePropertyController(animation: fade)
-        ]
-        return system
+    /// Slow white puffs drifting downwind from a chimney. Each puff is a
+    /// billboard on a fixed loop: a particle system's sizes are not bounded
+    /// under the orthographic camera and bloomed into a white-out.
+    private func makeSmokeNode() -> SCNNode {
+        let root = SCNNode()
+        root.name = "chimney-smoke"
+        let material = SCNMaterial()
+        material.diffuse.contents = smokeImage
+        material.lightingModel = .constant
+        material.writesToDepthBuffer = false
+        material.isDoubleSided = true
+        let plane = SCNPlane(width: 13, height: 13)
+        plane.firstMaterial = material
+        let puffCount = 4
+        let rise: TimeInterval = 6
+        for index in 0..<puffCount {
+            let puff = SCNNode(geometry: plane)
+            puff.constraints = [SCNBillboardConstraint()]
+            puff.castsShadow = false
+            puff.opacity = 0
+            let reset = SCNAction.group([
+                .move(to: SCNVector3Zero, duration: 0),
+                .scale(to: 0.7, duration: 0),
+                .fadeOut(duration: 0)
+            ])
+            let drift = SCNAction.group([
+                .move(to: SCNVector3(16, 44, -7), duration: rise),
+                .scale(to: 2.3, duration: rise),
+                .sequence([.fadeOpacity(to: 0.75, duration: 0.7), .wait(duration: 2.3), .fadeOut(duration: 3)])
+            ])
+            puff.runAction(.sequence([
+                .wait(duration: rise * TimeInterval(index) / TimeInterval(puffCount)),
+                .repeatForever(.sequence([reset, drift]))
+            ]))
+            root.addChildNode(puff)
+        }
+        return root
     }
 
     private func buildVacantMarkers() {
@@ -2136,7 +2148,110 @@ private final class GridCitySceneController {
         return root
     }
 
+    // MARK: - Analysis layers and founding candidates
+
+    private var isAnalysisModeApplied = false
+    private var foundingMarkerNodes: [Int: SCNNode] = [:]
+    private var foundingMarkerSignature = ""
+    private var districtLabelNodes: [SCNNode] = []
+
+    /// Buildings turn to ghosts while a heat-map layer is shown, so the
+    /// coloured parcels underneath carry the picture.
+    private func applyAnalysisMode(_ isOn: Bool) {
+        let opacity: CGFloat = isOn ? 0.20 : 1
+        if isOn != isAnalysisModeApplied {
+            isAnalysisModeApplied = isOn
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.25
+            staticObjectNodes.values.forEach { $0.opacity = opacity }
+            vacantMarkerNodes.values.forEach { $0.opacity = opacity }
+            SCNTransaction.commit()
+        }
+        // Store nodes are rebuilt at runtime; their labels stay fully opaque.
+        for root in runtimeStoreNodes.values {
+            for child in root.childNodes where child.name != "semantic-map-label" {
+                child.opacity = opacity
+            }
+        }
+    }
+
+    /// Before the first store exists, every founding candidate carries a
+    /// bobbing pin and the best one is named, so "the glowing plots" in the
+    /// guide are something the player can actually find.
+    private func updateFoundingMarkers(game: GameEngine) {
+        guard game.stores.isEmpty else {
+            if !foundingMarkerNodes.isEmpty {
+                for node in foundingMarkerNodes.values { removeFoundingMarker(node) }
+                foundingMarkerNodes = [:]
+                foundingMarkerSignature = ""
+            }
+            return
+        }
+        let signature = "\(game.turn)|\(game.plots.count)"
+        guard signature != foundingMarkerSignature else { return }
+        foundingMarkerSignature = signature
+        for node in foundingMarkerNodes.values { removeFoundingMarker(node) }
+        foundingMarkerNodes = [:]
+
+        let candidates = game.foundingCandidatePlots
+        let recommendedID = game.recommendedFoundingPlot?.id
+        for plot in candidates {
+            guard let parcel = map.parcel(legacyPlotID: plot.id) else { continue }
+            let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            var height: Float = 30
+            if let object = map.objects.first(where: { $0.parcelID == parcel.id }) {
+                let definition = CityAssetCatalog.definition(for: object.assetID)
+                height = object.height * CityAssetScale.heightMultiplier(for: definition.category) + 16
+            }
+            let isRecommended = plot.id == recommendedID
+            let root = SCNNode()
+            root.name = "founding-marker:\(plot.id)"
+            root.position = SCNVector3(bounds.center.x, height, bounds.center.z)
+            let label = makeSemanticMapLabel(
+                text: isRecommended ? "おすすめ候補" : "創業候補",
+                iconName: isRecommended ? "hand.thumbsup.fill" : "mappin",
+                color: isRecommended
+                    ? UIColor(red: 0.93, green: 0.62, blue: 0.05, alpha: 1)
+                    : UIColor(red: 0.24, green: 0.62, blue: 0.22, alpha: 1)
+            )
+            label.renderingOrder = isRecommended ? 170 : 130
+            setInteractionMetadata(on: label, parcel: parcel)
+            root.addChildNode(label)
+            root.runAction(.repeatForever(.sequence([
+                .moveBy(x: 0, y: 6, z: 0, duration: 0.55),
+                .moveBy(x: 0, y: -6, z: 0, duration: 0.55)
+            ])))
+            foundingMarkerNodes[plot.id] = root
+            scene.rootNode.addChildNode(root)
+        }
+    }
+
+    private func removeFoundingMarker(_ node: SCNNode) {
+        node.enumerateChildNodes { child, _ in
+            self.interactionPlotIDs[ObjectIdentifier(child)] = nil
+        }
+        node.removeFromParentNode()
+    }
+
+    /// District names over the overview, hidden once the player zooms in.
+    private func buildDistrictLabels() {
+        for kind in DistrictKind.allCases {
+            guard let center = map.worldCenter(of: kind) else { continue }
+            let label = makeSemanticMapLabel(
+                text: kind.name,
+                iconName: kind.symbol,
+                color: UIColor(red: 0.16, green: 0.30, blue: 0.52, alpha: 1)
+            )
+            label.renderingOrder = 100
+            label.position = SCNVector3(center.x, 95, center.z)
+            districtLabelNodes.append(label)
+            scene.rootNode.addChildNode(label)
+        }
+    }
+
     private func updateFacilityVisibility() {
+        let isOverview = currentZoomFactor > GridCameraZoom.scaleFactors[GridCameraZoom.clamped(GridCameraZoom.defaultStep + 1)] + 0.001
+        districtLabelNodes.forEach { $0.isHidden = !isOverview }
         // In a wide overview, reserve label space for the player's store,
         // competitors and the auction route that drives procurement. Other
         // service locations return at 75% and closer zoom levels.

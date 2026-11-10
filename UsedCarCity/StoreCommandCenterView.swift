@@ -397,7 +397,7 @@ private struct PurchaseCasesPanel: View {
                             .buttonStyle(.gamePrimary)
                             .tint(GameTheme.orange)
                             .disabled(!game.canNegotiatePurchaseCase(item.id))
-                            Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Image(systemName: "xmark").font(.caption.bold()).padding(8) }.buttonStyle(.gameSecondary)
+                            Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Label("見送る", systemImage: "xmark").font(.caption.bold()) }.buttonStyle(.gameSecondary)
                         }
                         if !isAutomated && !game.canNegotiatePurchaseCase(item.id) {
                             Label("必要な\(game.transactionWorkEffort(for: item.category))工数が残っていません", systemImage: "clock.badge.exclamationmark")

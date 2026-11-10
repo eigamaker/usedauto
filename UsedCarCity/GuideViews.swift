@@ -69,13 +69,14 @@ struct GuideFloatingPanel: View {
     @State private var dragOffset = CGSize.zero
 
     private var cardWidth: CGFloat {
-        min(GuideDisplayDefaults.cardWidth, max(220, bounds.width - 24))
+// 右端に並ぶズーム等のボタン列を覆わない幅にします。
+        min(GuideDisplayDefaults.cardWidth, max(220, bounds.width - 74))
     }
 
     private var panelWidth: CGFloat { isMinimized ? 62 : cardWidth }
 
     private var origin: CGPoint {
-        let defaultX = (bounds.width - panelWidth) / 2
+        let defaultX: CGFloat = 10
         let defaultY: CGFloat = isMinimized ? bounds.height - 210 : 54
         let x = originX == GuideDisplayDefaults.unsetOrigin ? defaultX : CGFloat(originX)
         let y = originY == GuideDisplayDefaults.unsetOrigin ? defaultY : CGFloat(originY)
@@ -405,7 +406,7 @@ struct GuideIntroView: View {
     @Environment(\.dismiss) private var dismiss
     let start: (GuideMode) -> Void
     @State private var appeared = false
-    @State private var selectedMode: GuideMode?
+    @State private var selectedMode: GuideMode? = .full
 
     var body: some View {
         ZStack {

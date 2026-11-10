@@ -27,10 +27,12 @@ struct PlotDetailView: View {
                                 DevelopmentDetailCard(project: development, plot: plot)
                             } else if game.canPlanStore(on: plot) {
                                 Button { showBuild = true } label: {
-                                    Label(game.stores.isEmpty ? "この建物を取得して創業する" : "購入・解体・建設プランへ", systemImage: "hammer.fill")
-                                        .font(.headline).frame(maxWidth: .infinity).padding(16)
-                                        .foregroundStyle(.white).background(GameTheme.teal).clipShape(RoundedRectangle(cornerRadius: 15))
+                                    Label(game.stores.isEmpty ? "ここで創業する（出店計画へ）" : "出店計画へ進む", systemImage: "hammer.fill")
+                                        .font(.headline).frame(maxWidth: .infinity)
                                 }
+                                .buttonStyle(.gamePrimary)
+                                .controlSize(.large)
+                                .tint(GameTheme.go)
                             } else {
                                 Label("この区画には出店できません", systemImage: "location.slash")
                                     .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(15).background(.gray.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 14))
@@ -44,7 +46,7 @@ struct PlotDetailView: View {
                 }
             }
             .background(GameTheme.cream)
-            .navigationTitle("区画詳細")
+            .navigationTitle(game.store(at: plotID) == nil ? "区画詳細" : "店舗")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
             .sheet(isPresented: $showBuild) {

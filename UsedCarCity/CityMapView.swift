@@ -71,16 +71,17 @@ struct CityMapView: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.top, 8)
-                        if layer != .normal {
-                            MapLayerBanner(layer: layer, demandCategory: demandCategory) {
-                                withAnimation(.easeInOut(duration: 0.25)) { layer = .normal }
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.top, 6)
-                        }
                         Spacer()
-                        HStack {
-                            Spacer()
+                        // レイヤーの説明は下端に置き、上部の案内カードに隠れないようにします。
+                        HStack(alignment: .bottom, spacing: 8) {
+                            if layer != .normal {
+                                MapLayerBanner(layer: layer, demandCategory: demandCategory) {
+                                    withAnimation(.easeInOut(duration: 0.25)) { layer = .normal }
+                                }
+                                .padding(.bottom, 3)
+                            } else {
+                                Spacer()
+                            }
                             AdvanceWeekButton()
                         }
                         .padding(.horizontal, 10)
@@ -100,7 +101,10 @@ struct CityMapView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
                     }
-                    GuideFloatingPanel(bounds: proxy.size, perform: handleGuideAction)
+                    // 区画・店舗シートには同じ案内がシート内に出るため、重ねて表示しません。
+                    if selectedPlot == nil {
+                        GuideFloatingPanel(bounds: proxy.size, perform: handleGuideAction)
+                    }
                 }
             }
             .background(Color(red: 0.24, green: 0.62, blue: 0.80))
@@ -149,6 +153,8 @@ struct CityMapView: View {
         case .focusRecommendedPlot:
             guard let plot = game.recommendedFoundingPlot else { return }
             focusRequest = MapFocusRequest(plotID: plot.id)
+            // 候補は画面中央に来るので、案内カードは畳んで地図を見せます。
+            UserDefaults.standard.set(true, forKey: GuideDisplayDefaults.minimizedKey)
         case .openChosenPlot:
             let target = game.tutorialPlotID.flatMap { game.plot(id: $0) } ?? game.recommendedFoundingPlot
             guard let target else { return }
@@ -225,7 +231,7 @@ private struct MapLayerBanner: View {
         case .demand: "地区ごとに固定された今週の購入需要です"
         case .vehicleDemand: "\(demandCategory.name)の需要が強い地域を表示"
         case .competition: "固定需要を自社と競合の商圏で奪い合います"
-        default: "青＝低い　緑＝中間　橙＝高い"
+        default: "区画の色で高低を表します"
         }
     }
 
@@ -241,8 +247,25 @@ private struct MapLayerBanner: View {
                 Text(detail)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.8))
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.7)
+                // 色の意味を示す凡例
+                HStack(spacing: 4) {
+                    Text("低").font(.system(size: 9, weight: .heavy, design: .rounded))
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.25, green: 0.55, blue: 0.72),
+                            Color(red: 0.44, green: 0.70, blue: 0.45),
+                            Color(red: 0.91, green: 0.52, blue: 0.22)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(height: 6)
+                    .clipShape(Capsule())
+                    Text("高").font(.system(size: 9, weight: .heavy, design: .rounded))
+                }
+                .foregroundStyle(.white)
             }
             Spacer(minLength: 0)
             Button(action: close) {
