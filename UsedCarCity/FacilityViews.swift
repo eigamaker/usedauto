@@ -527,7 +527,7 @@ private struct AuctionContent: View {
                             Spacer()
                             Button("1台出品") {
                                 message = game.consignInventory(storeID: store.id, inventoryID: batch.id) ? "翠浜AAへ1台出品しました" : "出品できませんでした"
-                            }.buttonStyle(.bordered).tint(.indigo)
+                            }.buttonStyle(.gameSecondary).tint(.indigo)
                         }
                     }
                 }.gameCard()
@@ -566,7 +566,7 @@ private struct AuctionContent: View {
                                 Label("用途", systemImage: "slider.horizontal.3")
                                     .font(.caption.bold())
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.gameSecondary)
                         }
                         .padding(.vertical, 3)
                     }
@@ -756,7 +756,7 @@ private struct AuctionBidRow: View {
                     : "入庫枠を確保できません"
             )
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.gamePrimary)
         .tint(listing.lane.tint)
         .frame(maxWidth: .infinity)
         .disabled(!reserved && game.ownerRemainingWorkEffort < workEffort)
@@ -767,7 +767,7 @@ private struct AuctionBidRow: View {
             game.cancelBid(listingID: listing.id)
             result("入札を取り消しました")
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.gameSecondary)
         .tint(.gray)
     }
 
@@ -831,7 +831,7 @@ private struct BankContent: View {
             VStack(alignment: .leading, spacing: 12) {
                 SectionTitle(title: "融資・返済", subtitle: "所有地は担保に反映。赤字や資金危機は信用枠を縮小")
                 ProgressView(value: Double(game.debt), total: Double(max(1, game.borrowingLimit))).tint(.blue)
-                HStack { Button("1,000万円借入") { game.borrow(1_000) }.buttonStyle(.borderedProminent).tint(.blue).disabled(game.debt + 1_000 > game.borrowingLimit); Button("1,000万円返済") { game.repay(1_000) }.buttonStyle(.bordered).disabled(game.cash < 1_000 || game.debt == 0) }
+                HStack { Button("1,000万円借入") { game.borrow(1_000) }.buttonStyle(.gamePrimary).tint(.blue).disabled(game.debt + 1_000 > game.borrowingLimit); Button("1,000万円返済") { game.repay(1_000) }.buttonStyle(.gameSecondary).disabled(game.cash < 1_000 || game.debt == 0) }
                 Label("借入利息は週間処理で計上されます。元本は任意返済です。", systemImage: "calendar.badge.clock").font(.caption).foregroundStyle(.secondary)
                 if let warning = game.financialDistressMessage {
                     Label(warning, systemImage: "exclamationmark.triangle.fill").font(.caption.bold()).foregroundStyle(GameTheme.danger)
@@ -852,7 +852,7 @@ private struct RealEstateContent: View {
                 HStack {
                     Image(systemName: plot.district.symbol).foregroundStyle(plot.district.color).frame(width: 32)
                     VStack(alignment: .leading) { Text("\(plot.district.name) \(plot.localNumber)番区画").font(.subheadline.bold()); Text("購入 \(plot.price.currency)・賃料 \(plot.monthlyRent.currency)/月").font(.caption).foregroundStyle(.secondary) }
-                    Spacer(); Button("地図で見る") { focus(plot) }.font(.caption.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
+                    Spacer(); Button("地図で見る") { focus(plot) }.font(.caption.bold()).buttonStyle(.gameSecondary).tint(GameTheme.teal)
                 }.padding(.vertical, 4)
             }
         }.gameCard()
@@ -907,7 +907,7 @@ private struct WorkshopContent: View {
                                         game.setCustomizationOrderPriority(order.id, priority: min(3, order.priority + 1))
                                     }
                                     .font(.caption2.bold())
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(.gameSecondary)
                                 }
                             } else {
                                 HStack {
@@ -917,13 +917,13 @@ private struct WorkshopContent: View {
                                             : "材料費、担当者、対応ベイの空きを確認してください。"
                                     }
                                     .font(.caption2.bold())
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.gamePrimary)
                                     .tint(.purple)
                                     Button("見送る", role: .destructive) {
                                         game.declineCustomizationOrder(order.id)
                                     }
                                     .font(.caption2.bold())
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(.gameSecondary)
                                 }
                             }
                         }
@@ -1023,7 +1023,7 @@ private struct WorkshopContent: View {
                                             }.disabled(game.cash < preview.cost)
                                         }
                                     } label: { Label("カスタマイズを選ぶ", systemImage: "paintbrush.pointed.fill") }
-                                    .font(.caption2.bold()).buttonStyle(.borderedProminent).tint(.purple)
+                                    .font(.caption2.bold()).buttonStyle(.gamePrimary).tint(.purple)
                                 }
                             }
                         }
@@ -1043,7 +1043,7 @@ private struct AdvertisingContent: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "地域広告・ブランド広告", subtitle: "店舗ごとの月額予算")
             ForEach(game.stores) { store in
-                HStack { VStack(alignment: .leading) { Text(store.name).font(.subheadline.bold()); Text("現在 \(store.advertising.currency)/月・オーナー指示").font(.caption).foregroundStyle(.secondary) }; Spacer(); Button("+40万円") { _ = game.increaseAdvertisingBudget(for: store.id, by: 40) }.buttonStyle(.bordered).tint(GameTheme.orange).disabled(store.advertising >= 500) }
+                HStack { VStack(alignment: .leading) { Text(store.name).font(.subheadline.bold()); Text("現在 \(store.advertising.currency)/月・オーナー指示").font(.caption).foregroundStyle(.secondary) }; Spacer(); Button("+40万円") { _ = game.increaseAdvertisingBudget(for: store.id, by: 40) }.buttonStyle(.gameSecondary).tint(GameTheme.orange).disabled(store.advertising >= 500) }
             }
             Divider(); Label("市場調査レベル 2：競合推定精度 68%", systemImage: "binoculars.fill").font(.caption).foregroundStyle(.secondary)
         }.gameCard()
@@ -1077,7 +1077,7 @@ private struct RecruitingContent: View {
                     Spacer()
                     if let candidate {
                         Button("\(candidate.name)を採用") { _ = game.hireEmployee(candidate.id, for: store.id) }
-                            .buttonStyle(.borderedProminent).tint(.purple)
+                            .buttonStyle(.gamePrimary).tint(.purple)
                             .disabled(store.staff >= game.maxEmployeesPerStore)
                     }
                 }

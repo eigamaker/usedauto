@@ -17,7 +17,15 @@ struct BuildStoreView: View {
             game.footprintPlots(startingAt: plot, type: $0, mode: mode).count == $0.requiredGridCells
         }
     }
-    private var landCost: Int { game.landAcquisitionCost(for: footprint, mode: mode) }
+    private var landCost: Int { landCost(for: mode) }
+    /// 選択中かどうかに関わらず、その取得方法を選んだ場合の土地費用。
+    private func landCost(for mode: AcquisitionMode) -> Int {
+        game.landAcquisitionCost(
+            for: game.footprintPlots(startingAt: plot, type: type, mode: mode),
+            mode: mode
+        )
+    }
+    private var shortfall: Int { max(0, total - game.cash - loan) }
     private var demolitionCost: Int { game.demolitionCost(for: footprint) }
     private var total: Int { game.totalBuildCost(for: footprint, type: type, mode: mode, facilities: facilities) }
 
@@ -34,22 +42,35 @@ struct BuildStoreView: View {
                     }
                     .padding(18)
                 }
-                Button("契約して出店") {
-                    completeBuild()
+                VStack(spacing: 6) {
+                    if shortfall > 0 {
+                        Label("資金が \(shortfall.currency) 足りません。下の「新規調達」で借入を増やしてください", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.heavy))
+                            .foregroundStyle(GameTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button {
+                        completeBuild()
+                    } label: {
+                        Label("契約して出店（\(total.currency)）", systemImage: "checkmark.seal.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.gamePrimary)
+                    .controlSize(.large)
+                    .tint(GameTheme.go)
+                    .disabled(shortfall > 0 || footprint.count != type.requiredGridCells)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(GameTheme.teal)
-                .frame(maxWidth: .infinity)
-                .disabled(game.cash + loan < total || footprint.count != type.requiredGridCells)
-                .padding()
-                .background(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(GameTheme.panel)
+                .overlay(alignment: .top) { Rectangle().fill(GameTheme.panelEdge.opacity(0.5)).frame(height: 1.5) }
             }
             .background(GameTheme.cream)
             .navigationTitle("出店計画")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } } }
             .alert(foundingBuildCompleted ? "創業店がオープンしました" : "新店舗の建設を開始しました", isPresented: $completed) {
-                Button("マップへ戻る") { dismiss() }
+                Button(foundingBuildCompleted ? "店舗を開く" : "閉じる") { dismiss() }
             } message: {
                 if foundingBuildCompleted {
                     Text("既存建物を解体し、\(footprintDescription)に\(type.name)を開業しました。在庫はまだ0台です。")
@@ -84,8 +105,8 @@ struct BuildStoreView: View {
                 Spacer()
             }
             .gameCard()
-            ChoiceCard(title: "借地", subtitle: "\(footprintDescription)分の保証金 \(landCost.currency)・建替え可能", icon: "key.fill", selected: mode == .lease) { mode = .lease }
-            ChoiceCard(title: "購入", subtitle: "\(footprintDescription)合計 \(landCost.currency)・土地を資産保有", icon: "building.columns.fill", selected: mode == .purchase) { mode = .purchase }
+            ChoiceCard(title: "借地", subtitle: "\(footprintDescription)分の保証金 \(landCost(for: .lease).currency)・建替え可能", icon: "key.fill", selected: mode == .lease) { mode = .lease }
+            ChoiceCard(title: "購入", subtitle: "\(footprintDescription)合計 \(landCost(for: .purchase).currency)・土地を資産保有", icon: "building.columns.fill", selected: mode == .purchase) { mode = .purchase }
             Label("解体費 \(demolitionCost.currency) は初期投資に含まれます", systemImage: "hammer.fill")
                 .font(.subheadline.bold()).foregroundStyle(GameTheme.orange)
             Text(mode == .purchase ? "多額の現金を使いますが、土地を資産として保有し融資枠を広げられます。" : "初期資金を守りながら出店でき、撤退もしやすい一方、毎月の賃料が利益を圧迫します。")
@@ -144,8 +165,17 @@ struct BuildStoreView: View {
 
     private var financingSection: some View {
         VStack(spacing: 14) {
+            SectionTitle(title: "資金計画", subtitle: "足りない分は融資でまかなえます")
             VStack(alignment: .leading, spacing: 10) {
-                MetricView(title: "初期投資額", value: total.currency)
+                HStack {
+                    MetricView(title: "初期投資額", value: total.currency)
+                    MetricView(title: "手元の現金", value: game.cash.currency)
+                    MetricView(
+                        title: "契約後の現金",
+                        value: (game.cash + loan - total).currency,
+                        tint: shortfall > 0 ? GameTheme.danger : GameTheme.teal
+                    )
+                }
                 Stepper(value: $loan, in: 0...max(0, game.borrowingLimit - game.debt), step: 1_000) {
                     MetricView(title: "新規調達", value: loan.currency, tint: GameTheme.teal)
                 }

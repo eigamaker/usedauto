@@ -204,7 +204,7 @@ private struct FoundingInventoryTutorialPanel: View {
                         _ = game.buyInventory(category: category, count: 3, storeID: store.id)
                     }
                     .font(.caption.bold())
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.teal)
                     .disabled(game.cash < purchaseCost)
                 }
@@ -240,7 +240,7 @@ private struct StoreConstructionPanel: View {
                 Label("店舗・設備を確認", systemImage: "wrench.and.screwdriver.fill")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.gamePrimary)
             .tint(GameTheme.teal)
         }
         .gameCard()
@@ -394,10 +394,10 @@ private struct PurchaseCasesPanel: View {
                                 Label("価格を提示", systemImage: "bubble.left.and.bubble.right.fill")
                                     .font(.caption2.bold())
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.gamePrimary)
                             .tint(GameTheme.orange)
                             .disabled(!game.canNegotiatePurchaseCase(item.id))
-                            Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Image(systemName: "xmark").font(.caption.bold()).padding(8) }.buttonStyle(.bordered)
+                            Button(role: .destructive) { game.declinePurchaseCase(item.id) } label: { Label("見送る", systemImage: "xmark").font(.caption.bold()) }.buttonStyle(.gameSecondary)
                         }
                         if !isAutomated && !game.canNegotiatePurchaseCase(item.id) {
                             Label("必要な\(game.transactionWorkEffort(for: item.category))工数が残っていません", systemImage: "clock.badge.exclamationmark")
@@ -511,7 +511,7 @@ private struct ManualSalesPanel: View {
                                     .font(.caption.bold())
                                     .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.gamePrimary)
                             .tint(GameTheme.orange)
                             .disabled(!game.canSellManually(storeID: store.id, buyerLeadID: lead.id))
                         }
@@ -732,7 +732,7 @@ private struct VehicleProposalSheet: View {
                                     withAnimation(.easeInOut(duration: 0.2)) { selectedInventoryID = batch.id }
                                 }
                                 .font(.caption.bold())
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.gamePrimary)
                                 .tint(proposalTint(batch))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                             }
@@ -872,7 +872,7 @@ private struct StoreInventoryPanel: View {
                                         Label("カスタマイズ", systemImage: "paintbrush.pointed.fill")
                                     }
                                     .font(.caption2.bold())
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.gamePrimary)
                                     .tint(.purple)
                                 }
                                 if let preview = game.workshopProjectPreview(storeID: store.id, inventoryID: batch.id, kind: batch.fault == .none ? .basicService : .repair) {
@@ -881,7 +881,7 @@ private struct StoreInventoryPanel: View {
                                             ? "\(preview.kind.name)を商品化キューへ追加しました。"
                                             : "整備を実行できませんでした。"
                                     }
-                                    .font(.caption2.bold()).buttonStyle(.bordered).tint(GameTheme.teal)
+                                    .font(.caption2.bold()).buttonStyle(.gameSecondary).tint(GameTheme.teal)
                                     .disabled(game.cash < preview.cost)
                                 } else if !hasCustomizationOption(batch) {
                                     Text("整備上限").font(.caption2.bold()).foregroundStyle(GameTheme.teal)
@@ -966,16 +966,23 @@ private struct StoreSceneHeader: View {
     @State private var nameDraft = ""
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 19, style: .continuous)
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
+            HStack(spacing: 10) {
+                Image(systemName: "storefront.fill")
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(GameTheme.hudEdge)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(GameTheme.gold))
+                    .overlay(Circle().strokeBorder(GameTheme.hudEdge, lineWidth: 1.5))
+                VStack(alignment: .leading, spacing: 2) {
                     Button {
                         nameDraft = store.name
                         showRename = true
                     } label: {
                         HStack(spacing: 6) {
                             Text(store.name)
-                                .font(.title3.bold())
+                                .font(.title3.weight(.heavy))
                                 .multilineTextAlignment(.leading)
                             Image(systemName: "pencil").font(.caption.bold())
                         }
@@ -983,30 +990,31 @@ private struct StoreSceneHeader: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("店名を変更")
-                    Spacer()
+                    Label(
+                        game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store),
+                        systemImage: game.regionalNicheLeaderLabel(for: store) == nil ? "car.2.fill" : "crown.fill"
+                    )
+                    .font(.caption.weight(.heavy))
+                    .foregroundStyle(GameTheme.gold)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                Label(
-                    game.regionalNicheLeaderLabel(for: store) ?? game.derivedBusinessName(for: store),
-                    systemImage: game.regionalNicheLeaderLabel(for: store) == nil ? "car.2.fill" : "crown.fill"
-                )
-                .font(.caption.bold())
-                .foregroundStyle(GameTheme.mint)
-                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
             }
-            .padding(15).background(GameTheme.ink)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .background(GameTheme.hudGradient)
+            .overlay(alignment: .bottom) { Rectangle().fill(GameTheme.gold).frame(height: 2) }
             ZStack(alignment: .top) {
-                StoreScene(store: store)
-                    .frame(height: 258)
-                HStack(spacing: 9) {
-                    Text(greeting).font(.subheadline.bold()).foregroundStyle(.white)
-                    Spacer()
-                }
-                .padding(11).background(.black.opacity(0.66))
-                StoreSceneStatusOverlay(store: store)
+                StoreDioramaView(store: store)
+                    .frame(height: 270)
+                    .allowsHitTesting(false)
+                StoreSceneStatusOverlay(store: store, greeting: greeting)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-        .shadow(color: GameTheme.ink.opacity(0.20), radius: 12, y: 5)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(GameTheme.hudEdge, lineWidth: 2))
+        .background(shape.fill(GameTheme.hudEdge).offset(y: 4))
+        .padding(.bottom, 4)
         .alert("店名を変更", isPresented: $showRename) {
             TextField("店名", text: $nameDraft)
             Button("キャンセル", role: .cancel) {}
@@ -1035,484 +1043,75 @@ private struct StoreSceneHeader: View {
 
 }
 
-private struct StoreScene: View {
-    let store: Store
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                StoreSceneBackdrop(type: store.type)
-                StoreSceneBuilding(type: store.type, inventoryCount: store.inventoryCount)
-                StoreAccessOverlay(type: store.type)
-                StoreTrafficAnimation(store: store)
-            }
-            .clipped()
-        }
-    }
-}
-
-private struct StoreSceneBuilding: View {
-    let type: StoreType
-    let inventoryCount: Int
-
-    var body: some View {
-        Canvas { context, size in
-            let building = scaled(type.sceneBuildingRect, in: size)
-            let entrance = normalized(type.sceneEntrance, in: size)
-            let accent = type.sceneAccentColor
-
-            context.fill(
-                Path(roundedRect: building.offsetBy(dx: 5, dy: 5), cornerRadius: 5),
-                with: .color(GameTheme.ink.opacity(0.20))
-            )
-            context.fill(Path(roundedRect: building, cornerRadius: 5), with: .color(Color(red: 0.91, green: 0.93, blue: 0.90)))
-            context.stroke(Path(roundedRect: building, cornerRadius: 5), with: .color(.white.opacity(0.92)), lineWidth: 2)
-
-            let roof = CGRect(x: building.minX - 4, y: building.minY - 5, width: building.width + 8, height: 16)
-            context.fill(Path(roundedRect: roof, cornerRadius: 4), with: .color(accent))
-            let sign = CGRect(x: building.midX - min(70, building.width * 0.32), y: building.minY + 16, width: min(140, building.width * 0.64), height: 21)
-            context.fill(Path(roundedRect: sign, cornerRadius: 5), with: .color(accent.opacity(0.92)))
-            context.draw(Text(type.sceneShortName).font(.system(size: 10, weight: .black)).foregroundStyle(.white), at: CGPoint(x: sign.midX, y: sign.midY))
-
-            let windowCount = type == .small ? 2 : 3
-            let windowTop = building.minY + 44
-            let windowWidth = min(38, (building.width - 40) / CGFloat(windowCount))
-            for index in 0..<windowCount {
-                let centerX = building.minX + 22 + CGFloat(index) * (windowWidth + 8)
-                let window = CGRect(x: centerX, y: windowTop, width: windowWidth, height: max(18, building.maxY - windowTop - 12))
-                context.fill(Path(roundedRect: window, cornerRadius: 3), with: .color(Color.cyan.opacity(0.55)))
-                context.stroke(Path(roundedRect: window, cornerRadius: 3), with: .color(accent.opacity(0.72)), lineWidth: 1.4)
-            }
-
-            let door = CGRect(x: entrance.x - 10, y: entrance.y - 28, width: 20, height: 28)
-            context.fill(Path(roundedRect: door, cornerRadius: 3), with: .color(accent))
-            context.fill(Path(roundedRect: door.insetBy(dx: 4, dy: 4), cornerRadius: 2), with: .color(Color.cyan.opacity(0.62)))
-            context.fill(Path(ellipseIn: CGRect(x: door.maxX - 6, y: door.midY, width: 3, height: 3)), with: .color(.white))
-
-            drawParkingBays(context: &context, size: size)
-            drawFence(context: &context, size: size)
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func drawParkingBays(context: inout GraphicsContext, size: CGSize) {
-        let shown = min(4, max(1, inventoryCount))
-        let positions: [CGPoint] = [
-            .init(x: 0.66, y: 0.57), .init(x: 0.77, y: 0.57),
-            .init(x: 0.88, y: 0.57), .init(x: 0.88, y: 0.68)
-        ]
-        for (index, position) in positions.enumerated() {
-            let point = normalized(position, in: size)
-            let bay = CGRect(x: point.x - 17, y: point.y - 11, width: 34, height: 22)
-            context.stroke(Path(roundedRect: bay, cornerRadius: 2), with: .color(.white.opacity(0.72)), lineWidth: 1.3)
-            guard index < shown else { continue }
-            let car = bay.insetBy(dx: 5, dy: 4)
-            let colors: [Color] = [.cyan, .white, .yellow, .blue]
-            context.fill(Path(roundedRect: car, cornerRadius: 5), with: .color(colors[index % colors.count].opacity(0.88)))
-            context.fill(Path(roundedRect: car.insetBy(dx: 6, dy: 3), cornerRadius: 2), with: .color(GameTheme.navy.opacity(0.72)))
-        }
-    }
-
-    private func drawFence(context: inout GraphicsContext, size: CGSize) {
-        let y = size.height * 0.71
-        let pedestrianX = size.width * type.scenePedestrianGate.x
-        let vehicleX = size.width * type.sceneVehicleGate.x
-        let gaps = [
-            (pedestrianX - 13, pedestrianX + 13),
-            (vehicleX - 28, vehicleX + 28)
-        ].sorted { $0.0 < $1.0 }
-        var cursor = size.width * 0.055
-        for gap in gaps {
-            if gap.0 > cursor { drawFenceSegment(from: cursor, to: gap.0, y: y, context: &context) }
-            drawGatePost(x: gap.0, y: y, context: &context)
-            drawGatePost(x: gap.1, y: y, context: &context)
-            cursor = max(cursor, gap.1)
-        }
-        drawFenceSegment(from: cursor, to: size.width * 0.945, y: y, context: &context)
-    }
-
-    private func drawFenceSegment(from start: CGFloat, to end: CGFloat, y: CGFloat, context: inout GraphicsContext) {
-        guard end > start else { return }
-        var path = Path()
-        path.move(to: CGPoint(x: start, y: y))
-        path.addLine(to: CGPoint(x: end, y: y))
-        context.stroke(path, with: .color(type.sceneAccentColor.opacity(0.92)), style: StrokeStyle(lineWidth: 5, lineCap: .square))
-        context.stroke(path, with: .color(.white.opacity(0.86)), style: StrokeStyle(lineWidth: 1.2, dash: [6, 4]))
-    }
-
-    private func drawGatePost(x: CGFloat, y: CGFloat, context: inout GraphicsContext) {
-        let post = CGRect(x: x - 3, y: y - 8, width: 6, height: 12)
-        context.fill(Path(roundedRect: post, cornerRadius: 1), with: .color(.white))
-        context.stroke(Path(roundedRect: post, cornerRadius: 1), with: .color(type.sceneAccentColor), lineWidth: 1)
-    }
-
-    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: point.x * size.width, y: point.y * size.height)
-    }
-
-    private func scaled(_ rect: CGRect, in size: CGSize) -> CGRect {
-        CGRect(x: rect.minX * size.width, y: rect.minY * size.height, width: rect.width * size.width, height: rect.height * size.height)
-    }
-}
-
-private struct StoreSceneBackdrop: View {
-    let type: StoreType
-
-    var body: some View {
-        Canvas { context, size in
-            let bounds = CGRect(origin: .zero, size: size)
-            context.fill(
-                Path(bounds),
-                with: .linearGradient(
-                    Gradient(colors: [Color(red: 0.50, green: 0.73, blue: 0.86), Color(red: 0.88, green: 0.91, blue: 0.80)]),
-                    startPoint: .zero,
-                    endPoint: CGPoint(x: 0, y: size.height * 0.78)
-                )
-            )
-
-            let sun = CGRect(x: size.width * 0.82, y: size.height * 0.12, width: 42, height: 42)
-            context.fill(Path(ellipseIn: sun), with: .color(Color.yellow.opacity(0.30)))
-
-            for index in 0..<7 {
-                let width = size.width * (0.07 + CGFloat(index % 3) * 0.015)
-                let height = size.height * (0.15 + CGFloat((index * 3) % 4) * 0.035)
-                let x = CGFloat(index) * size.width / 6.2 - width * 0.2
-                let rect = CGRect(x: x, y: size.height * 0.43 - height, width: width, height: height)
-                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(GameTheme.navy.opacity(0.10)))
-                for floor in 0..<2 {
-                    let window = CGRect(x: rect.minX + 6, y: rect.minY + 8 + CGFloat(floor) * 11, width: max(4, rect.width - 12), height: 3)
-                    context.fill(Path(window), with: .color(Color.white.opacity(0.28)))
-                }
-            }
-
-            let ground = CGRect(x: 0, y: size.height * 0.43, width: size.width, height: size.height * 0.31)
-            context.fill(Path(ground), with: .linearGradient(Gradient(colors: [Color(red: 0.63, green: 0.76, blue: 0.58), Color(red: 0.48, green: 0.64, blue: 0.49)]), startPoint: CGPoint(x: 0, y: ground.minY), endPoint: CGPoint(x: 0, y: ground.maxY)))
-
-            let sidewalk = CGRect(x: 0, y: size.height * 0.73, width: size.width, height: size.height * 0.09)
-            context.fill(Path(sidewalk), with: .color(Color(red: 0.72, green: 0.73, blue: 0.69)))
-            context.fill(Path(CGRect(x: 0, y: sidewalk.minY, width: size.width, height: 3)), with: .color(.white.opacity(0.62)))
-
-            let destination = normalized(type.sceneVehicleDestination, in: size)
-            let vehicleGate = normalized(type.sceneVehicleGate, in: size)
-            let driveway = polygon([
-                CGPoint(x: destination.x - 18, y: destination.y + 5),
-                CGPoint(x: destination.x + 18, y: destination.y + 5),
-                CGPoint(x: vehicleGate.x + 25, y: sidewalk.maxY + 4),
-                CGPoint(x: vehicleGate.x - 25, y: sidewalk.maxY + 4)
-            ])
-            context.fill(driveway, with: .color(GameTheme.road.opacity(0.82)))
-
-            let pedestrianGate = normalized(type.scenePedestrianGate, in: size)
-            let entrance = normalized(type.sceneEntrance, in: size)
-            var walkway = Path()
-            walkway.move(to: CGPoint(x: pedestrianGate.x, y: sidewalk.midY))
-            walkway.addLine(to: pedestrianGate)
-            walkway.addLine(to: entrance)
-            context.stroke(walkway, with: .color(.white.opacity(0.95)), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
-            context.stroke(walkway, with: .color(Color(red: 0.79, green: 0.72, blue: 0.58)), style: StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
-
-            let road = CGRect(x: 0, y: size.height * 0.81, width: size.width, height: size.height * 0.19)
-            context.fill(Path(road), with: .linearGradient(Gradient(colors: [GameTheme.road, GameTheme.ink.opacity(0.92)]), startPoint: CGPoint(x: 0, y: road.minY), endPoint: CGPoint(x: 0, y: road.maxY)))
-            context.fill(Path(CGRect(x: 0, y: road.minY, width: size.width, height: 3)), with: .color(Color.white.opacity(0.75)))
-
-            var lane = Path()
-            lane.move(to: CGPoint(x: 0, y: size.height * 0.91))
-            lane.addLine(to: CGPoint(x: size.width, y: size.height * 0.91))
-            context.stroke(lane, with: .color(Color.white.opacity(0.75)), style: StrokeStyle(lineWidth: 2, dash: [14, 10]))
-
-            for index in 0..<4 {
-                let x = size.width * (0.08 + CGFloat(index) * 0.28)
-                let trunk = CGRect(x: x, y: size.height * 0.43, width: 4, height: 18)
-                let crown = CGRect(x: x - 8, y: size.height * 0.39, width: 20, height: 22)
-                context.fill(Path(trunk), with: .color(Color.brown.opacity(0.55)))
-                context.fill(Path(ellipseIn: crown), with: .color(Color.green.opacity(0.38)))
-            }
-        }
-    }
-
-    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: point.x * size.width, y: point.y * size.height)
-    }
-
-    private func polygon(_ points: [CGPoint]) -> Path {
-        var path = Path()
-        guard let first = points.first else { return path }
-        path.move(to: first)
-        for point in points.dropFirst() { path.addLine(to: point) }
-        path.closeSubpath()
-        return path
-    }
-}
-
-private struct StoreAccessOverlay: View {
-    let type: StoreType
-
-    var body: some View {
-        Canvas { context, size in
-            let pedestrianGate = normalized(type.scenePedestrianGate, in: size)
-            let entrance = normalized(type.sceneEntrance, in: size)
-            let vehicleGate = normalized(type.sceneVehicleGate, in: size)
-            let destination = normalized(type.sceneVehicleDestination, in: size)
-
-            var drivewayOpening = Path()
-            drivewayOpening.move(to: CGPoint(x: vehicleGate.x, y: size.height * 0.82))
-            drivewayOpening.addLine(to: vehicleGate)
-            context.stroke(drivewayOpening, with: .color(.white.opacity(0.92)), style: StrokeStyle(lineWidth: 16, lineCap: .butt))
-            context.stroke(drivewayOpening, with: .color(GameTheme.road), style: StrokeStyle(lineWidth: 11, lineCap: .butt))
-
-            var vehicleGuide = Path()
-            vehicleGuide.move(to: vehicleGate)
-            vehicleGuide.addLine(to: destination)
-            context.stroke(vehicleGuide, with: .color(.white.opacity(0.82)), style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
-
-            var pedestrianOpening = Path()
-            pedestrianOpening.move(to: CGPoint(x: pedestrianGate.x, y: size.height * 0.78))
-            pedestrianOpening.addLine(to: pedestrianGate)
-            pedestrianOpening.addLine(to: entrance)
-            context.stroke(pedestrianOpening, with: .color(.white.opacity(0.96)), style: StrokeStyle(lineWidth: 11, lineCap: .round, lineJoin: .round))
-            context.stroke(pedestrianOpening, with: .color(Color(red: 0.80, green: 0.73, blue: 0.59)), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
-            context.stroke(pedestrianOpening, with: .color(GameTheme.teal.opacity(0.78)), style: StrokeStyle(lineWidth: 1.3, dash: [3, 3]))
-
-            drawLabel("歩行入口", at: CGPoint(x: pedestrianGate.x, y: size.height * 0.745), context: &context)
-            drawLabel("車両入口", at: CGPoint(x: vehicleGate.x, y: size.height * 0.79), context: &context)
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: point.x * size.width, y: point.y * size.height)
-    }
-
-    private func drawLabel(_ text: String, at point: CGPoint, context: inout GraphicsContext) {
-        let background = CGRect(x: point.x - 25, y: point.y - 8, width: 50, height: 16)
-        context.fill(Path(roundedRect: background, cornerRadius: 8), with: .color(GameTheme.navy.opacity(0.82)))
-        context.draw(Text(text).font(.system(size: 7, weight: .black)).foregroundStyle(.white), at: point)
-    }
-}
-
-private struct StoreTrafficAnimation: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let store: Store
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion || store.weeklyVisitorCount == 0)) { timeline in
-            Canvas { context, size in
-                guard store.weeklyVisitorCount > 0 else { return }
-                let seconds = reduceMotion ? 1.4 : timeline.date.timeIntervalSinceReferenceDate
-                drawEntranceGlow(context: &context, size: size, seconds: seconds)
-                drawPedestrians(context: &context, size: size, seconds: seconds)
-                drawArrivingCars(context: &context, size: size, seconds: seconds)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func drawEntranceGlow(context: inout GraphicsContext, size: CGSize, seconds: Double) {
-        let entrance = normalized(store.type.sceneEntrance, in: size)
-        let pulse = reduceMotion ? 0.65 : 0.48 + (sin(seconds * 2.4) + 1) * 0.12
-        let area = CGRect(x: entrance.x - 17, y: entrance.y - 10, width: 34, height: 20)
-        context.fill(Path(ellipseIn: area), with: .color(GameTheme.mint.opacity(pulse * 0.28)))
-        context.stroke(Path(ellipseIn: area), with: .color(GameTheme.mint.opacity(pulse)), lineWidth: 1.3)
-    }
-
-    private func drawPedestrians(context: inout GraphicsContext, size: CGSize, seconds: Double) {
-        let arrivals = store.buyerArrivalsThisWeek
-        guard arrivals > 0 else { return }
-        let count = min(5, arrivals)
-        let cycle = pedestrianCycle
-        let active = pedestrianActiveFraction
-        let entrance = normalized(store.type.sceneEntrance, in: size)
-        let gate = normalized(store.type.scenePedestrianGate, in: size)
-        let colors: [Color] = [GameTheme.orange, GameTheme.mint, .white, .yellow, .cyan]
-
-        for index in 0..<count {
-            let phase = (seconds / cycle + Double(index) / Double(max(1, count))).truncatingRemainder(dividingBy: 1)
-            guard phase <= active else { continue }
-            let progress = CGFloat(phase / active)
-            let fromRight = index.isMultiple(of: 2)
-            let start = CGPoint(x: size.width * (fromRight ? 1.04 : -0.04), y: size.height * 0.775)
-            let route = [
-                start,
-                CGPoint(x: gate.x + (fromRight ? 18 : -18), y: size.height * 0.775),
-                gate,
-                entrance
-            ]
-            let point = sample(route: route, progress: easeInOut(progress)).point
-            let fade = min(1, Double(progress) * 6, Double(1 - progress) * 8)
-            drawPerson(context: &context, at: point, color: colors[index % colors.count].opacity(fade))
-        }
-    }
-
-    private func drawArrivingCars(context: inout GraphicsContext, size: CGSize, seconds: Double) {
-        let arrivals = store.sellerArrivalsThisWeek
-        guard arrivals > 0 else { return }
-        let count = min(3, arrivals)
-        let cycle = vehicleCycle
-        let active = vehicleActiveFraction
-        let destination = normalized(store.type.sceneVehicleDestination, in: size)
-        let gate = normalized(store.type.sceneVehicleGate, in: size)
-        let colors: [Color] = [GameTheme.mint, Color(red: 0.96, green: 0.72, blue: 0.22), Color(red: 0.46, green: 0.75, blue: 0.94)]
-
-        for index in 0..<count {
-            let phase = (seconds / cycle + Double(index) / Double(max(1, count))).truncatingRemainder(dividingBy: 1)
-            guard phase <= active else { continue }
-            let progress = CGFloat(phase / active)
-            let fromRight = index.isMultiple(of: 2)
-            let start = CGPoint(x: size.width * (fromRight ? 1.08 : -0.08), y: size.height * 0.91)
-            let route = [
-                start,
-                CGPoint(x: gate.x + (fromRight ? 28 : -28), y: size.height * 0.91),
-                CGPoint(x: gate.x, y: size.height * 0.82),
-                gate,
-                destination
-            ]
-            let sample = sample(route: route, progress: easeInOut(progress))
-            let fade = min(1, Double(progress) * 8, Double(1 - progress) * 10)
-            drawCar(context: &context, at: sample.point, color: colors[index % colors.count].opacity(fade), angle: sample.angle)
-        }
-    }
-
-    private var pedestrianCycle: Double {
-        switch store.trafficLevel {
-        case .quiet: 20
-        case .light: 12
-        case .steady: 9
-        case .busy: 6.8
-        case .packed: 5.2
-        }
-    }
-
-    private var pedestrianActiveFraction: Double {
-        switch store.trafficLevel {
-        case .quiet: 0
-        case .light: 0.36
-        case .steady: 0.52
-        case .busy: 0.72
-        case .packed: 0.90
-        }
-    }
-
-    private var vehicleCycle: Double {
-        switch store.trafficLevel {
-        case .quiet: 20
-        case .light: 14
-        case .steady: 11
-        case .busy: 8.5
-        case .packed: 7
-        }
-    }
-
-    private var vehicleActiveFraction: Double {
-        switch store.trafficLevel {
-        case .quiet: 0
-        case .light: 0.42
-        case .steady: 0.55
-        case .busy: 0.68
-        case .packed: 0.80
-        }
-    }
-
-    private func drawPerson(context: inout GraphicsContext, at point: CGPoint, color: Color) {
-        let shadow = CGRect(x: point.x - 6, y: point.y + 8, width: 12, height: 4)
-        context.fill(Path(ellipseIn: shadow), with: .color(GameTheme.ink.opacity(0.24)))
-        context.fill(Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 10, width: 7, height: 7)), with: .color(color))
-        context.fill(Path(roundedRect: CGRect(x: point.x - 4, y: point.y - 3, width: 8, height: 10), cornerRadius: 3), with: .color(color))
-        var limbs = Path()
-        limbs.move(to: CGPoint(x: point.x - 1.5, y: point.y + 6))
-        limbs.addLine(to: CGPoint(x: point.x - 4, y: point.y + 11))
-        limbs.move(to: CGPoint(x: point.x + 1.5, y: point.y + 6))
-        limbs.addLine(to: CGPoint(x: point.x + 4, y: point.y + 11))
-        limbs.move(to: CGPoint(x: point.x - 3, y: point.y))
-        limbs.addLine(to: CGPoint(x: point.x - 7, y: point.y + 4))
-        limbs.move(to: CGPoint(x: point.x + 3, y: point.y))
-        limbs.addLine(to: CGPoint(x: point.x + 7, y: point.y + 4))
-        context.stroke(limbs, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-    }
-
-    private func drawCar(context: inout GraphicsContext, at point: CGPoint, color: Color, angle: CGFloat) {
-        context.drawLayer { layer in
-            layer.translateBy(x: point.x, y: point.y)
-            layer.rotate(by: .radians(Double(angle)))
-            let shadow = CGRect(x: -15, y: -6, width: 30, height: 14)
-            layer.fill(Path(roundedRect: shadow, cornerRadius: 6), with: .color(GameTheme.ink.opacity(0.25)))
-            let body = CGRect(x: -14, y: -8, width: 28, height: 14)
-            layer.fill(Path(roundedRect: body, cornerRadius: 5), with: .color(color))
-            let cabin = CGRect(x: -5, y: -6, width: 12, height: 10)
-            layer.fill(Path(roundedRect: cabin, cornerRadius: 3), with: .color(GameTheme.navy.opacity(0.78)))
-            layer.stroke(Path(roundedRect: body, cornerRadius: 5), with: .color(.white.opacity(0.70)), lineWidth: 1)
-            layer.fill(Path(ellipseIn: CGRect(x: body.maxX - 3, y: -5, width: 2, height: 3)), with: .color(Color.yellow.opacity(0.95)))
-            for offset in [-9.0, 7.0] {
-                layer.fill(Path(roundedRect: CGRect(x: offset, y: -9, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
-                layer.fill(Path(roundedRect: CGRect(x: offset, y: 6, width: 5, height: 2), cornerRadius: 1), with: .color(GameTheme.ink))
-            }
-        }
-    }
-
-    private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: point.x * size.width, y: point.y * size.height)
-    }
-
-    private func easeInOut(_ value: CGFloat) -> CGFloat {
-        value * value * (3 - 2 * value)
-    }
-
-    private func sample(route: [CGPoint], progress: CGFloat) -> (point: CGPoint, angle: CGFloat) {
-        guard route.count >= 2 else { return (route.first ?? .zero, 0) }
-        let lengths = zip(route, route.dropFirst()).map { start, end in hypot(end.x - start.x, end.y - start.y) }
-        let total = max(0.001, lengths.reduce(0, +))
-        var remaining = min(1, max(0, progress)) * total
-        for (index, length) in lengths.enumerated() {
-            if remaining <= length || index == lengths.count - 1 {
-                let start = route[index]
-                let end = route[index + 1]
-                let t = length > 0 ? remaining / length : 0
-                return (
-                    CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t),
-                    atan2(end.y - start.y, end.x - start.x)
-                )
-            }
-            remaining -= length
-        }
-        return (route.last ?? .zero, 0)
-    }
-}
-
 private struct StoreSceneStatusOverlay: View {
     let store: Store
+    let greeting: String
 
     var body: some View {
-        VStack {
-            HStack {
-                Spacer()
-                Label(store.trafficLevel.name, systemImage: store.trafficLevel.icon)
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(store.trafficLevel.color.opacity(0.92))
-                    .clipShape(Capsule())
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                // 店長からの一言を吹き出しで表示します。
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "bubble.left.fill")
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(GameTheme.orange)
+                    Text(greeting)
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(GameTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(GameTheme.panel.opacity(0.96))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .strokeBorder(GameTheme.panelEdge, lineWidth: 1.5)
+                        )
+                )
+                Spacer(minLength: 0)
+                CapsuleLabel(text: store.trafficLevel.name, color: store.trafficLevel.color, icon: store.trafficLevel.icon)
             }
-            .padding(.top, 53)
-            .padding(.horizontal, 10)
+            .padding(9)
             Spacer()
-            HStack(spacing: 14) {
-                Label("\(store.buyerArrivalsThisWeek)", systemImage: "figure.walk")
-                    .foregroundStyle(GameTheme.orange)
-                    .accessibilityLabel("販売客 \(store.buyerArrivalsThisWeek)人")
-                Label("\(store.sellerArrivalsThisWeek)", systemImage: "car.side.fill")
-                    .foregroundStyle(GameTheme.mint)
-                    .accessibilityLabel("買取車 \(store.sellerArrivalsThisWeek)台")
-                Spacer()
-                Label("\(store.weeklyVisitorCount)", systemImage: "calendar")
-                    .foregroundStyle(.white)
-                    .accessibilityLabel("今週 \(store.weeklyVisitorCount)件")
+            HStack(spacing: 8) {
+                sceneChip("販売客", "\(store.buyerArrivalsThisWeek)人", "figure.walk", GameTheme.orange)
+                sceneChip("買取車", "\(store.sellerArrivalsThisWeek)台", "car.side.fill", GameTheme.teal)
+                Spacer(minLength: 0)
+                sceneChip("今週", "\(store.weeklyVisitorCount)件", "calendar", GameTheme.hudTop)
             }
-            .font(.caption2.bold().monospacedDigit())
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.black.opacity(0.62))
+            .padding(9)
         }
         .allowsHitTesting(false)
+    }
+
+    private func sceneChip(_ title: String, _ value: String, _ icon: String, _ tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .heavy))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(tint))
+            VStack(alignment: .leading, spacing: -1) {
+                Text(title)
+                    .font(.system(size: 8, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GameTheme.gold)
+                Text(value)
+                    .font(.system(size: 13, weight: .heavy, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.leading, 4)
+        .padding(.trailing, 10)
+        .frame(height: 30)
+        .background(
+            Capsule()
+                .fill(GameTheme.hudBottom.opacity(0.88))
+                .overlay(Capsule().strokeBorder(GameTheme.hudEdge, lineWidth: 1.2))
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title) \(value)")
     }
 }
 
@@ -1524,98 +1123,6 @@ private extension StoreTrafficLevel {
         case .steady: GameTheme.teal
         case .busy: GameTheme.orange
         case .packed: .red
-        }
-    }
-}
-
-private extension StoreType {
-    var sceneAssetScale: CGFloat {
-        switch self {
-        case .small: 0.82
-        case .standard: 0.94
-        case .roadside: 1.02
-        case .premium: 0.91
-        case .service: 0.98
-        }
-    }
-
-    var sceneAssetCenterY: CGFloat {
-        switch self {
-        case .small: 0.53
-        case .standard: 0.54
-        case .roadside: 0.53
-        case .premium: 0.53
-        case .service: 0.54
-        }
-    }
-
-    var sceneBuildingRect: CGRect {
-        switch self {
-        case .small: CGRect(x: 0.13, y: 0.41, width: 0.43, height: 0.23)
-        case .standard: CGRect(x: 0.09, y: 0.38, width: 0.50, height: 0.25)
-        case .roadside: CGRect(x: 0.07, y: 0.34, width: 0.49, height: 0.28)
-        case .premium: CGRect(x: 0.09, y: 0.35, width: 0.52, height: 0.29)
-        case .service: CGRect(x: 0.07, y: 0.38, width: 0.49, height: 0.25)
-        }
-    }
-
-    var sceneAccentColor: Color {
-        switch self {
-        case .small: GameTheme.teal
-        case .standard: Color(red: 0.05, green: 0.54, blue: 0.62)
-        case .roadside: GameTheme.orange
-        case .premium: Color(red: 0.16, green: 0.24, blue: 0.32)
-        case .service: Color(red: 0.38, green: 0.43, blue: 0.47)
-        }
-    }
-
-    var sceneShortName: String {
-        switch self {
-        case .small: "CAR SHOP"
-        case .standard: "USED CAR CITY"
-        case .roadside: "MEGA AUTO"
-        case .premium: "PREMIUM"
-        case .service: "SALES & SERVICE"
-        }
-    }
-
-    var sceneEntrance: CGPoint {
-        switch self {
-        case .small: CGPoint(x: 0.43, y: 0.64)
-        case .standard: CGPoint(x: 0.44, y: 0.63)
-        case .roadside: CGPoint(x: 0.34, y: 0.62)
-        case .premium: CGPoint(x: 0.46, y: 0.64)
-        case .service: CGPoint(x: 0.31, y: 0.64)
-        }
-    }
-
-    var scenePedestrianGate: CGPoint {
-        switch self {
-        case .small: CGPoint(x: 0.43, y: 0.71)
-        case .standard: CGPoint(x: 0.44, y: 0.71)
-        case .roadside: CGPoint(x: 0.36, y: 0.70)
-        case .premium: CGPoint(x: 0.46, y: 0.71)
-        case .service: CGPoint(x: 0.31, y: 0.70)
-        }
-    }
-
-    var sceneVehicleGate: CGPoint {
-        switch self {
-        case .small: CGPoint(x: 0.82, y: 0.71)
-        case .standard: CGPoint(x: 0.66, y: 0.71)
-        case .roadside: CGPoint(x: 0.52, y: 0.70)
-        case .premium: CGPoint(x: 0.83, y: 0.71)
-        case .service: CGPoint(x: 0.58, y: 0.70)
-        }
-    }
-
-    var sceneVehicleDestination: CGPoint {
-        switch self {
-        case .small: CGPoint(x: 0.73, y: 0.68)
-        case .standard: CGPoint(x: 0.76, y: 0.67)
-        case .roadside: CGPoint(x: 0.78, y: 0.64)
-        case .premium: CGPoint(x: 0.77, y: 0.66)
-        case .service: CGPoint(x: 0.70, y: 0.61)
         }
     }
 }
@@ -1874,7 +1381,7 @@ private struct StoreTeamPanel: View {
                             }
                             Spacer()
                             Button("採用") { _ = game.hireEmployee(employee.id, for: store.id) }
-                                .buttonStyle(.borderedProminent).tint(.purple)
+                                .buttonStyle(.gamePrimary).tint(.purple)
                                 .disabled(store.staff >= game.maxEmployeesPerStore)
                         }
                     }
@@ -2720,7 +2227,7 @@ private struct MarketConditionsPanel: View {
                                 }
                                 .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.gameSecondary)
                             .tint(GameTheme.orange)
                             .disabled(
                                 !game.canStartInventorySaleCampaign(
@@ -2780,7 +2287,7 @@ private struct ProcurementPanel: View {
             HStack {
                 Spacer()
                 Button("AA指示を追加") { showProcurementInstructionEditor = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.teal)
                     .font(.caption.bold())
             }
@@ -2858,7 +2365,7 @@ private struct CorporateOpportunityRow: View {
             Button(opportunity.playerStoreID == store.id ? "提案を更新" : "この店舗で応募") {
                 _ = game.submitCorporateBid(opportunityID: opportunity.id, storeID: store.id, unitPrice: unitPrice)
             }
-            .buttonStyle(.bordered).font(.caption.bold())
+            .buttonStyle(.gameSecondary).font(.caption.bold())
         }
         .padding(9)
         .background(GameTheme.cream)
@@ -3109,7 +2616,7 @@ private struct StoreFinancePanel: View {
                     Button(action: openSettings) {
                         Label("詳細", systemImage: "wrench.and.screwdriver.fill")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.gamePrimary)
                     .tint(GameTheme.navy)
                     .font(.caption.bold())
                 }

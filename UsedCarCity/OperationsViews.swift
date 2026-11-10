@@ -266,7 +266,7 @@ struct InventoryCustomizationSheet: View {
                                                 Label("\(preview.fulfillmentMode.name)で開始", systemImage: "hammer.fill")
                                                     .frame(maxWidth: .infinity)
                                             }
-                                            .buttonStyle(.borderedProminent)
+                                            .buttonStyle(.gamePrimary)
                                             .tint(.purple)
                                             .disabled(game.cash < preview.cost)
                                         }
@@ -500,7 +500,7 @@ struct StoreSettingsView: View {
                                                 draft = game.stores.first(where: { $0.id == storeID })
                                             }
                                         }
-                                        .buttonStyle(.bordered).font(.caption.bold())
+                                        .buttonStyle(.gameSecondary).font(.caption.bold())
                                         .disabled(game.cash < facility.installationCost)
                                     }
                                 }
@@ -512,7 +512,7 @@ struct StoreSettingsView: View {
                                 Label("この店舗を撤退・売却する", systemImage: "rectangle.portrait.and.arrow.right")
                                     .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.gameSecondary)
                         }
                         VStack(alignment: .leading, spacing: 13) {
                             SectionTitle(title: "広告と整備能力", subtitle: "整備担当の工数と設備ベイは独立した制約です")
@@ -578,7 +578,7 @@ struct StoreSettingsView: View {
                                             } else {
                                                 renovationMessage = "資金または展示枠の条件を満たしていません"
                                             }
-                                        }.buttonStyle(.bordered).tint(GameTheme.teal)
+                                        }.buttonStyle(.gameSecondary).tint(GameTheme.teal)
                                     }
                                 }
                             }.gameCard()

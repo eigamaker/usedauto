@@ -67,7 +67,7 @@ struct GridCityMapSurface: View {
                 }
                 Spacer()
             }
-            .padding(.top, 106)
+            .padding(.top, 58)
             .padding(.horizontal, 10)
         }
         .clipped()
@@ -125,16 +125,9 @@ private struct GridCameraButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.subheadline.bold())
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 38)
-                .background(GameTheme.navy.opacity(0.84))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            GameIconTile(title: label, icon: icon, size: 38, showsTitle: false)
         }
-        .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-        .accessibilityLabel(label)
+        .buttonStyle(.gamePress)
     }
 }
 
@@ -532,6 +525,9 @@ private final class GridCitySceneController {
                 game: game,
                 isSelected: parcel.legacyPlotID == selectedPlotID
             )
+            // In an analysis layer the coloured slab rises above the lot
+            // surface so the heat map is not buried under the buildings.
+            node.position.y = layer != .normal && plot != nil ? 1.55 : 0.20
 
             if let marker = vacantMarkerNodes[parcel.id] {
                 marker.isHidden = plot?.currentUse.isVacant != true
@@ -560,6 +556,8 @@ private final class GridCitySceneController {
             plotByID: Dictionary(uniqueKeysWithValues: game.plots.map { ($0.id, $0) })
         )
         updateCompetitorLabels(game: game)
+        applyAnalysisMode(layer != .normal)
+        updateFoundingMarkers(game: game)
         sceneView?.setNeedsDisplay()
     }
 
@@ -587,7 +585,10 @@ private final class GridCitySceneController {
         buildStaticObjectNodes()
         buildVacantMarkers()
         buildGreenery()
+        buildMovingTraffic()
+        buildCloudShadows()
         buildFacilityMarkers()
+        buildDistrictLabels()
         buildGridNode()
         buildLighting()
         buildCamera()
@@ -689,16 +690,50 @@ private final class GridCitySceneController {
 
         for kind in GroundKind.allCases {
             guard let rects = strips[kind], !rects.isEmpty else { continue }
+            let uvScale: Float = switch kind {
+            case .grass, .park: 1 / (cell * 2)
+            case .water: 1 / (cell * 4)
+            case .beach, .plaza: 1 / cell
+            }
             let geometry = makeHorizontalGeometry(
                 rectangles: rects,
                 height: kind.surfaceHeight,
                 material: groundMaterial(for: kind),
-                uvScale: 1 / cell
+                uvScale: uvScale
             )
             let node = SCNNode(geometry: geometry)
             node.name = "ground-\(kind)"
             node.castsShadow = false
             scene.rootNode.addChildNode(node)
+
+            if kind == .water {
+                // Two crest layers drifting at different speeds make the bay
+                // shimmer without any per-frame work on the CPU.
+                for (index, drift) in [(0, CGPoint(x: 1, y: 0.35)), (1, CGPoint(x: -0.6, y: 1))] {
+                    let crestMaterial = SCNMaterial()
+                    crestMaterial.diffuse.contents = CityGroundArt.waveCrestTexture()
+                    crestMaterial.diffuse.wrapS = .repeat
+                    crestMaterial.diffuse.wrapT = .repeat
+                    crestMaterial.lightingModel = .constant
+                    crestMaterial.writesToDepthBuffer = false
+                    crestMaterial.transparency = index == 0 ? 0.55 : 0.30
+                    let animation = CABasicAnimation(keyPath: "contentsTransform")
+                    animation.fromValue = NSValue(scnMatrix4: SCNMatrix4Identity)
+                    animation.toValue = NSValue(scnMatrix4: SCNMatrix4MakeTranslation(Float(drift.x), Float(drift.y), 0))
+                    animation.duration = index == 0 ? 26 : 41
+                    animation.repeatCount = .infinity
+                    crestMaterial.diffuse.addAnimation(animation, forKey: "drift")
+                    let crests = SCNNode(geometry: makeHorizontalGeometry(
+                        rectangles: rects,
+                        height: kind.surfaceHeight + 0.01 + Float(index) * 0.005,
+                        material: crestMaterial,
+                        uvScale: 1 / (cell * (index == 0 ? 3 : 5))
+                    ))
+                    crests.name = "water-crests-\(index)"
+                    crests.castsShadow = false
+                    scene.rootNode.addChildNode(crests)
+                }
+            }
         }
 
         buildShoreline()
@@ -775,7 +810,6 @@ private final class GridCitySceneController {
             scene.rootNode.addChildNode(makePavementNode(for: roadClass))
         }
         scene.rootNode.addChildNode(makeLaneMarkingNode())
-        scene.rootNode.addChildNode(makeCrosswalkNode())
     }
 
     /// Street furniture is merged by material: thousands of curb segments cost
@@ -827,17 +861,6 @@ private final class GridCitySceneController {
                 }
             }
             let index = road.coordinate.column + road.coordinate.row
-            let trafficSeed = road.coordinate.column * 31 + road.coordinate.row * 17
-            if trafficSeed % 29 == 4 {
-                let side: Float = trafficSeed.isMultiple(of: 2) ? 1 : -1
-                let lane = road.roadClass.pavementWidth(cellSize: cell) * 0.25
-                let vehicle = assetFactory.makeStreetVehicle(variant: trafficSeed / 29)
-                vehicle.position = SCNVector3(center.x + (ns ? side * lane : 0),
-                                              GridSceneElevation.pavementSurface,
-                                              center.z + (ns ? 0 : side * lane))
-                vehicle.eulerAngles.y = ns ? (side > 0 ? -.pi / 2 : .pi / 2) : (side > 0 ? 0 : .pi)
-                vehicles.addChildNode(vehicle)
-            }
             // Lamps stand entirely on the sidewalk; the local streets have
             // room for wider tree pits, while arterial footways remain clear.
             if index.isMultiple(of: 5) {
@@ -959,9 +982,9 @@ private final class GridCitySceneController {
             }
         }
         let image: UIImage = switch roadClass {
-        case .local: CityGroundArt.asphaltTexture(brightness: 0.29)
-        case .arterial: CityGroundArt.asphaltTexture(brightness: 0.25)
-        case .expressway: CityGroundArt.asphaltTexture(brightness: 0.22)
+        case .local: CityGroundArt.asphaltTexture(brightness: 0.40)
+        case .arterial: CityGroundArt.asphaltTexture(brightness: 0.36)
+        case .expressway: CityGroundArt.asphaltTexture(brightness: 0.32)
         }
         let geometry = makeHorizontalGeometry(
             rectangles: rectangles,
@@ -975,92 +998,306 @@ private final class GridCitySceneController {
         return node
     }
 
-    private func makeLaneMarkingNode() -> SCNNode {
-        var rectangles: [(GridWorldPoint, GridLocalSurfaceRect)] = []
-        let cell = map.metrics.cellSize
-        for road in map.roads.values {
-            let center = map.metrics.worldCenter(of: road.coordinate, mapSize: map.size)
-            switch road.roadClass {
-            case .arterial:
-                // Solid center line along straight axes.
-                if road.connections.contains(.north) || road.connections.contains(.south) {
-                    let hasHorizontal = road.connections.contains(.east) || road.connections.contains(.west)
-                    if !hasHorizontal {
-                        rectangles.append((center, .init(centerX: 0, centerZ: 0, width: 0.40, depth: cell)))
-                    }
+    // MARK: - Road lanes
+
+    /// How a road cell is driven. Arterials are authored as two adjacent
+    /// one-cell carriageways, so a cell is classified by the length of the
+    /// straight runs through it rather than by its raw neighbour count.
+    private struct RoadLane {
+        enum Axis { case horizontal, vertical, junction, stub }
+        let axis: Axis
+        /// 0 = two-way street, +1 = one-way toward +x / +z, -1 = toward -x / -z.
+        let flow: Int
+    }
+
+    private lazy var roadLanes: [GridCoordinate: RoadLane] = {
+        var horizontalRun: [GridCoordinate: Int] = [:]
+        var verticalRun: [GridCoordinate: Int] = [:]
+        for row in 0..<map.size.rows {
+            var run: [GridCoordinate] = []
+            for column in 0...map.size.columns {
+                let coordinate = GridCoordinate(column: column, row: row)
+                if column < map.size.columns, map.roads[coordinate] != nil {
+                    run.append(coordinate)
+                } else {
+                    run.forEach { horizontalRun[$0] = run.count }
+                    run = []
                 }
-                if road.connections.contains(.east) || road.connections.contains(.west) {
-                    let hasVertical = road.connections.contains(.north) || road.connections.contains(.south)
-                    if !hasVertical {
-                        rectangles.append((center, .init(centerX: 0, centerZ: 0, width: cell, depth: 0.40)))
-                    }
-                }
-            case .expressway:
-                // Dashed center plus shoulder lines along the corridor.
-                if road.connections.contains(.east) || road.connections.contains(.west) {
-                    for offset in [-0.30 as Float, 0.10] {
-                        rectangles.append((center, .init(centerX: cell * offset, centerZ: 0, width: cell * 0.24, depth: 0.34)))
-                    }
-                    let shoulder = road.roadClass.pavementWidth(cellSize: cell) / 2 - 0.55
-                    rectangles.append((center, .init(centerX: 0, centerZ: -shoulder, width: cell, depth: 0.30)))
-                    rectangles.append((center, .init(centerX: 0, centerZ: shoulder, width: cell, depth: 0.30)))
-                }
-            case .local:
-                break
             }
         }
-        let geometry = makeHorizontalGeometry(
-            rectangles: rectangles,
-            height: GridSceneElevation.pavementSurface + 0.015,
-            material: flatMaterial(named: "lane-paint", color: UIColor(red: 0.93, green: 0.90, blue: 0.80, alpha: 0.9)),
-            uvScale: 0
-        )
-        let node = SCNNode(geometry: geometry)
+        for column in 0..<map.size.columns {
+            var run: [GridCoordinate] = []
+            for row in 0...map.size.rows {
+                let coordinate = GridCoordinate(column: column, row: row)
+                if row < map.size.rows, map.roads[coordinate] != nil {
+                    run.append(coordinate)
+                } else {
+                    run.forEach { verticalRun[$0] = run.count }
+                    run = []
+                }
+            }
+        }
+        var axes: [GridCoordinate: RoadLane.Axis] = [:]
+        for coordinate in map.roads.keys {
+            let alongX = (horizontalRun[coordinate] ?? 0) >= 3
+            let alongZ = (verticalRun[coordinate] ?? 0) >= 3
+            axes[coordinate] = alongX && alongZ ? .junction : (alongX ? .horizontal : (alongZ ? .vertical : .stub))
+        }
+        var result: [GridCoordinate: RoadLane] = [:]
+        for (coordinate, axis) in axes {
+            var flow = 0
+            // Keep left: the north carriageway runs east, the east one south.
+            switch axis {
+            case .horizontal:
+                if axes[coordinate.neighbor(in: .south)] == .horizontal { flow = 1 }
+                else if axes[coordinate.neighbor(in: .north)] == .horizontal { flow = -1 }
+            case .vertical:
+                if axes[coordinate.neighbor(in: .west)] == .vertical { flow = 1 }
+                else if axes[coordinate.neighbor(in: .east)] == .vertical { flow = -1 }
+            case .junction, .stub:
+                break
+            }
+            result[coordinate] = RoadLane(axis: axis, flow: flow)
+        }
+        return result
+    }()
+
+    /// Painted road markings: dashed centre lines on two-way streets, lane
+    /// dividers and edge lines on arterial carriageways, plus a stop line and
+    /// zebra crossing wherever a street runs into a junction.
+    private func makeLaneMarkingNode() -> SCNNode {
+        var white: [(GridWorldPoint, GridLocalSurfaceRect)] = []
+        var yellow: [(GridWorldPoint, GridLocalSurfaceRect)] = []
+        let cell = map.metrics.cellSize
+
+        /// A rect given along/across the road axis, converted to x/z.
+        func rect(_ ns: Bool, along: Float, across: Float, length: Float, width: Float) -> GridLocalSurfaceRect {
+            ns
+                ? .init(centerX: across, centerZ: along, width: width, depth: length)
+                : .init(centerX: along, centerZ: across, width: length, depth: width)
+        }
+
+        for road in map.roads.values {
+            guard let lane = roadLanes[road.coordinate],
+                  lane.axis == .horizontal || lane.axis == .vertical else { continue }
+            let center = map.metrics.worldCenter(of: road.coordinate, mapSize: map.size)
+            let ns = lane.axis == .vertical
+            let half = road.roadClass.pavementWidth(cellSize: cell) / 2
+            let dashOffsets: [Float] = [-cell / 3, 0, cell / 3]
+            let wide = road.roadClass != .local
+
+            if lane.flow == 0 {
+                if wide {
+                    yellow.append((center, rect(ns, along: 0, across: 0, length: cell, width: 0.46)))
+                    for side: Float in [-1, 1] {
+                        white.append((center, rect(ns, along: 0, across: side * (half - 0.6), length: cell, width: 0.30)))
+                    }
+                } else {
+                    for offset in dashOffsets {
+                        white.append((center, rect(ns, along: offset, across: 0, length: 3.4, width: 0.36)))
+                    }
+                }
+            } else {
+                // One carriageway of a divided road: lane divider, a white
+                // kerb-side edge line and a yellow line along the median.
+                for offset in dashOffsets {
+                    white.append((center, rect(ns, along: offset, across: 0, length: 3.6, width: 0.34)))
+                }
+                // The partner carriageway lies toward +z for an eastbound
+                // lane and toward -x for a southbound one.
+                let medianSide: Float = ns ? Float(-lane.flow) : Float(lane.flow)
+                yellow.append((center, rect(ns, along: 0, across: medianSide * (half - 0.6), length: cell, width: 0.40)))
+                white.append((center, rect(ns, along: 0, across: -medianSide * (half - 0.6), length: cell, width: 0.30)))
+            }
+
+            guard road.roadClass != .expressway else { continue }
+            for (direction, sign) in (ns
+                ? [(CardinalDirection.north, Float(-1)), (.south, 1)]
+                : [(CardinalDirection.west, Float(-1)), (.east, 1)]) {
+                let next = road.coordinate.neighbor(in: direction)
+                guard roadLanes[next]?.axis == .junction,
+                      map.roads[next]?.roadClass != .expressway else { continue }
+                // Zebra crossing right at the junction mouth.
+                let stripeCount = max(4, Int((half * 2 - 1.4) / 1.9))
+                for index in 0..<stripeCount {
+                    let t = Float(index) / Float(stripeCount - 1) - 0.5
+                    white.append((center, rect(
+                        ns,
+                        along: sign * (cell / 2 - 2.0),
+                        across: t * (half * 2 - 2.2),
+                        length: 2.8,
+                        width: 0.80
+                    )))
+                }
+                // Stop line for traffic heading into the junction.
+                let approaching = lane.flow == 0 || Float(lane.flow) == sign
+                guard approaching else { continue }
+                // Left of travel: north -> west, south -> east, east -> north, west -> south.
+                let leftSign: Float = ns ? sign : -sign
+                white.append((center, rect(
+                    ns,
+                    along: sign * (cell / 2 - 4.6),
+                    across: lane.flow == 0 ? leftSign * half / 2 : 0,
+                    length: 0.8,
+                    width: lane.flow == 0 ? half - 0.9 : half * 2 - 1.8
+                )))
+            }
+        }
+
+        let node = SCNNode()
         node.name = "lane-markings"
-        node.castsShadow = false
+        let whiteNode = SCNNode(geometry: makeHorizontalGeometry(
+            rectangles: white,
+            height: GridSceneElevation.pavementSurface + 0.015,
+            material: flatMaterial(named: "lane-paint", color: UIColor(red: 0.97, green: 0.96, blue: 0.90, alpha: 1)),
+            uvScale: 0
+        ))
+        whiteNode.castsShadow = false
+        node.addChildNode(whiteNode)
+        let yellowNode = SCNNode(geometry: makeHorizontalGeometry(
+            rectangles: yellow,
+            height: GridSceneElevation.pavementSurface + 0.016,
+            material: flatMaterial(named: "lane-paint-yellow", color: UIColor(red: 1.0, green: 0.80, blue: 0.22, alpha: 1)),
+            uvScale: 0
+        ))
+        yellowNode.castsShadow = false
+        node.addChildNode(yellowNode)
         return node
     }
 
-    /// Zebra crossings where a local street meets an arterial.
-    private func makeCrosswalkNode() -> SCNNode {
-        var rectangles: [(GridWorldPoint, GridLocalSurfaceRect)] = []
+    // MARK: - Living city
+
+    /// Cars drive the full length of every long street, keeping left, and
+    /// loop back to the start. They are plain SCNActions: no simulation state.
+    private func buildMovingTraffic() {
         let cell = map.metrics.cellSize
-        let stripeCount = 5
-        for road in map.roads.values where road.roadClass == .arterial {
-            let center = map.metrics.worldCenter(of: road.coordinate, mapSize: map.size)
-            for direction in road.connections.directions {
-                guard let neighbor = map.roads[road.coordinate.neighbor(in: direction)],
-                      neighbor.roadClass == .local else { continue }
-                let span = GridRoadClass.local.pavementWidth(cellSize: cell)
-                let stripeLength = span * 0.86
-                let stripeWidth: Float = 0.62
-                let inset = cell / 2 - 1.9
-                for index in 0..<stripeCount {
-                    let t = Float(index) / Float(stripeCount - 1) - 0.5
-                    let lateral = t * stripeLength
-                    switch direction {
-                    case .north:
-                        rectangles.append((center, .init(centerX: lateral, centerZ: -inset, width: stripeWidth, depth: 2.4)))
-                    case .south:
-                        rectangles.append((center, .init(centerX: lateral, centerZ: inset, width: stripeWidth, depth: 2.4)))
-                    case .east:
-                        rectangles.append((center, .init(centerX: inset, centerZ: lateral, width: 2.4, depth: stripeWidth)))
-                    case .west:
-                        rectangles.append((center, .init(centerX: -inset, centerZ: lateral, width: 2.4, depth: stripeWidth)))
+        let container = SCNNode()
+        container.name = "moving-traffic"
+        var variant = 0
+
+        func spawn(run: [GridCoordinate], horizontal: Bool) {
+            guard run.count >= 6, let first = run.first, let last = run.last,
+                  let roadClass = map.roads[first]?.roadClass else { return }
+            let flow = run.lazy.compactMap { self.roadLanes[$0] }
+                .first { $0.axis == (horizontal ? .horizontal : .vertical) }?.flow ?? 0
+            let start = map.metrics.worldCenter(of: first, mapSize: map.size)
+            let end = map.metrics.worldCenter(of: last, mapSize: map.size)
+            let half = roadClass.pavementWidth(cellSize: cell) / 2
+            let length = Float(run.count - 1) * cell
+            let speed: Float = roadClass == .expressway ? 36 : (roadClass == .arterial ? 22 : 14)
+            let density = roadClass == .local ? 12 : 7
+            let carCount = max(1, min(6, run.count / density))
+            let directions: [Bool] = flow == 0 ? [true, false] : [flow > 0]
+            for forward in directions {
+                for index in 0..<carCount {
+                    variant += 1
+                    let seed = first.column * 31 + first.row * 17 + index * 7 + (forward ? 0 : 3)
+                    guard roadClass != .local || seed % 4 != 0 else { continue }
+                    let car = assetFactory.makeStreetVehicle(variant: variant)
+                    // Two-way: keep left of the centre line. One-way: alternate lanes.
+                    let lateral: Float = flow == 0
+                        ? half * 0.5
+                        : (index.isMultiple(of: 2) ? half * 0.5 : -half * 0.5)
+                    let from: SCNVector3
+                    let to: SCNVector3
+                    let y = GridSceneElevation.pavementSurface
+                    if horizontal {
+                        // Heading +x, left is -z.
+                        let z = start.z + (forward ? -lateral : lateral)
+                        from = SCNVector3(forward ? start.x : end.x, y, z)
+                        to = SCNVector3(forward ? end.x : start.x, y, z)
+                        car.eulerAngles.y = forward ? 0 : .pi
+                    } else {
+                        // Heading +z, left is +x.
+                        let x = start.x + (forward ? lateral : -lateral)
+                        from = SCNVector3(x, y, forward ? start.z : end.z)
+                        to = SCNVector3(x, y, forward ? end.z : start.z)
+                        car.eulerAngles.y = forward ? -.pi / 2 : .pi / 2
                     }
+                    let phase = (Float(index) + Float(seed % 10) / 10) / Float(carCount)
+                    let t = phase - phase.rounded(.down)
+                    car.position = SCNVector3(
+                        from.x + (to.x - from.x) * t, y, from.z + (to.z - from.z) * t
+                    )
+                    let lap = TimeInterval(length / speed)
+                    let loop = SCNAction.repeatForever(.sequence([
+                        .move(to: from, duration: 0),
+                        .move(to: to, duration: lap)
+                    ]))
+                    car.runAction(.sequence([
+                        .move(to: to, duration: lap * TimeInterval(1 - t)),
+                        loop
+                    ]))
+                    container.addChildNode(car)
                 }
             }
         }
-        let geometry = makeHorizontalGeometry(
-            rectangles: rectangles,
-            height: GridSceneElevation.pavementSurface + 0.018,
-            material: flatMaterial(named: "crosswalk-paint", color: UIColor(white: 0.96, alpha: 0.88)),
-            uvScale: 0
-        )
-        let node = SCNNode(geometry: geometry)
-        node.name = "crosswalks"
-        node.castsShadow = false
-        return node
+
+        func drivable(_ coordinate: GridCoordinate, horizontal: Bool) -> Bool {
+            guard let lane = roadLanes[coordinate] else { return false }
+            return lane.axis == .junction || lane.axis == (horizontal ? .horizontal : .vertical)
+        }
+
+        for row in 0..<map.size.rows {
+            var run: [GridCoordinate] = []
+            for column in 0...map.size.columns {
+                let coordinate = GridCoordinate(column: column, row: row)
+                if column < map.size.columns, drivable(coordinate, horizontal: true),
+                   run.isEmpty || map.roads[run[0]]?.roadClass == map.roads[coordinate]?.roadClass {
+                    run.append(coordinate)
+                } else {
+                    spawn(run: run, horizontal: true)
+                    run = column < map.size.columns && drivable(coordinate, horizontal: true) ? [coordinate] : []
+                }
+            }
+        }
+        for column in 0..<map.size.columns {
+            var run: [GridCoordinate] = []
+            for row in 0...map.size.rows {
+                let coordinate = GridCoordinate(column: column, row: row)
+                if row < map.size.rows, drivable(coordinate, horizontal: false),
+                   run.isEmpty || map.roads[run[0]]?.roadClass == map.roads[coordinate]?.roadClass {
+                    run.append(coordinate)
+                } else {
+                    spawn(run: run, horizontal: false)
+                    run = row < map.size.rows && drivable(coordinate, horizontal: false) ? [coordinate] : []
+                }
+            }
+        }
+        scene.rootNode.addChildNode(container)
+    }
+
+    /// Soft cloud shadows sliding across the whole map.
+    private func buildCloudShadows() {
+        let bounds = map.metrics.worldBounds(of: map.size)
+        let material = SCNMaterial()
+        material.diffuse.contents = CityGroundArt.cloudShadowTexture()
+        material.lightingModel = .constant
+        material.readsFromDepthBuffer = false
+        material.writesToDepthBuffer = false
+        material.isDoubleSided = true
+        let span = bounds.width + 1_400
+        for index in 0..<6 {
+            let size = CGFloat(520 + (index * 137) % 360)
+            let plane = SCNPlane(width: size * 1.5, height: size)
+            plane.firstMaterial = material
+            let cloud = SCNNode(geometry: plane)
+            cloud.name = "cloud-shadow"
+            cloud.eulerAngles.x = -.pi / 2
+            cloud.castsShadow = false
+            cloud.renderingOrder = 90
+            let z = bounds.minZ + bounds.depth * Float((index * 5 + 1) % 11) / 10
+            let from = SCNVector3(bounds.minX - 700, 260, z)
+            let to = SCNVector3(bounds.minX - 700 + span, 260, z + 260)
+            let t = Float((index * 7) % 10) / 10
+            cloud.position = SCNVector3(from.x + (to.x - from.x) * t, 260, from.z + (to.z - from.z) * t)
+            let lap = TimeInterval(150 + index * 23)
+            cloud.runAction(.sequence([
+                .move(to: to, duration: lap * TimeInterval(1 - t)),
+                .repeatForever(.sequence([.move(to: from, duration: 0), .move(to: to, duration: lap)]))
+            ]))
+            scene.rootNode.addChildNode(cloud)
+        }
     }
 
     /// Rails and causeway bases for every road segment that crosses water.
@@ -1411,8 +1648,75 @@ private final class GridCitySceneController {
                 objectBounds.center.z - parcelBounds.center.z
             )
         container.addChildNode(assetNode)
+        if object.assetID == .industrialSmokestack {
+            // Stack mouths in the authored asset's own coordinates.
+            for (x, height, z) in [(Float(-56), Float(99), Float(-51)), (10, 117, -55), (61, 89, -48)] {
+                let smoke = makeSmokeNode()
+                smoke.position = SCNVector3(x, height, z)
+                assetNode.addChildNode(smoke)
+            }
+        }
         registerAssetLODNodes(for: container)
         return container
+    }
+
+    private lazy var smokeImage: UIImage = {
+        let size = CGSize(width: 64, height: 64)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [UIColor(white: 1, alpha: 0.9).cgColor, UIColor(white: 1, alpha: 0).cgColor] as CFArray,
+                locations: [0.25, 1]
+            )!
+            context.cgContext.drawRadialGradient(
+                gradient,
+                startCenter: CGPoint(x: 32, y: 32), startRadius: 0,
+                endCenter: CGPoint(x: 32, y: 32), endRadius: 32,
+                options: []
+            )
+        }
+    }()
+
+    /// Slow white puffs drifting downwind from a chimney. Each puff is a
+    /// billboard on a fixed loop: a particle system's sizes are not bounded
+    /// under the orthographic camera and bloomed into a white-out.
+    private func makeSmokeNode() -> SCNNode {
+        let root = SCNNode()
+        root.name = "chimney-smoke"
+        let material = SCNMaterial()
+        material.diffuse.contents = smokeImage
+        material.lightingModel = .constant
+        material.writesToDepthBuffer = false
+        material.isDoubleSided = true
+        let plane = SCNPlane(width: 13, height: 13)
+        plane.firstMaterial = material
+        let puffCount = 4
+        let rise: TimeInterval = 6
+        for index in 0..<puffCount {
+            let puff = SCNNode(geometry: plane)
+            puff.constraints = [SCNBillboardConstraint()]
+            puff.castsShadow = false
+            puff.opacity = 0
+            let reset = SCNAction.group([
+                .move(to: SCNVector3Zero, duration: 0),
+                .scale(to: 0.7, duration: 0),
+                .fadeOut(duration: 0)
+            ])
+            let drift = SCNAction.group([
+                .move(to: SCNVector3(16, 44, -7), duration: rise),
+                .scale(to: 2.3, duration: rise),
+                .sequence([.fadeOpacity(to: 0.75, duration: 0.7), .wait(duration: 2.3), .fadeOut(duration: 3)])
+            ])
+            puff.runAction(.sequence([
+                .wait(duration: rise * TimeInterval(index) / TimeInterval(puffCount)),
+                .repeatForever(.sequence([reset, drift]))
+            ]))
+            root.addChildNode(puff)
+        }
+        return root
     }
 
     private func buildVacantMarkers() {
@@ -1591,11 +1895,11 @@ private final class GridCitySceneController {
         directionalLight.shadowRadius = 3
         directionalLight.shadowBias = 2
         directionalLight.forcesBackFaceCasters = true
-        directionalLight.shadowColor = UIColor(red: 0.16, green: 0.23, blue: 0.29, alpha: 0.32)
+        directionalLight.shadowColor = UIColor(red: 0.10, green: 0.16, blue: 0.30, alpha: 0.42)
         let directional = SCNNode()
         directional.light = directionalLight
         let mapCenter = map.metrics.worldBounds(of: map.size).center
-        directional.position = SCNVector3(mapCenter.x - 850, 1_450, mapCenter.z + 650)
+        directional.position = SCNVector3(mapCenter.x - 1_050, 1_250, mapCenter.z + 560)
         directional.look(at: SCNVector3(mapCenter.x, 0, mapCenter.z))
         scene.rootNode.addChildNode(directional)
 
@@ -1844,7 +2148,110 @@ private final class GridCitySceneController {
         return root
     }
 
+    // MARK: - Analysis layers and founding candidates
+
+    private var isAnalysisModeApplied = false
+    private var foundingMarkerNodes: [Int: SCNNode] = [:]
+    private var foundingMarkerSignature = ""
+    private var districtLabelNodes: [SCNNode] = []
+
+    /// Buildings turn to ghosts while a heat-map layer is shown, so the
+    /// coloured parcels underneath carry the picture.
+    private func applyAnalysisMode(_ isOn: Bool) {
+        let opacity: CGFloat = isOn ? 0.20 : 1
+        if isOn != isAnalysisModeApplied {
+            isAnalysisModeApplied = isOn
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.25
+            staticObjectNodes.values.forEach { $0.opacity = opacity }
+            vacantMarkerNodes.values.forEach { $0.opacity = opacity }
+            SCNTransaction.commit()
+        }
+        // Store nodes are rebuilt at runtime; their labels stay fully opaque.
+        for root in runtimeStoreNodes.values {
+            for child in root.childNodes where child.name != "semantic-map-label" {
+                child.opacity = opacity
+            }
+        }
+    }
+
+    /// Before the first store exists, every founding candidate carries a
+    /// bobbing pin and the best one is named, so "the glowing plots" in the
+    /// guide are something the player can actually find.
+    private func updateFoundingMarkers(game: GameEngine) {
+        guard game.stores.isEmpty else {
+            if !foundingMarkerNodes.isEmpty {
+                for node in foundingMarkerNodes.values { removeFoundingMarker(node) }
+                foundingMarkerNodes = [:]
+                foundingMarkerSignature = ""
+            }
+            return
+        }
+        let signature = "\(game.turn)|\(game.plots.count)"
+        guard signature != foundingMarkerSignature else { return }
+        foundingMarkerSignature = signature
+        for node in foundingMarkerNodes.values { removeFoundingMarker(node) }
+        foundingMarkerNodes = [:]
+
+        let candidates = game.foundingCandidatePlots
+        let recommendedID = game.recommendedFoundingPlot?.id
+        for plot in candidates {
+            guard let parcel = map.parcel(legacyPlotID: plot.id) else { continue }
+            let bounds = map.metrics.worldBounds(of: parcel.rect, mapSize: map.size)
+            var height: Float = 30
+            if let object = map.objects.first(where: { $0.parcelID == parcel.id }) {
+                let definition = CityAssetCatalog.definition(for: object.assetID)
+                height = object.height * CityAssetScale.heightMultiplier(for: definition.category) + 16
+            }
+            let isRecommended = plot.id == recommendedID
+            let root = SCNNode()
+            root.name = "founding-marker:\(plot.id)"
+            root.position = SCNVector3(bounds.center.x, height, bounds.center.z)
+            let label = makeSemanticMapLabel(
+                text: isRecommended ? "おすすめ候補" : "創業候補",
+                iconName: isRecommended ? "hand.thumbsup.fill" : "mappin",
+                color: isRecommended
+                    ? UIColor(red: 0.93, green: 0.62, blue: 0.05, alpha: 1)
+                    : UIColor(red: 0.24, green: 0.62, blue: 0.22, alpha: 1)
+            )
+            label.renderingOrder = isRecommended ? 170 : 130
+            setInteractionMetadata(on: label, parcel: parcel)
+            root.addChildNode(label)
+            root.runAction(.repeatForever(.sequence([
+                .moveBy(x: 0, y: 6, z: 0, duration: 0.55),
+                .moveBy(x: 0, y: -6, z: 0, duration: 0.55)
+            ])))
+            foundingMarkerNodes[plot.id] = root
+            scene.rootNode.addChildNode(root)
+        }
+    }
+
+    private func removeFoundingMarker(_ node: SCNNode) {
+        node.enumerateChildNodes { child, _ in
+            self.interactionPlotIDs[ObjectIdentifier(child)] = nil
+        }
+        node.removeFromParentNode()
+    }
+
+    /// District names over the overview, hidden once the player zooms in.
+    private func buildDistrictLabels() {
+        for kind in DistrictKind.allCases {
+            guard let center = map.worldCenter(of: kind) else { continue }
+            let label = makeSemanticMapLabel(
+                text: kind.name,
+                iconName: kind.symbol,
+                color: UIColor(red: 0.16, green: 0.30, blue: 0.52, alpha: 1)
+            )
+            label.renderingOrder = 100
+            label.position = SCNVector3(center.x, 95, center.z)
+            districtLabelNodes.append(label)
+            scene.rootNode.addChildNode(label)
+        }
+    }
+
     private func updateFacilityVisibility() {
+        let isOverview = currentZoomFactor > GridCameraZoom.scaleFactors[GridCameraZoom.clamped(GridCameraZoom.defaultStep + 1)] + 0.001
+        districtLabelNodes.forEach { $0.isHidden = !isOverview }
         // In a wide overview, reserve label space for the player's store,
         // competitors and the auction route that drives procurement. Other
         // service locations return at 75% and closer zoom levels.
@@ -1857,30 +2264,74 @@ private final class GridCitySceneController {
     private func makeSemanticMapLabel(text: String, iconName: String, color: UIColor) -> SCNNode {
         let imageSize = CGSize(width: 900, height: 200)
         let renderer = UIGraphicsImageRenderer(size: imageSize)
-        let image = renderer.image { _ in
-            let cardRect = CGRect(x: 4, y: 4, width: imageSize.width - 8, height: imageSize.height - 8)
-            UIColor(white: 0.99, alpha: 0.96).setFill()
-            UIBezierPath(roundedRect: cardRect, cornerRadius: 46).fill()
-            color.setStroke()
-            let border = UIBezierPath(roundedRect: cardRect, cornerRadius: 46)
-            border.lineWidth = 10
-            border.stroke()
+        let image = renderer.image { context in
+            // A solid game banner: coloured body with a dark lower lip, white
+            // inner keyline and an icon medallion.
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+            let dark = UIColor(red: red * 0.50, green: green * 0.50, blue: blue * 0.55, alpha: 1)
+            let light = UIColor(
+                red: red + (1 - red) * 0.30, green: green + (1 - green) * 0.30,
+                blue: blue + (1 - blue) * 0.30, alpha: 1
+            )
+            let lipRect = CGRect(x: 6, y: 20, width: imageSize.width - 12, height: imageSize.height - 26)
+            dark.setFill()
+            UIBezierPath(roundedRect: lipRect, cornerRadius: 50).fill()
+            let cardRect = CGRect(x: 6, y: 6, width: imageSize.width - 12, height: imageSize.height - 30)
+            let card = UIBezierPath(roundedRect: cardRect, cornerRadius: 50)
+            context.cgContext.saveGState()
+            card.addClip()
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [light.cgColor, color.cgColor] as CFArray,
+                locations: [0, 1]
+            )!
+            context.cgContext.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: 0, y: cardRect.minY),
+                end: CGPoint(x: 0, y: cardRect.maxY),
+                options: []
+            )
+            context.cgContext.restoreGState()
+            dark.setStroke()
+            card.lineWidth = 8
+            card.stroke()
+            UIColor(white: 1, alpha: 0.45).setStroke()
+            let keyline = UIBezierPath(roundedRect: cardRect.insetBy(dx: 9, dy: 9), cornerRadius: 42)
+            keyline.lineWidth = 4
+            keyline.stroke()
 
-            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 104, weight: .bold)
-            let symbol = UIImage(systemName: iconName, withConfiguration: symbolConfiguration)?
-                .withTintColor(color, renderingMode: .alwaysOriginal)
-            symbol?.draw(in: CGRect(x: 34, y: 52, width: 96, height: 96))
+            let medallion = CGRect(x: 24, y: 22, width: 138, height: 138)
+            UIColor.white.setFill()
+            UIBezierPath(ovalIn: medallion).fill()
+            dark.setStroke()
+            let ring = UIBezierPath(ovalIn: medallion)
+            ring.lineWidth = 7
+            ring.stroke()
+            let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 78, weight: .black)
+            if let symbol = UIImage(systemName: iconName, withConfiguration: symbolConfiguration)?
+                .withTintColor(color, renderingMode: .alwaysOriginal) {
+                let fit = min(84 / symbol.size.width, 84 / symbol.size.height)
+                let size = CGSize(width: symbol.size.width * fit, height: symbol.size.height * fit)
+                symbol.draw(in: CGRect(
+                    x: medallion.midX - size.width / 2, y: medallion.midY - size.height / 2,
+                    width: size.width, height: size.height
+                ))
+            }
 
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byTruncatingTail
             paragraph.alignment = .left
+            let baseFont = UIFont.systemFont(ofSize: 100, weight: .heavy)
+            let font = baseFont.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 100) } ?? baseFont
+            let textRect = CGRect(x: 184, y: 28, width: 680, height: 130)
             (text as NSString).draw(
-                in: CGRect(x: 158, y: 34, width: 700, height: 136),
-                withAttributes: [
-                    .font: UIFont.systemFont(ofSize: 108, weight: .bold),
-                    .foregroundColor: UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1),
-                    .paragraphStyle: paragraph
-                ]
+                in: textRect.offsetBy(dx: 0, dy: 5),
+                withAttributes: [.font: font, .foregroundColor: dark, .paragraphStyle: paragraph]
+            )
+            (text as NSString).draw(
+                in: textRect,
+                withAttributes: [.font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph]
             )
         }
 

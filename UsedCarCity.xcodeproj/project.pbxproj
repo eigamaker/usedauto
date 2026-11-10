@@ -34,6 +34,7 @@
 		DC0048377411B5BAA7BAAD4B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE73B5C41E1720C59FD0FACB /* Models.swift */; };
 		DEBF92653182B2B29EB44F42 /* FinanceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */; };
 		DF9BE19281A9C7D295B9B99F /* UsedCarCityApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29E371A5C50C4931F99421AC /* UsedCarCityApp.swift */; };
+		DFDBF363DD54CDA379F46FDB /* StoreDioramaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA9B7D17B2D5B77BC11CDD5B /* StoreDioramaView.swift */; };
 		DFEA3781523209B7D09CAA2A /* CityGroundArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50CF6EAF3FF4026F9CC7ED6A /* CityGroundArt.swift */; };
 		F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7096782B05120F5807D91227 /* StoreCommandCenterView.swift */; };
 /* End PBXBuildFile section */
@@ -63,7 +64,7 @@
 		50A3F976ABD76CB627DE4EA5 /* TutorialGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialGuide.swift; sourceTree = "<group>"; };
 		50CF6EAF3FF4026F9CC7ED6A /* CityGroundArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityGroundArt.swift; sourceTree = "<group>"; };
 		5B2A3A2DC8BD6E2140A16037 /* FinanceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceViews.swift; sourceTree = "<group>"; };
-		6F61274CC4DE98047FE3A25E /* UsedCarCity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UsedCarCity.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6F61274CC4DE98047FE3A25E /* UsedCarCity.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = UsedCarCity.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7096782B05120F5807D91227 /* StoreCommandCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreCommandCenterView.swift; sourceTree = "<group>"; };
 		74048FF6EAF92884804658F0 /* GridMapModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapModels.swift; sourceTree = "<group>"; };
 		77CB0160CCC35CF15EF7592A /* GuideViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideViews.swift; sourceTree = "<group>"; };
@@ -72,6 +73,7 @@
 		927B65887C66F2E1A15FB150 /* GridMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridMapTests.swift; sourceTree = "<group>"; };
 		9818ABA4195147A46D2CA15C /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		B1BC34FACD26F52467A60837 /* LongTermSimulationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongTermSimulationTests.swift; sourceTree = "<group>"; };
+		BA9B7D17B2D5B77BC11CDD5B /* StoreDioramaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreDioramaView.swift; sourceTree = "<group>"; };
 		BD0CBE620733417AC5C421EA /* CityBuildingAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityBuildingAssets.swift; sourceTree = "<group>"; };
 		BD4CC3561EEB8A13D8261E08 /* Art.scnassets */ = {isa = PBXFileReference; lastKnownFileType = wrapper.scnassets; path = Art.scnassets; sourceTree = "<group>"; };
 		CB73E465D918E8A8C86961F0 /* LongTermSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongTermSimulation.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 				0A122E667D98EA96E8DD3967 /* PlotDetailView.swift */,
 				9818ABA4195147A46D2CA15C /* RootView.swift */,
 				7096782B05120F5807D91227 /* StoreCommandCenterView.swift */,
+				BA9B7D17B2D5B77BC11CDD5B /* StoreDioramaView.swift */,
 				0DDF85F1F83A9866196A31F9 /* SuihamaCityMap.swift */,
 				7E1FAE8B5F6C57CDB708261A /* Theme.swift */,
 				50A3F976ABD76CB627DE4EA5 /* TutorialGuide.swift */,
@@ -193,6 +196,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					E7B0C0E82CE54E4CEB103AEA = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -264,6 +268,7 @@
 				AA385308489176468FE026E8 /* PlotDetailView.swift in Sources */,
 				379C75F3E29895381B88D9E5 /* RootView.swift in Sources */,
 				F9E799A1E5129EEF6F13897A /* StoreCommandCenterView.swift in Sources */,
+				DFDBF363DD54CDA379F46FDB /* StoreDioramaView.swift in Sources */,
 				2901D7D67C967233486BE7D1 /* SuihamaCityMap.swift in Sources */,
 				C12475F7972B43622615DBCE /* Theme.swift in Sources */,
 				9CF8CC38FC4051EC378C6B24 /* TutorialGuide.swift in Sources */,
@@ -376,7 +381,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = J4SJR8W4AS;
+				DEVELOPMENT_TEAM = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -393,7 +398,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = J4SJR8W4AS;
+				DEVELOPMENT_TEAM = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

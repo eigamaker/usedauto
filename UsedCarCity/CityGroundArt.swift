@@ -9,18 +9,43 @@ enum CityGroundArt {
 
     // MARK: - Public surfaces
 
+    /// Two-tone mown lawn. The texture spans 2 x 2 grid cells, so the subtle
+    /// checker reads as the build grid of a city-building game.
     static func grassTexture() -> UIImage {
-        speckled(
-            key: "grass",
-            base: UIColor(red: 0.48, green: 0.66, blue: 0.29, alpha: 1),
-            speckles: [
-                (UIColor(red: 0.66, green: 0.77, blue: 0.27, alpha: 0.12), 42, 1.6...3.4),
-                (UIColor(red: 0.40, green: 0.57, blue: 0.17, alpha: 0.10), 40, 1.6...3.6),
-                (UIColor(red: 0.77, green: 0.81, blue: 0.32, alpha: 0.14), 18, 2.2...5.0)
-            ],
-            patches: 9,
-            patchColor: UIColor(red: 0.47, green: 0.63, blue: 0.18, alpha: 0.24)
-        )
+        cached("grass", size: CGSize(width: 256, height: 256)) { size in
+            let context = UIGraphicsGetCurrentContext()
+            let light = UIColor(red: 0.50, green: 0.74, blue: 0.30, alpha: 1)
+            let dark = UIColor(red: 0.45, green: 0.69, blue: 0.27, alpha: 1)
+            let half = size.width / 2
+            for row in 0..<2 {
+                for column in 0..<2 {
+                    ((row + column).isMultiple(of: 2) ? light : dark).setFill()
+                    context?.fill(CGRect(x: CGFloat(column) * half, y: CGFloat(row) * half, width: half, height: half))
+                }
+            }
+            var generator = SeededGenerator(seed: 5)
+            // Short grass tufts and a few clover flowers.
+            for index in 0..<220 {
+                let x = generator.unit() * size.width
+                let y = generator.unit() * size.height
+                let bright = index % 3 != 0
+                (bright
+                    ? UIColor(red: 0.66, green: 0.84, blue: 0.36, alpha: 0.42)
+                    : UIColor(red: 0.30, green: 0.55, blue: 0.20, alpha: 0.34)).setFill()
+                let width = 1.6 + generator.unit() * 1.4
+                let height = 3.0 + generator.unit() * 3.6
+                UIBezierPath(roundedRect: CGRect(x: x, y: y, width: width, height: height), cornerRadius: width / 2).fill()
+            }
+            for index in 0..<14 {
+                (index.isMultiple(of: 2)
+                    ? UIColor(red: 1.0, green: 0.97, blue: 0.80, alpha: 0.85)
+                    : UIColor(red: 1.0, green: 0.86, blue: 0.30, alpha: 0.85)).setFill()
+                let side = 2.2 + generator.unit() * 1.2
+                UIBezierPath(ovalIn: CGRect(
+                    x: generator.unit() * size.width, y: generator.unit() * size.height, width: side, height: side
+                )).fill()
+            }
+        }
     }
 
     static func parkTexture() -> UIImage {
@@ -51,36 +76,87 @@ enum CityGroundArt {
     }
 
     static func waterTexture() -> UIImage {
-        cached("water") { size in
-            UIColor(red: 0.18, green: 0.58, blue: 0.78, alpha: 1).setFill()
+        cached("water", size: CGSize(width: 256, height: 256)) { size in
+            UIColor(red: 0.16, green: 0.62, blue: 0.84, alpha: 1).setFill()
             UIGraphicsGetCurrentContext()?.fill(CGRect(origin: .zero, size: size))
             var generator = SeededGenerator(seed: 11)
-            // Horizontal glints suggest ripples without any animation cost.
-            for _ in 0..<70 {
-                let alpha = 0.05 + generator.unit() * 0.10
-                UIColor(red: 0.63, green: 0.88, blue: 0.94, alpha: alpha).setFill()
-                let width = 6 + generator.unit() * 26
-                let rect = CGRect(
-                    x: generator.unit() * size.width,
-                    y: generator.unit() * size.height,
-                    width: width,
-                    height: 1.0 + generator.unit() * 1.4
-                )
-                UIBezierPath(roundedRect: rect, cornerRadius: rect.height / 2).fill()
-            }
-            for _ in 0..<26 {
-                let alpha = 0.05 + generator.unit() * 0.07
-                UIColor(red: 0.08, green: 0.37, blue: 0.62, alpha: alpha).setFill()
-                let width = 8 + generator.unit() * 30
-                let rect = CGRect(
-                    x: generator.unit() * size.width,
-                    y: generator.unit() * size.height,
-                    width: width,
-                    height: 1.2 + generator.unit() * 1.6
-                )
-                UIBezierPath(roundedRect: rect, cornerRadius: rect.height / 2).fill()
+            // Broad deeper swells under the wave crests.
+            for _ in 0..<14 {
+                UIColor(red: 0.08, green: 0.50, blue: 0.76, alpha: 0.20).setFill()
+                let width = 60 + generator.unit() * 90
+                let height = 16 + generator.unit() * 22
+                UIBezierPath(ovalIn: CGRect(
+                    x: generator.unit() * size.width - width / 2,
+                    y: generator.unit() * size.height - height / 2,
+                    width: width, height: height
+                )).fill()
             }
         }
+    }
+
+    /// Transparent wave crests that drift over the water plane.
+    static func waveCrestTexture() -> UIImage {
+        let key = "wave-crests"
+        if let image = cache[key] { return image }
+        let size = CGSize(width: 256, height: 256)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            var generator = SeededGenerator(seed: 77)
+            for index in 0..<34 {
+                let x = generator.unit() * size.width
+                let y = generator.unit() * size.height
+                let length = 16 + generator.unit() * 30
+                let path = UIBezierPath()
+                // A shallow "~" crest, drawn twice so it wraps across the seam.
+                for wrap in [CGFloat(0), -size.width] {
+                    path.move(to: CGPoint(x: x + wrap, y: y))
+                    path.addCurve(
+                        to: CGPoint(x: x + wrap + length, y: y),
+                        controlPoint1: CGPoint(x: x + wrap + length * 0.3, y: y - 4),
+                        controlPoint2: CGPoint(x: x + wrap + length * 0.7, y: y + 4)
+                    )
+                }
+                path.lineWidth = 2.2 + generator.unit() * 1.4
+                path.lineCapStyle = .round
+                UIColor(white: 1, alpha: index.isMultiple(of: 3) ? 0.85 : 0.5).setStroke()
+                path.stroke()
+            }
+        }
+        cache[key] = image
+        return image
+    }
+
+    /// Large soft blob used for drifting cloud shadows.
+    static func cloudShadowTexture() -> UIImage {
+        let key = "cloud-shadow"
+        if let image = cache[key] { return image }
+        let size = CGSize(width: 256, height: 256)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [
+                    UIColor(red: 0.04, green: 0.10, blue: 0.22, alpha: 0.20).cgColor,
+                    UIColor(red: 0.04, green: 0.10, blue: 0.22, alpha: 0.14).cgColor,
+                    UIColor(red: 0.04, green: 0.10, blue: 0.22, alpha: 0).cgColor
+                ] as CFArray,
+                locations: [0, 0.55, 1]
+            )!
+            for (x, y, radius) in [(92.0, 128.0, 78.0), (150.0, 112.0, 88.0), (176.0, 150.0, 64.0)] {
+                context.cgContext.drawRadialGradient(
+                    gradient,
+                    startCenter: CGPoint(x: x, y: y), startRadius: 0,
+                    endCenter: CGPoint(x: x, y: y), endRadius: radius,
+                    options: []
+                )
+            }
+        }
+        cache[key] = image
+        return image
     }
 
     static func plazaTexture() -> UIImage {

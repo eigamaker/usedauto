@@ -15,8 +15,8 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/residentialCottage.usdz",
-      "geometry_nodes": 31,
-      "polygons": 4866,
+      "geometry_nodes": 39,
+      "polygons": 6675,
       "minimum_height": 0.0,
       "maximum_height": 32.85
     },
@@ -30,8 +30,8 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/residentialGable.usdz",
-      "geometry_nodes": 31,
-      "polygons": 4866,
+      "geometry_nodes": 39,
+      "polygons": 6675,
       "minimum_height": 0.0,
       "maximum_height": 32.85
     },
@@ -45,10 +45,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/residentialFlat.usdz",
-      "geometry_nodes": 29,
-      "polygons": 4860,
+      "geometry_nodes": 40,
+      "polygons": 5837,
       "minimum_height": 0.0,
-      "maximum_height": 25.3
+      "maximum_height": 26.7774
     },
     {
       "asset_id": "residentialTwin",
@@ -60,8 +60,8 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/residentialTwin.usdz",
-      "geometry_nodes": 29,
-      "polygons": 4866,
+      "geometry_nodes": 37,
+      "polygons": 6675,
       "minimum_height": 0.0,
       "maximum_height": 32.85
     },
@@ -75,10 +75,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/residentialApartment.usdz",
-      "geometry_nodes": 25,
-      "polygons": 8028,
+      "geometry_nodes": 38,
+      "polygons": 10534,
       "minimum_height": 0.0,
-      "maximum_height": 49.45
+      "maximum_height": 54.6
     },
     {
       "asset_id": "luxuryCourtyard",
@@ -90,10 +90,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/luxuryCourtyard.usdz",
-      "geometry_nodes": 15,
-      "polygons": 4328,
+      "geometry_nodes": 22,
+      "polygons": 6038,
       "minimum_height": 0.0,
-      "maximum_height": 31.45
+      "maximum_height": 44.55
     },
     {
       "asset_id": "luxuryGarage",
@@ -105,10 +105,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/luxuryGarage.usdz",
-      "geometry_nodes": 30,
-      "polygons": 3992,
+      "geometry_nodes": 36,
+      "polygons": 3869,
       "minimum_height": 0.0,
-      "maximum_height": 37.3
+      "maximum_height": 38.7774
     },
     {
       "asset_id": "luxuryPool",
@@ -120,10 +120,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/luxuryPool.usdz",
-      "geometry_nodes": 30,
-      "polygons": 3564,
+      "geometry_nodes": 36,
+      "polygons": 3477,
       "minimum_height": 0.0,
-      "maximum_height": 35.3
+      "maximum_height": 36.7774
     },
     {
       "asset_id": "luxuryTerrace",
@@ -135,10 +135,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/luxuryTerrace.usdz",
-      "geometry_nodes": 25,
-      "polygons": 5636,
+      "geometry_nodes": 35,
+      "polygons": 7894,
       "minimum_height": 0.0,
-      "maximum_height": 43.45
+      "maximum_height": 50.9892
     },
     {
       "asset_id": "commercialAutoDealer",
@@ -150,8 +150,8 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialAutoDealer.usdz",
-      "geometry_nodes": 32,
-      "polygons": 10153,
+      "geometry_nodes": 38,
+      "polygons": 10963,
       "minimum_height": 0.0,
       "maximum_height": 31.45
     },
@@ -165,10 +165,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialGasStation.usdz",
-      "geometry_nodes": 20,
-      "polygons": 4222,
+      "geometry_nodes": 32,
+      "polygons": 5656,
       "minimum_height": 0.0,
-      "maximum_height": 24.35
+      "maximum_height": 25.1375
     },
     {
       "asset_id": "commercialConvenience",
@@ -180,10 +180,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialConvenience.usdz",
-      "geometry_nodes": 31,
-      "polygons": 7260,
+      "geometry_nodes": 40,
+      "polygons": 8966,
       "minimum_height": 0.0,
-      "maximum_height": 22.605
+      "maximum_height": 27.35
     },
     {
       "asset_id": "commercialRestaurant",
@@ -196,7 +196,7 @@
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialRestaurant.usdz",
       "geometry_nodes": 29,
-      "polygons": 5770,
+      "polygons": 5986,
       "minimum_height": 0.0,
       "maximum_height": 34.45
     },
@@ -210,8 +210,8 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialShopping.usdz",
-      "geometry_nodes": 30,
-      "polygons": 7727,
+      "geometry_nodes": 36,
+      "polygons": 8439,
       "minimum_height": 0.0,
       "maximum_height": 43.45
     },
@@ -225,10 +225,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialRoadside.usdz",
-      "geometry_nodes": 31,
-      "polygons": 7558,
+      "geometry_nodes": 41,
+      "polygons": 9215,
       "minimum_height": 0.0,
-      "maximum_height": 26.605
+      "maximum_height": 31.35
     },
     {
       "asset_id": "commercialRegionalMall",
@@ -240,8 +240,8 @@
       "width": 180.0,
       "depth": 180.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/commercialRegionalMall.usdz",
-      "geometry_nodes": 35,
-      "polygons": 21428,
+      "geometry_nodes": 47,
+      "polygons": 23876,
       "minimum_height": 0.0,
       "maximum_height": 67.75
     },
@@ -255,10 +255,10 @@
       "width": 180.0,
       "depth": 180.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/industrialFactory.usdz",
-      "geometry_nodes": 18,
-      "polygons": 6601,
+      "geometry_nodes": 24,
+      "polygons": 8281,
       "minimum_height": 0.0,
-      "maximum_height": 67.5
+      "maximum_height": 58.6925
     },
     {
       "asset_id": "industrialWarehouse",
@@ -271,7 +271,7 @@
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/industrialWarehouse.usdz",
       "geometry_nodes": 27,
-      "polygons": 6325,
+      "polygons": 6595,
       "minimum_height": 0.0,
       "maximum_height": 52.625
     },
@@ -286,7 +286,7 @@
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/industrialLoadingWarehouse.usdz",
       "geometry_nodes": 27,
-      "polygons": 6949,
+      "polygons": 7219,
       "minimum_height": 0.0,
       "maximum_height": 48.625
     },
@@ -300,10 +300,10 @@
       "width": 180.0,
       "depth": 180.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/industrialTankWorks.usdz",
-      "geometry_nodes": 11,
-      "polygons": 2638,
+      "geometry_nodes": 20,
+      "polygons": 4480,
       "minimum_height": 0.0,
-      "maximum_height": 39.45
+      "maximum_height": 48.6925
     },
     {
       "asset_id": "industrialSmokestack",
@@ -315,8 +315,8 @@
       "width": 180.0,
       "depth": 180.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/industrialSmokestack.usdz",
-      "geometry_nodes": 18,
-      "polygons": 8424,
+      "geometry_nodes": 27,
+      "polygons": 11282,
       "minimum_height": 0.0,
       "maximum_height": 116.5
     },
@@ -330,10 +330,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownMixedUse.usdz",
-      "geometry_nodes": 16,
-      "polygons": 8550,
+      "geometry_nodes": 33,
+      "polygons": 12946,
       "minimum_height": 0.0,
-      "maximum_height": 118.1
+      "maximum_height": 120.62
     },
     {
       "asset_id": "downtownOffice",
@@ -345,10 +345,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownOffice.usdz",
-      "geometry_nodes": 13,
-      "polygons": 9726,
+      "geometry_nodes": 28,
+      "polygons": 13887,
       "minimum_height": 0.0,
-      "maximum_height": 151.1
+      "maximum_height": 166.75
     },
     {
       "asset_id": "downtownApartment",
@@ -360,10 +360,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownApartment.usdz",
-      "geometry_nodes": 16,
-      "polygons": 10410,
+      "geometry_nodes": 30,
+      "polygons": 14868,
       "minimum_height": 0.0,
-      "maximum_height": 134.1
+      "maximum_height": 136.62
     },
     {
       "asset_id": "downtownParkingStructure",
@@ -375,10 +375,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownParkingStructure.usdz",
-      "geometry_nodes": 23,
-      "polygons": 6026,
+      "geometry_nodes": 28,
+      "polygons": 7372,
       "minimum_height": 0.0,
-      "maximum_height": 62.45
+      "maximum_height": 67.6
     },
     {
       "asset_id": "downtownCornerBlock",
@@ -390,10 +390,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownCornerBlock.usdz",
-      "geometry_nodes": 15,
-      "polygons": 10146,
+      "geometry_nodes": 29,
+      "polygons": 14643,
       "minimum_height": 0.0,
-      "maximum_height": 160.1
+      "maximum_height": 193.05
     },
     {
       "asset_id": "downtownOfficePlaza",
@@ -405,10 +405,10 @@
       "width": 180.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownOfficePlaza.usdz",
-      "geometry_nodes": 18,
-      "polygons": 14834,
+      "geometry_nodes": 25,
+      "polygons": 20232,
       "minimum_height": 0.0,
-      "maximum_height": 178.1
+      "maximum_height": 203.05
     },
     {
       "asset_id": "downtownTwinTower",
@@ -420,10 +420,10 @@
       "width": 180.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownTwinTower.usdz",
-      "geometry_nodes": 16,
-      "polygons": 20406,
+      "geometry_nodes": 27,
+      "polygons": 26651,
       "minimum_height": 0.0,
-      "maximum_height": 192.1
+      "maximum_height": 225.05
     },
     {
       "asset_id": "downtownResidentialTower",
@@ -435,10 +435,10 @@
       "width": 180.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/downtownResidentialTower.usdz",
-      "geometry_nodes": 16,
-      "polygons": 17952,
+      "geometry_nodes": 27,
+      "polygons": 23910,
       "minimum_height": 0.0,
-      "maximum_height": 164.1
+      "maximum_height": 166.62
     },
     {
       "asset_id": "highwayLogistics",
@@ -451,7 +451,7 @@
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/highwayLogistics.usdz",
       "geometry_nodes": 26,
-      "polygons": 5881,
+      "polygons": 6151,
       "minimum_height": 0.0,
       "maximum_height": 45.625
     },
@@ -465,10 +465,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/highwayBigBox.usdz",
-      "geometry_nodes": 24,
-      "polygons": 6054,
+      "geometry_nodes": 25,
+      "polygons": 6893,
       "minimum_height": 0.0,
-      "maximum_height": 41.5
+      "maximum_height": 51.75
     },
     {
       "asset_id": "highwayMotorHotel",
@@ -480,10 +480,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/highwayMotorHotel.usdz",
-      "geometry_nodes": 25,
-      "polygons": 9916,
+      "geometry_nodes": 35,
+      "polygons": 13154,
       "minimum_height": 0.0,
-      "maximum_height": 54.45
+      "maximum_height": 62.55
     },
     {
       "asset_id": "surfaceParking",
@@ -495,10 +495,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/surfaceParking.usdz",
-      "geometry_nodes": 17,
-      "polygons": 13586,
+      "geometry_nodes": 25,
+      "polygons": 14210,
       "minimum_height": 0.0,
-      "maximum_height": 9.6
+      "maximum_height": 15.68
     },
     {
       "asset_id": "playerSmallDealer",
@@ -510,10 +510,10 @@
       "width": 40.0,
       "depth": 40.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerSmallDealer.usdz",
-      "geometry_nodes": 24,
-      "polygons": 4952,
+      "geometry_nodes": 35,
+      "polygons": 6543,
       "minimum_height": 0.0,
-      "maximum_height": 17.98
+      "maximum_height": 21.95
     },
     {
       "asset_id": "playerMediumDealer",
@@ -525,10 +525,10 @@
       "width": 60.0,
       "depth": 60.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerMediumDealer.usdz",
-      "geometry_nodes": 30,
-      "polygons": 7216,
+      "geometry_nodes": 41,
+      "polygons": 10371,
       "minimum_height": 0.0,
-      "maximum_height": 32.45
+      "maximum_height": 37.6
     },
     {
       "asset_id": "playerLargeDealer",
@@ -540,10 +540,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerLargeDealer.usdz",
-      "geometry_nodes": 34,
-      "polygons": 11103,
+      "geometry_nodes": 43,
+      "polygons": 13572,
       "minimum_height": 0.0,
-      "maximum_height": 36.45
+      "maximum_height": 41.6
     },
     {
       "asset_id": "playerDisplayParking",
@@ -555,10 +555,10 @@
       "width": 40.0,
       "depth": 40.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerDisplayParking.usdz",
-      "geometry_nodes": 17,
-      "polygons": 6108,
+      "geometry_nodes": 27,
+      "polygons": 6480,
       "minimum_height": 0.0,
-      "maximum_height": 12.5
+      "maximum_height": 13.68
     },
     {
       "asset_id": "playerServiceWorkshop",
@@ -570,8 +570,8 @@
       "width": 40.0,
       "depth": 60.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerServiceWorkshop.usdz",
-      "geometry_nodes": 29,
-      "polygons": 3812,
+      "geometry_nodes": 37,
+      "polygons": 4394,
       "minimum_height": 0.0,
       "maximum_height": 25.625
     },
@@ -585,8 +585,8 @@
       "width": 40.0,
       "depth": 60.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerBodyShop.usdz",
-      "geometry_nodes": 29,
-      "polygons": 3924,
+      "geometry_nodes": 38,
+      "polygons": 4506,
       "minimum_height": 0.0,
       "maximum_height": 25.625
     },
@@ -615,10 +615,10 @@
       "width": 60.0,
       "depth": 60.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerVehicleYard.usdz",
-      "geometry_nodes": 22,
-      "polygons": 12174,
+      "geometry_nodes": 35,
+      "polygons": 13538,
       "minimum_height": 0.0,
-      "maximum_height": 21.45
+      "maximum_height": 26.6
     },
     {
       "asset_id": "playerOffice",
@@ -630,10 +630,10 @@
       "width": 20.0,
       "depth": 20.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerOffice.usdz",
-      "geometry_nodes": 11,
-      "polygons": 1374,
+      "geometry_nodes": 18,
+      "polygons": 2382,
       "minimum_height": 0.0,
-      "maximum_height": 35.45
+      "maximum_height": 46.55
     },
     {
       "asset_id": "playerPartsWarehouse",
@@ -645,10 +645,10 @@
       "width": 40.0,
       "depth": 40.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerPartsWarehouse.usdz",
-      "geometry_nodes": 17,
-      "polygons": 2142,
+      "geometry_nodes": 24,
+      "polygons": 4070,
       "minimum_height": 0.0,
-      "maximum_height": 33.45
+      "maximum_height": 38.6
     },
     {
       "asset_id": "playerAuctionHouse",
@@ -660,10 +660,10 @@
       "width": 80.0,
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerAuctionHouse.usdz",
-      "geometry_nodes": 25,
-      "polygons": 6269,
+      "geometry_nodes": 27,
+      "polygons": 6918,
       "minimum_height": 0.0,
-      "maximum_height": 49.625
+      "maximum_height": 53.75
     },
     {
       "asset_id": "playerLogisticsCenter",
@@ -676,7 +676,7 @@
       "depth": 80.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerLogisticsCenter.usdz",
       "geometry_nodes": 27,
-      "polygons": 6357,
+      "polygons": 6627,
       "minimum_height": 0.0,
       "maximum_height": 49.625
     },
@@ -690,10 +690,10 @@
       "width": 60.0,
       "depth": 60.0,
       "runtime_path": "UsedCarCity/Art.scnassets/CityBuildings/playerHeadquarters.usdz",
-      "geometry_nodes": 17,
-      "polygons": 7980,
+      "geometry_nodes": 23,
+      "polygons": 10364,
       "minimum_height": 0.0,
-      "maximum_height": 134.1
+      "maximum_height": 149.75
     }
   ]
 }

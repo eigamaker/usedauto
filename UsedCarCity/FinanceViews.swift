@@ -154,8 +154,8 @@ private struct FinancingCard: View {
                     .font(.caption.bold()).foregroundStyle(GameTheme.danger)
             }
             HStack {
-                Button("1,000万円借入") { game.borrow(1_000) }.buttonStyle(.borderedProminent).tint(GameTheme.teal).disabled(game.debt + 1_000 > game.borrowingLimit)
-                Button("1,000万円返済") { game.repay(1_000) }.buttonStyle(.bordered).tint(GameTheme.navy).disabled(game.debt == 0 || game.cash < 1_000)
+                Button("1,000万円借入") { game.borrow(1_000) }.buttonStyle(.gamePrimary).tint(GameTheme.teal).disabled(game.debt + 1_000 > game.borrowingLimit)
+                Button("1,000万円返済") { game.repay(1_000) }.buttonStyle(.gameSecondary).tint(GameTheme.navy).disabled(game.debt == 0 || game.cash < 1_000)
             }
         }
         .gameCard()

@@ -30,21 +30,14 @@ struct CityMapView: View {
                     )
                         .frame(width: proxy.size.width, height: proxy.size.height)
                     VStack(spacing: 0) {
-                        HStack {
-                            Button { showNationalMap = true } label: {
-                                MapTopControlIcon(title: "全国", icon: "globe.asia.australia.fill")
-                            }
-                            .buttonStyle(.plain)
-                            Button { showCompanyDashboard = true } label: {
-                                MapTopControlIcon(title: "経営", icon: "chart.bar.xaxis")
-                            }
-                            .buttonStyle(.plain)
-                            Button { showMarketNewspaper = true } label: {
-                                MapTopControlIcon(title: "新聞", icon: "newspaper.fill")
-                            }
-                            .buttonStyle(.plain)
+                        HStack(alignment: .top, spacing: 8) {
                             GuideToggleButton()
-                            Spacer()
+                            MapCityPlaque()
+                            Spacer(minLength: 0)
+                            Button { showSearch = true } label: {
+                                GameIconTile(title: "マップ検索", icon: "magnifyingglass", size: 38, showsTitle: false)
+                            }
+                            .buttonStyle(.gamePress)
                             Menu {
                                 ForEach(MapLayer.allCases) { item in
                                     if item == .vehicleDemand {
@@ -67,34 +60,54 @@ struct CityMapView: View {
                                     }
                                 }
                             } label: {
-                                MapTopControlIcon(title: layer.name, icon: "square.3.layers.3d.top.filled")
+                                GameIconTile(
+                                    title: layer.name,
+                                    icon: "square.3.layers.3d.top.filled",
+                                    tint: layer == .normal ? GameTheme.hudTop : GameTheme.orange,
+                                    size: 38,
+                                    showsTitle: false
+                                )
                             }
                         }
                         .padding(.horizontal, 10)
                         .padding(.top, 8)
                         Spacer()
-                        MapBottomHUD(layer: layer, demandCategory: demandCategory)
-                            .padding(.horizontal, 10)
-                            .padding(.bottom, 8)
-                            .allowsHitTesting(false)
+                        // レイヤーの説明は下端に置き、上部の案内カードに隠れないようにします。
+                        HStack(alignment: .bottom, spacing: 8) {
+                            if layer != .normal {
+                                MapLayerBanner(layer: layer, demandCategory: demandCategory) {
+                                    withAnimation(.easeInOut(duration: 0.25)) { layer = .normal }
+                                }
+                                .padding(.bottom, 3)
+                            } else {
+                                Spacer()
+                            }
+                            AdvanceWeekButton()
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
+                        if !isExpanded {
+                            MapDock(
+                                openStore: { store in
+                                    guard let plot = game.plot(id: store.plotID) else { return }
+                                    focusRequest = MapFocusRequest(plotID: plot.id)
+                                    selectedPlot = plot
+                                },
+                                openFacility: { selectedFacility = $0 },
+                                openCompany: { showCompanyDashboard = true },
+                                openNewspaper: { showMarketNewspaper = true },
+                                openNational: { showNationalMap = true }
+                            )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
-                    VStack {
-                        Spacer()
-                        MapHomeControls(
-                            openStore: { store in
-                                guard let plot = game.plot(id: store.plotID) else { return }
-                                focusRequest = MapFocusRequest(plotID: plot.id)
-                                selectedPlot = plot
-                            },
-                            openFacility: { selectedFacility = $0 },
-                            showSearch: { showSearch = true }
-                        )
-                        .padding(.horizontal, 14).padding(.bottom, 82)
+                    // 区画・店舗シートには同じ案内がシート内に出るため、重ねて表示しません。
+                    if selectedPlot == nil {
+                        GuideFloatingPanel(bounds: proxy.size, perform: handleGuideAction)
                     }
-                    GuideFloatingPanel(bounds: proxy.size, perform: handleGuideAction)
                 }
             }
-            .background(Color(red: 0.71, green: 0.83, blue: 0.91))
+            .background(Color(red: 0.24, green: 0.62, blue: 0.80))
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $selectedPlot) { plot in
                 PlotDetailView(plotID: plot.id).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
@@ -140,6 +153,8 @@ struct CityMapView: View {
         case .focusRecommendedPlot:
             guard let plot = game.recommendedFoundingPlot else { return }
             focusRequest = MapFocusRequest(plotID: plot.id)
+            // 候補は画面中央に来るので、案内カードは畳んで地図を見せます。
+            UserDefaults.standard.set(true, forKey: GuideDisplayDefaults.minimizedKey)
         case .openChosenPlot:
             let target = game.tutorialPlotID.flatMap { game.plot(id: $0) } ?? game.recommendedFoundingPlot
             guard let target else { return }
@@ -174,129 +189,194 @@ struct CityMapView: View {
 
 }
 
-private struct MapTopControlIcon: View {
-    let title: String
-    let icon: String
-
-    var body: some View {
-        Image(systemName: icon)
-            .font(.subheadline.bold())
-            .foregroundStyle(.white)
-            .frame(width: 38, height: 38)
-            .background(GameTheme.navy.opacity(0.88))
-            .clipShape(Circle())
-            .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
-            .accessibilityLabel(title)
-    }
-}
-
-private struct MapBottomHUD: View {
+/// マップ左上の都市名プレート。自社と競合の店舗数を常に示します。
+private struct MapCityPlaque: View {
     @EnvironmentObject private var game: GameEngine
-    let layer: MapLayer
-    let demandCategory: VehicleCategory
-
-    var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Label("翠浜市", systemImage: "building.2.fill")
-                    .font(.subheadline.bold())
-                if layer != .normal {
-                    Text(layer == .demand ? "地区ごとに固定された今週の購入需要です" : layer == .vehicleDemand ? "\(demandCategory.name)の需要が強い地域を表示" : "固定需要を自社と競合の商圏で奪い合います")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                HStack(spacing: 9) {
-                    MapLegendItem(title: "自社中古車店", color: GameTheme.teal)
-                    MapLegendItem(title: "競合", color: GameTheme.orange)
-                    MapLegendItem(title: "建物をタップ", color: .gray)
-                }
-                .padding(.top, 2)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("自社 \(game.stores.count)店舗").font(.caption.bold())
-                Text("競合 \(game.competitors.reduce(0) { $0 + $1.plotIDs.count })店舗").font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 13).padding(.vertical, 10)
-        .background(.ultraThinMaterial.opacity(0.94))
-        .clipShape(RoundedRectangle(cornerRadius: 15))
-        .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
-    }
-}
-
-private struct MapLegendItem: View {
-    let title: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(title).font(.system(size: 9, weight: .bold))
-        }
-        .foregroundStyle(GameTheme.ink.opacity(0.78))
-    }
-}
-
-private struct MapHomeControls: View {
-    @EnvironmentObject private var game: GameEngine
-    let openStore: (Store) -> Void
-    let openFacility: (MapFacility) -> Void
-    let showSearch: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            if game.stores.count == 1, let store = game.stores.first {
-                Button { openStore(store) } label: {
-                    shortcutLabel("店舗", icon: "storefront.fill")
+            Text("翠浜市")
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+            HStack(spacing: 3) {
+                Image(systemName: "flag.fill").font(.system(size: 9, weight: .black))
+                Text("\(game.stores.count)")
+            }
+            .foregroundStyle(GameTheme.mint)
+            HStack(spacing: 3) {
+                Image(systemName: "flag.fill").font(.system(size: 9, weight: .black))
+                Text("\(game.competitors.reduce(0) { $0 + $1.plotIDs.count })")
+            }
+            .foregroundStyle(Color(red: 1, green: 0.70, blue: 0.42))
+        }
+        .font(.system(size: 13, weight: .heavy, design: .rounded).monospacedDigit())
+        .shadow(color: .black.opacity(0.35), radius: 0, y: 1)
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .gameHUDPlate(cornerRadius: 11)
+        .padding(.bottom, 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("翠浜市 自社\(game.stores.count)店舗 競合\(game.competitors.reduce(0) { $0 + $1.plotIDs.count })店舗")
+    }
+}
+
+/// 分析レイヤーを表示している間だけ出る説明帯。
+private struct MapLayerBanner: View {
+    let layer: MapLayer
+    let demandCategory: VehicleCategory
+    let close: () -> Void
+
+    private var detail: String {
+        switch layer {
+        case .demand: "地区ごとに固定された今週の購入需要です"
+        case .vehicleDemand: "\(demandCategory.name)の需要が強い地域を表示"
+        case .competition: "固定需要を自社と競合の商圏で奪い合います"
+        default: "区画の色で高低を表します"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: layer.icon)
+                .font(.subheadline.weight(.heavy))
+                .foregroundStyle(GameTheme.gold)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(layer.name)
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                // 色の意味を示す凡例
+                HStack(spacing: 4) {
+                    Text("低").font(.system(size: 9, weight: .heavy, design: .rounded))
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.25, green: 0.55, blue: 0.72),
+                            Color(red: 0.44, green: 0.70, blue: 0.45),
+                            Color(red: 0.91, green: 0.52, blue: 0.22)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(height: 6)
+                    .clipShape(Capsule())
+                    Text("高").font(.system(size: 9, weight: .heavy, design: .rounded))
                 }
-                .buttonStyle(.plain)
-            } else {
+                .foregroundStyle(.white)
+            }
+            Spacer(minLength: 0)
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(Color.black.opacity(0.3))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("通常表示に戻す")
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .gameHUDPlate(cornerRadius: 11)
+        .padding(.bottom, 3)
+    }
+}
+
+/// 画面下端のメインメニュー。街づくりゲームのドックにあたります。
+private struct MapDock: View {
+    @EnvironmentObject private var game: GameEngine
+    let openStore: (Store) -> Void
+    let openFacility: (MapFacility) -> Void
+    let openCompany: () -> Void
+    let openNewspaper: () -> Void
+    let openNational: () -> Void
+
+    private static let tileSize: CGFloat = 52
+
+    var body: some View {
+        HStack(spacing: 0) {
+            slot {
+                if game.stores.count == 1, let store = game.stores.first {
+                    Button { openStore(store) } label: { storeTile }
+                        .buttonStyle(.gamePress)
+                } else {
+                    Menu {
+                        ForEach(game.stores) { store in
+                            Button { openStore(store) } label: {
+                                Label(store.name, systemImage: "storefront.fill")
+                            }
+                        }
+                    } label: { storeTile }
+                    .disabled(game.stores.isEmpty)
+                    .saturation(game.stores.isEmpty ? 0.1 : 1)
+                }
+            }
+            slot {
+                Button { openFacility(.auction) } label: {
+                    tile("仕入れ", MapFacility.auction.icon, Color(red: 0.48, green: 0.36, blue: 0.86))
+                }
+                .buttonStyle(.gamePress)
+                .accessibilityLabel("オークション会場")
+            }
+            slot {
                 Menu {
-                    ForEach(game.stores) { store in
-                        Button {
-                            openStore(store)
-                        } label: {
-                            Label(store.name, systemImage: "storefront.fill")
+                    ForEach(MapFacility.allCases.filter { $0 != .auction }) { facility in
+                        Button { openFacility(facility) } label: {
+                            Label(facility.shortName, systemImage: facility.icon)
                         }
                     }
                 } label: {
-                    shortcutLabel("店舗", icon: "storefront.fill")
+                    tile("施設", "building.columns.fill", Color(red: 0.20, green: 0.52, blue: 0.86))
                 }
-                .disabled(game.stores.isEmpty)
             }
-
-            Button { openFacility(.auction) } label: {
-                shortcutLabel("AA", icon: MapFacility.auction.icon)
+            slot {
+                Button(action: openCompany) {
+                    tile("経営", "chart.bar.xaxis", GameTheme.orange)
+                }
+                .buttonStyle(.gamePress)
             }
-            .buttonStyle(.plain)
-
-            Menu {
-                ForEach(MapFacility.allCases.filter { $0 != .auction }) { facility in
-                    Button { openFacility(facility) } label: {
-                        Label(facility.shortName, systemImage: facility.icon)
+            slot {
+                Button(action: openNewspaper) {
+                    tile("新聞", "newspaper.fill", Color(red: 0.55, green: 0.44, blue: 0.30))
+                }
+                .buttonStyle(.gamePress)
+            }
+            slot {
+                Button(action: openNational) {
+                    tile("全国", "globe.asia.australia.fill", Color(red: 0.26, green: 0.66, blue: 0.30))
+                }
+                .buttonStyle(.gamePress)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.top, 9)
+        .padding(.bottom, 4)
+        .background(
+            GameTheme.hudGradient
+                .overlay(alignment: .top) {
+                    VStack(spacing: 0) {
+                        Rectangle().fill(GameTheme.hudEdge).frame(height: 2)
+                        Rectangle().fill(GameTheme.gold).frame(height: 2)
                     }
                 }
-            } label: {
-                shortcutLabel("その他", icon: "ellipsis.circle.fill")
-            }
-
-            Spacer()
-            Button(action: showSearch) {
-                Image(systemName: "magnifyingglass").font(.headline.bold()).foregroundStyle(.white).frame(width: 44, height: 44).background(GameTheme.navy.opacity(0.9)).clipShape(Circle())
-            }
-            .accessibilityLabel("マップ検索")
-        }
-        .shadow(color: .black.opacity(0.22), radius: 7, y: 3)
+                .ignoresSafeArea(edges: .bottom)
+        )
     }
 
-    private func shortcutLabel(_ title: String, icon: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(.caption.bold())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 11)
-            .background(GameTheme.navy.opacity(0.92))
-            .clipShape(Capsule())
+    private var storeTile: some View {
+        tile("店舗", "storefront.fill", GameTheme.teal, badge: game.stores.count > 1 ? "\(game.stores.count)" : nil)
+    }
+
+    private func tile(_ title: String, _ icon: String, _ tint: Color, badge: String? = nil) -> some View {
+        GameIconTile(title: title, icon: icon, tint: tint, size: Self.tileSize, badge: badge)
+    }
+
+    private func slot<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content().frame(maxWidth: .infinity)
     }
 }
 
@@ -491,7 +571,7 @@ struct NationalExpansionView: View {
                         ? "\(shippingCategory.name)\(shippingCount)台を発送しました"
                         : "対象在庫または輸送費が不足しています"
                 }
-                .buttonStyle(.borderedProminent).tint(GameTheme.teal)
+                .buttonStyle(.gamePrimary).tint(GameTheme.teal)
             }
             let shipments = game.intercityShipments.filter { $0.destinationCityID == city.id }
             ForEach(shipments) { shipment in
@@ -516,7 +596,7 @@ struct NationalExpansionView: View {
                 Button("全国広告 1,200万円") {
                     message = game.runNationalCampaign() ? "全国広告を開始しました" : "進出都市または現金が不足しています"
                 }
-                .buttonStyle(.bordered).tint(GameTheme.orange)
+                .buttonStyle(.gameSecondary).tint(GameTheme.orange)
             }
         }
         .gameCard()
